@@ -6,15 +6,22 @@ at the start of a new conversation to resume work with minimal
 re-explaining.
 
 ## Last updated
-**All 7 roadmap phases are written, plus a post-roadmap design pass**
-(see `design.md`) applied while the user's first Codespace build was
-running. None of it has been build-verified — not even once.
-Everything was written in a sandboxed environment with no Android
-SDK, at the user's explicit, repeated request to keep going and test
-everything together at the end, rather than pausing after any
-individual phase. `./gradlew assembleDebug` / `assembleRelease` have
-never actually been run. This is now the single most important next
-step, full stop.
+**All 7 roadmap phases are written, plus two post-roadmap design
+passes** (see `design.md`) applied while the user's first Codespace
+build was running. None of it has been build-verified — not even
+once. Everything was written in a sandboxed environment with no
+Android SDK, at the user's explicit, repeated request to keep going
+and test everything together at the end, rather than pausing after
+any individual phase. `./gradlew assembleDebug` / `assembleRelease`
+have never actually been run. This is now the single most important
+next step, full stop.
+
+Design pass #2 restructured the screen around `Scaffold` +
+`TopAppBar` + a bottom composer bar, and added downloadable Google
+Fonts (Inter/Lora) via `Theme.kt`. This part is lower-risk than the
+youtubedl-android integration — standard, long-stable Compose
+Material3 API throughout, and the font setup fails soft to the
+system font rather than breaking anything if it's misconfigured.
 
 ## What exists right now
 Full app: URL input (or share a link in via ACTION_SEND), quality
@@ -41,7 +48,11 @@ File map:
   with an explicit honesty section on how approximate it is and why
   Anthropic's real fonts/logo are deliberately not used.
 - `Theme.kt` — the design.md tokens as actual Compose Material3
-  theming (`YtOfflineTheme`), applied in `MainActivity.kt`.
+  theming (`YtOfflineTheme`), applied in `MainActivity.kt`. Uses
+  downloadable Google Fonts (Inter/Lora) as of design pass #2.
+- `values/font_certs.xml` — Google's official downloadable-fonts
+  certificate array, fetched verbatim (not hand-typed) from Google's
+  own sample repo.
 - New adaptive app icon (`drawable/ic_launcher_*.xml`,
   `mipmap-anydpi-v26/ic_launcher*.xml`), referenced from the manifest.
 - `.devcontainer/` — installs JDK, Gradle, Android SDK cmdline-tools

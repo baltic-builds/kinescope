@@ -155,3 +155,31 @@ matter:
 9. A proper splash/launch theme (currently: default system background
    until Compose content loads — fine at this app's size, but worth
    revisiting if startup ever feels like it flashes).
+
+## "Maximally similar" pass (post-initial design system)
+
+Pushed further toward Claude's actual app layout, not just its color
+tokens:
+
+- **Real downloadable fonts.** Inter (sans, UI/body text) and Lora
+  (serif, the one headline) via Compose's Google Fonts provider,
+  replacing the system Serif/Default families from the first pass.
+  No font files bundled in the APK — fetched on-device via Google
+  Play Services the first time they're needed, and the API is
+  designed to fail soft (falls back to the system font) if that ever
+  doesn't work, rather than crashing.
+- **Bottom composer bar.** The URL input moved from an inline field
+  near the top to a rounded, filled pill anchored to the bottom of
+  the screen with a send icon inside it — the single most
+  recognizable layout element of Claude's own app. Quality chips sit
+  just above it.
+- **Icon-only top bar actions.** "Update" and "Settings" text buttons
+  became icon buttons in a proper `TopAppBar`, matching the sparse,
+  icon-driven chrome of Claude's app rather than a row of labeled
+  buttons.
+- **Icon-only Play button** in the library list instead of a text
+  button, for the same reason.
+
+Still not done, still Claude's actual name/logo/licensed fonts are
+intentionally never used — see the honesty section above, which
+still applies in full.

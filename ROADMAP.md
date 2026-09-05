@@ -182,3 +182,22 @@ app icon).
   (`lightColorScheme`, `Typography.copy`, `Shapes`) — much more
   likely to just compile correctly than the youtubedl-android calls
   elsewhere in this project.
+
+## Post-roadmap: "maximally similar" design pass #2
+
+Restructured the screen around `Scaffold` with a `TopAppBar` (icon
+actions instead of text buttons) and a bottom-anchored composer-style
+input bar, plus switched from system fonts to downloadable Google
+Fonts (Inter + Lora). See design.md's "maximally similar pass"
+section for the full list. `font_certs.xml` was fetched verbatim from
+Google's official sample repo rather than hand-typed, specifically to
+avoid a transcription error in a long certificate hash.
+
+Risk-wise this batch is lower than most of the project: `Scaffold`,
+`TopAppBar`, `IconButton`, Material `Icons.Default.*`, and
+`OutlinedTextField`'s `shape`/`trailingIcon`/`colors` parameters are
+all long-stable, extremely common Compose Material3 API — much more
+likely to just compile than the youtubedl-android integration. The
+one genuinely novel piece is the Google Fonts downloadable-font setup
+in Theme.kt, which is designed to fail soft (system font fallback)
+rather than break the build or crash the app if something's off.
