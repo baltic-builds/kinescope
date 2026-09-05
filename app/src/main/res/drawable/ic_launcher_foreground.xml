@@ -1,0 +1,18 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Arrow stem -->
+    <path
+        android:fillColor="#FAF9F5"
+        android:pathData="M48,21 L60,21 L60,49 L48,49 Z" />
+    <!-- Arrowhead -->
+    <path
+        android:fillColor="#FAF9F5"
+        android:pathData="M38,49 L70,49 L54,71 Z" />
+    <!-- Tray / base line -->
+    <path
+        android:fillColor="#FAF9F5"
+        android:pathData="M34,79 L74,79 L74,87 L34,87 Z" />
+</vector>
