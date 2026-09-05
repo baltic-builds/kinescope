@@ -1,0 +1,17 @@
+*.iml
+.gradle/
+/local.properties
+.idea/
+.DS_Store
+/build
+/app/build
+/captures
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+
+# Phase 7: signing secrets. Never commit these.
+keystore.properties
+*.jks
+*.keystore
