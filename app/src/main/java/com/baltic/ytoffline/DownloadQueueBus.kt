@@ -2,6 +2,7 @@ package com.baltic.ytoffline
 
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 
 enum class JobState { QUEUED, RUNNING, DONE, FAILED }
 
@@ -23,11 +24,17 @@ object DownloadQueueBus {
     private val _jobs = MutableStateFlow<List<DownloadJobStatus>>(emptyList())
     val jobs = _jobs.asStateFlow()
 
+    // ROADMAP.md Step 4 [MEDIUM, fixed]: upsert() runs from the
+    // main/binder thread (enqueue) and update() runs from the worker
+    // thread (progress ticks) -- both used to do a plain
+    // read-`_jobs.value`-then-write, which genuinely races between
+    // those two threads. `MutableStateFlow.update {}` is an atomic
+    // compare-and-set retry loop instead.
     fun upsert(status: DownloadJobStatus) {
-        _jobs.value = _jobs.value.filterNot { it.id == status.id } + status
+        _jobs.update { current -> current.filterNot { it.id == status.id } + status }
     }
 
     fun update(id: String, transform: (DownloadJobStatus) -> DownloadJobStatus) {
-        _jobs.value = _jobs.value.map { if (it.id == id) transform(it) else it }
+        _jobs.update { current -> current.map { if (it.id == id) transform(it) else it } }
     }
 }

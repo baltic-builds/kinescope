@@ -21,21 +21,31 @@ object MediaStorage {
     /**
      * Copies [tempFile] into the public Downloads/&lt;subfolder&gt; folder
      * via MediaStore and deletes the temp copy. [subfolder] defaults to
-     * whatever's saved in Settings (see Phase 6). Returns the
-     * resulting content Uri, or null on failure.
+     * whatever's saved in Settings (see Phase 6). [displayName] defaults
+     * to the temp file's own name, but callers can override it — see
+     * DownloadService.runJob(), which passes a humanized title instead
+     * of the raw job-id-tagged temp filename (ROADMAP.md Step 4).
+     * Returns the resulting content Uri, or null on failure.
      */
     fun publish(
         context: Context,
         tempFile: java.io.File,
         mimeType: String,
-        subfolder: String = Settings.getDownloadSubfolder(context)
+        subfolder: String = Settings.getDownloadSubfolder(context),
+        displayName: String = tempFile.name
     ): Uri? {
         val resolver = context.contentResolver
 
         val values = ContentValues().apply {
-            put(MediaStore.Downloads.DISPLAY_NAME, tempFile.name)
+            put(MediaStore.Downloads.DISPLAY_NAME, displayName)
             put(MediaStore.Downloads.MIME_TYPE, mimeType)
-            put(MediaStore.Downloads.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/$subfolder")
+            // ROADMAP.md Step 4 [MEDIUM, fixed]: trailing slash must
+            // match listPublished()'s query exactly below -- relying
+            // on MediaStore to normalize a missing one on insert the
+            // same way across every OEM is exactly the kind of
+            // assumption this project has already been burned by
+            // (see the Compose BOM fix in patch 01).
+            put(MediaStore.Downloads.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/$subfolder/")
             put(MediaStore.Downloads.IS_PENDING, 1)
         }
 

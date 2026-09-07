@@ -9,22 +9,21 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
-import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLException
 import com.yausername.youtubedl_android.YoutubeDLRequest
-import java.io.File
 import java.util.UUID
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 
 /**
  * Runs queued downloads one at a time in a foreground service, so
- * they survive the user leaving the app. See ROADMAP.md Phase 4 and
- * Step 3 (race-condition + crash-safety fixes applied there).
+ * they survive the user leaving the app. See ROADMAP.md Phase 4,
+ * Step 3 (race-condition + crash-safety fixes) and Step 4 (filename
+ * humanization + robust output-file lookup).
  *
  * Communicates progress back to the UI via DownloadQueueBus rather
  * than binding — simplest thing that works for a single-process
@@ -148,12 +147,20 @@ class DownloadService : Service() {
             return
         }
 
-        val tempBaseName = "download_${job.id}"
-        val tempFile = File(cacheDir, "$tempBaseName.${preset.expectedExtension}")
+        // ROADMAP.md Step 4 [HIGH, fixed]: give downloads a
+        // human-readable name instead of a raw UUID. yt-dlp fills in
+        // the real title via its own `%(title)s` output-template
+        // field; `jobIdTag` stays embedded in the temp filename
+        // purely so the file can be found again afterward (yt-dlp's
+        // own sanitizing/truncation of the title makes the exact
+        // resulting filename hard to predict up front) -- it's
+        // stripped back out below before publishing to the Library.
+        val jobIdTag = "[${job.id}]"
+        val outputTemplate = "${cacheDir.absolutePath}/%(title).150B $jobIdTag.%(ext)s"
 
         try {
             val request = YoutubeDLRequest(job.url).apply {
-                addOption("-o", "${cacheDir.absolutePath}/$tempBaseName.%(ext)s")
+                addOption("-o", outputTemplate)
                 preset.apply(this)
             }
 
@@ -170,16 +177,30 @@ class DownloadService : Service() {
                 updateNotification("${job.url}: $progress%")
             }
 
-            if (!tempFile.exists()) {
-                // See ROADMAP.md "open risks": yt-dlp may pick a
-                // different extension than QualityPreset assumes.
+            // ROADMAP.md Step 4 [MEDIUM, fixed]: find the output by
+            // its embedded job-id tag rather than assuming an exact
+            // `tempBaseName.expectedExtension` -- the humanized title
+            // above already makes an exact name unpredictable, and
+            // `--merge-output-format` can also be bypassed by
+            // yt-dlp's `/b` fallback format-selector branch (see
+            // QualityPresets.kt) when a video has no separate
+            // video+audio streams to merge. Common yt-dlp leftover
+            // suffixes are excluded, and the most recently modified
+            // match wins.
+            val outputFile = cacheDir.listFiles { file ->
+                file.name.contains(jobIdTag) && INTERMEDIATE_SUFFIXES.none { suffix -> file.name.endsWith(suffix) }
+            }?.maxByOrNull { it.lastModified() }
+
+            if (outputFile == null) {
                 DownloadQueueBus.update(job.id) {
-                    it.copy(state = JobState.FAILED, progressText = "Output file not found (${tempFile.name})")
+                    it.copy(state = JobState.FAILED, progressText = "Output file not found")
                 }
                 return
             }
 
-            val publishedUri = MediaStorage.publish(this, tempFile, preset.mimeType)
+            val displayName = outputFile.name.replace(" $jobIdTag", "").ifBlank { outputFile.name }
+
+            val publishedUri = MediaStorage.publish(this, outputFile, preset.mimeType, displayName = displayName)
             DownloadQueueBus.update(job.id) {
                 it.copy(
                     state = if (publishedUri != null) JobState.DONE else JobState.FAILED,
@@ -247,13 +268,13 @@ class DownloadService : Service() {
         }
     }
 
+    // ROADMAP.md Step 4 [LOW, fixed]: the API-29-only fallback branch
+    // this used to have was dead code -- minSdk is already 29
+    // (Build.VERSION_CODES.Q), so the typed-foreground-service-type
+    // call below is always reachable and the `Build.VERSION.SDK_INT`
+    // check + fallback were never going to run.
     private fun startForegroundWithNotification(text: String) {
-        val notification = buildNotification(text)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
-        }
+        startForeground(NOTIFICATION_ID, buildNotification(text), ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
     }
 
     private fun updateNotification(text: String) {
@@ -287,6 +308,9 @@ class DownloadService : Service() {
 
         /** How long the worker waits for a new job before shutting the service down. */
         private const val IDLE_TIMEOUT_MS = 5_000L
+
+        /** yt-dlp leftovers to ignore when scanning for the finished output file. */
+        private val INTERMEDIATE_SUFFIXES = listOf(".part", ".ytdl", ".temp", ".ffmpeg")
 
         /** Adds a download to the queue and starts the service if needed. */
         fun enqueue(context: Context, url: String, qualityIndex: Int) {

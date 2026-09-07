@@ -22,11 +22,26 @@ object Settings {
     }
 
     fun getDownloadSubfolder(context: Context): String =
-        prefs(context).getString(KEY_DOWNLOAD_SUBFOLDER, DEFAULT_SUBFOLDER) ?: DEFAULT_SUBFOLDER
+        sanitizeSubfolder(prefs(context).getString(KEY_DOWNLOAD_SUBFOLDER, DEFAULT_SUBFOLDER) ?: DEFAULT_SUBFOLDER)
 
     fun setDownloadSubfolder(context: Context, name: String) {
-        val safeName = name.ifBlank { DEFAULT_SUBFOLDER }
-        prefs(context).edit().putString(KEY_DOWNLOAD_SUBFOLDER, safeName).apply()
+        prefs(context).edit().putString(KEY_DOWNLOAD_SUBFOLDER, sanitizeSubfolder(name)).apply()
+    }
+
+    /**
+     * ROADMAP.md Step 4 [MEDIUM, fixed]: this value flows straight
+     * into `MediaStore.Downloads.RELATIVE_PATH` in MediaStorage.kt for
+     * both insert and query, so it needs to behave like a single flat
+     * folder name, not a path -- path separators are stripped
+     * entirely (not just rejected), and the pathological "." / ".."
+     * cases fall back to the default instead of being let through as
+     * literal (harmless but confusing) folder names. Sanitizing on
+     * both read and write means even a value stored before this fix
+     * existed comes out clean.
+     */
+    private fun sanitizeSubfolder(name: String): String {
+        val stripped = name.replace("/", "").replace("\\", "").trim()
+        return if (stripped.isEmpty() || stripped == "." || stripped == "..") DEFAULT_SUBFOLDER else stripped
     }
 
     private fun prefs(context: Context) =

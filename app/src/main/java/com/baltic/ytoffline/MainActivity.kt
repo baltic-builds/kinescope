@@ -1,12 +1,15 @@
 package com.baltic.ytoffline
 
 import android.Manifest
+import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -115,9 +118,23 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-/** Pulls the first http(s) URL out of arbitrary shared text. */
+// ROADMAP.md Step 4 [MEDIUM, fixed]: restrict to YouTube hosts, both
+// for shared text (below) and for whatever's typed/pasted directly
+// into the composer field (see DownloadScreen's onSend) -- yt-dlp
+// supports 1000+ sites, but this app's whole stated purpose is
+// YouTube-only offline downloads (see CLAUDE.md), so anything else is
+// scope creep worth rejecting at the UI layer rather than silently
+// attempting it.
+private val YOUTUBE_HOSTS = setOf(
+    "youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be", "www.youtu.be"
+)
+
+private fun isYouTubeUrl(url: String): Boolean =
+    runCatching { Uri.parse(url).host?.lowercase() }.getOrNull() in YOUTUBE_HOSTS
+
+/** Pulls the first YouTube URL out of arbitrary shared text. */
 private fun extractUrl(text: String): String? =
-    Regex("""https?://\S+""").find(text)?.value
+    Regex("""https?://\S+""").findAll(text).map { it.value }.firstOrNull { isYouTubeUrl(it) }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -125,6 +142,7 @@ private fun DownloadScreen(prefillUrl: String) {
     val context = LocalContext.current
 
     var url by remember { mutableStateOf("") }
+    var urlError by remember { mutableStateOf<String?>(null) }
     var selectedQuality by remember { mutableIntStateOf(Settings.getDefaultQualityIndex(context)) }
     var library by remember { mutableStateOf(MediaStorage.listPublished(context)) }
     var updateStatus by remember { mutableStateOf("") }
@@ -179,13 +197,20 @@ private fun DownloadScreen(prefillUrl: String) {
             if (!showSettings) {
                 ComposerBar(
                     url = url,
-                    onUrlChange = { url = it },
+                    onUrlChange = { url = it; urlError = null },
                     onSend = {
-                        DownloadService.enqueue(context, url, selectedQuality)
-                        url = ""
+                        val trimmed = url.trim()
+                        if (isYouTubeUrl(trimmed)) {
+                            DownloadService.enqueue(context, trimmed, selectedQuality)
+                            url = ""
+                            urlError = null
+                        } else {
+                            urlError = "Only youtube.com / youtu.be links are supported"
+                        }
                     },
                     selectedQuality = selectedQuality,
-                    onQualitySelected = { selectedQuality = it }
+                    onQualitySelected = { selectedQuality = it },
+                    errorText = urlError
                 )
             }
         }
@@ -308,7 +333,8 @@ private fun ComposerBar(
     onUrlChange: (String) -> Unit,
     onSend: () -> Unit,
     selectedQuality: Int,
-    onQualitySelected: (Int) -> Unit
+    onQualitySelected: (Int) -> Unit,
+    errorText: String? = null
 ) {
     Surface(color = MaterialTheme.colorScheme.background) {
         Column(
@@ -337,6 +363,8 @@ private fun ComposerBar(
                 modifier = Modifier.fillMaxWidth(),
                 placeholder = { Text("Paste a YouTube link\u2026") },
                 singleLine = true,
+                isError = errorText != null,
+                supportingText = errorText?.let { { Text(it) } },
                 shape = MaterialTheme.shapes.extraLarge,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                 trailingIcon = {
@@ -369,7 +397,14 @@ private fun playItem(context: Context, item: LibraryItem) {
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     }
-    context.startActivity(intent)
+    // ROADMAP.md Step 4 [LOW, fixed]: guard against no video player
+    // being installed at all -- unlikely on a real phone, but cheap
+    // insurance against a crash for a one-line try/catch.
+    try {
+        context.startActivity(intent)
+    } catch (e: ActivityNotFoundException) {
+        Toast.makeText(context, "No app found to play this file", Toast.LENGTH_SHORT).show()
+    }
 }
 
 @Composable

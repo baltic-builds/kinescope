@@ -187,7 +187,7 @@ failure modes for what this app is actually for. All cheap (minutes each)
 relative to their impact — do these in the same sitting as Step 3 since
 you'll already be in `DownloadService.kt`/`MediaStorage.kt`.
 
-- [ ] **[HIGH] Downloaded files and library entries have no human-readable name.**
+- [x] **[HIGH] Downloaded files and library entries have no human-readable name.** (Fixed — patch 02)
   `job.id` (a raw UUID) is used as both the temp filename and the
   `DISPLAY_NAME` shown in the app's own Library and in any file manager —
   every file looks like `download_3f9a2e1b-....mp4`. This directly
@@ -205,7 +205,7 @@ you'll already be in `DownloadService.kt`/`MediaStorage.kt`.
     with no extra yt-dlp invocation. Strip the bracketed id back out
     before setting `DISPLAY_NAME`.
 
-- [ ] **[MEDIUM] Keep the "scan cache dir for newest matching file" fallback**
+- [x] **[MEDIUM] Keep the "scan cache dir for newest matching file" fallback** (Fixed — patch 02)
   for locating the completed download, rather than assuming an exact
   `tempBaseName.expectedExtension`. The `--merge-output-format mp4` option
   reliably forces `.mp4` when the format selector's primary branch
@@ -217,7 +217,7 @@ you'll already be in `DownloadService.kt`/`MediaStorage.kt`.
   naturally combines with the filename fix above if you search for
   `*[${job.id}]*` instead of an exact name match.
 
-- [ ] **[MEDIUM] Fix the `RELATIVE_PATH` trailing-slash mismatch** between
+- [x] **[MEDIUM] Fix the `RELATIVE_PATH` trailing-slash mismatch** (Fixed — patch 02) between
   `MediaStorage.publish()` (no trailing slash on insert) and
   `MediaStorage.listPublished()` (trailing slash in the query selection).
   `MediaStore` conventionally stores `RELATIVE_PATH` with a trailing slash
@@ -232,7 +232,7 @@ you'll already be in `DownloadService.kt`/`MediaStorage.kt`.
   put(MediaStore.Downloads.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/$subfolder/")
   ```
 
-- [ ] **[MEDIUM] Make `DownloadQueueBus` updates atomic.** `upsert()` and
+- [x] **[MEDIUM] Make `DownloadQueueBus` updates atomic.** (Fixed — patch 02) `upsert()` and
   `update()` both do a plain read-`_jobs.value`-then-write, not atomic —
   `upsert()` runs from the main/binder thread (enqueue), `update()` runs
   from the worker thread (progress ticks), and these genuinely race. Worst
@@ -247,13 +247,13 @@ you'll already be in `DownloadService.kt`/`MediaStorage.kt`.
   }
   ```
 
-- [ ] **[MEDIUM] Sanitize the user-editable Downloads subfolder name**
+- [x] **[MEDIUM] Sanitize the user-editable Downloads subfolder name** (Fixed — patch 02)
   in `Settings.kt` before it flows into `MediaStore.RELATIVE_PATH` for
   both insert and query. Reject or strip path separators (`/`, `\`) and
   `..` segments — worst case today is a silently-failed publish or files
   landing somewhere unexpected.
 
-- [ ] **[MEDIUM] Host-validate shared/pasted URLs** in `MainActivity.kt`.
+- [x] **[MEDIUM] Host-validate shared/pasted URLs** in `MainActivity.kt`. (Fixed — patch 02)
   The current regex (`https?://\S+`) accepts any http(s) URL, not just
   YouTube — yt-dlp will happily attempt any of the 1000+ sites it
   supports. This doesn't violate the "no custom extractor" rule (still
@@ -261,12 +261,12 @@ you'll already be in `DownloadService.kt`/`MediaStorage.kt`.
   purpose. Restrict to `youtube.com`/`youtu.be` hosts before enqueueing,
   both as a UX guardrail and to keep the app doing exactly one thing.
 
-- [ ] **[LOW] Guard `startActivity(ACTION_VIEW)`** in `MainActivity.kt`'s
+- [x] **[LOW] Guard `startActivity(ACTION_VIEW)`** (Fixed — patch 02) in `MainActivity.kt`'s
   `playItem()` with a try/catch around the call, showing a toast/snackbar
   on `ActivityNotFoundException` instead of crashing. Very unlikely on a
   real phone with any video player installed, but cheap insurance.
 
-- [ ] **[LOW, cleanup] Remove the dead `else` branch** in
+- [x] **[LOW, cleanup] Remove the dead `else` branch** (Fixed — patch 02) in
   `DownloadService.startForegroundWithNotification()` — the
   no-type `startForeground()` fallback is unreachable since
   `minSdk = 29` already satisfies the `>= Build.VERSION_CODES.Q` check
@@ -564,20 +564,20 @@ the sections above get edited over time.
 | 2 | Critical | Race condition: job can be silently stranded at "Queued" | `DownloadService.kt` | ✅ Fixed — patch 01 |
 | 3 | Critical | Unhandled exception types crash the whole app process | `DownloadService.kt` | ✅ Fixed — patch 01 |
 | 4 | High | `execute()` progress callback possibly wrong lambda arity | `DownloadService.kt` | ✅ Fixed — patch 01 (confirmed 3-param) |
-| 5 | High | Downloaded files/library entries have raw-UUID names | `DownloadService.kt`, `MediaStorage.kt` | Open — Step 4 |
-| 6 | Medium | Output filename/extension assumption (narrower risk, `/b` fallback branch) | `QualityPresets.kt`, `DownloadService.kt` | Open — Step 4 |
-| 7 | Medium | `RELATIVE_PATH` trailing-slash mismatch, insert vs. query | `MediaStorage.kt` | Open — Step 4 |
-| 8 | Medium | `DownloadQueueBus` read-modify-write not atomic | `DownloadQueueBus.kt` | Open — Step 4 |
-| 9 | Medium | No subfolder name sanitization | `Settings.kt` | Open — Step 4 |
-| 10 | Medium | No host validation on shared/pasted URLs | `MainActivity.kt` | Open — Step 4 |
+| 5 | High | Downloaded files/library entries have raw-UUID names | `DownloadService.kt`, `MediaStorage.kt` | ✅ Fixed — patch 02 |
+| 6 | Medium | Output filename/extension assumption (narrower risk, `/b` fallback branch) | `QualityPresets.kt`, `DownloadService.kt` | ✅ Fixed — patch 02 |
+| 7 | Medium | `RELATIVE_PATH` trailing-slash mismatch, insert vs. query | `MediaStorage.kt` | ✅ Fixed — patch 02 |
+| 8 | Medium | `DownloadQueueBus` read-modify-write not atomic | `DownloadQueueBus.kt` | ✅ Fixed — patch 02 |
+| 9 | Medium | No subfolder name sanitization | `Settings.kt` | ✅ Fixed — patch 02 |
+| 10 | Medium | No host validation on shared/pasted URLs | `MainActivity.kt` | ✅ Fixed — patch 02 |
 | 11 | Low | `youtubedl-android`/`ffmpeg` import paths | multiple files | Verify — Step 2 |
 | 12 | Low | `updateYoutubeDL()` return type assumption | `YtDlpUpdater.kt` | ✅ Fixed — patch 01 (UpdateChannel arg added) |
-| 13 | Low | Unguarded `startActivity(ACTION_VIEW)` | `MainActivity.kt` | Open — Step 4 |
+| 13 | Low | Unguarded `startActivity(ACTION_VIEW)` | `MainActivity.kt` | ✅ Fixed — patch 02 |
 | 14 | Low | Dead `requestLegacyExternalStorage="true"` flag | `AndroidManifest.xml` | ✅ Fixed — patch 01 |
 | 15 | Low | Adaptive icon tray clips outside safe zone on circular masks | `ic_launcher_foreground.xml` | Open — Step 6.6 |
 | 16 | Low | Inconsistent Thread/Handler vs. coroutines style | `YtOfflineApp.kt`, `MainActivity.kt` | Open — Step 3 (partial), Backlog (rest) |
 | 17 | Low | Only `app_name` externalized to `strings.xml` | `strings.xml` | Backlog |
-| 18 | Low | Dead unreachable `else` branch in foreground-service start | `DownloadService.kt` | Open — Step 4 |
+| 18 | Low | Dead unreachable `else` branch in foreground-service start | `DownloadService.kt` | ✅ Fixed — patch 02 |
 | 19 | Info | No monochrome adaptive-icon layer (Android 13+ themed icons) | resources | Backlog |
 | 20 | Info | `dataSync` foreground service execution time budget on API 34+ | `DownloadService.kt` | Informational only |
 | 21 | Info | `applicationId`/`namespace`/`rootProject.name` still say `ytoffline` | build files | Open — Step 7 |
