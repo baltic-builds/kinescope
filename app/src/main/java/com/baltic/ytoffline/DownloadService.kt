@@ -19,10 +19,12 @@ import com.yausername.youtubedl_android.YoutubeDLRequest
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.TimeUnit
 
 /**
  * Runs queued downloads one at a time in a foreground service, so
- * they survive the user leaving the app. See ROADMAP.md Phase 4.
+ * they survive the user leaving the app. See ROADMAP.md Phase 4 and
+ * Step 3 (race-condition + crash-safety fixes applied there).
  *
  * Communicates progress back to the UI via DownloadQueueBus rather
  * than binding — simplest thing that works for a single-process
@@ -31,10 +33,20 @@ import java.util.concurrent.LinkedBlockingQueue
  * All extraction is delegated to the bundled yt-dlp binary via the
  * youtubedl-android library (see CLAUDE.md — we never write our own
  * extractor).
+ *
+ * Threading: a single background worker [Thread] drains [queue] one
+ * job at a time; a new worker is (re)started on demand whenever a job
+ * is enqueued and no worker is currently alive. [lock] guards every
+ * place where "is a worker alive / should a new one start" is
+ * decided — see [startWorkerLocked] for why this is needed
+ * (ROADMAP.md Step 3: without this lock, a job enqueued in the exact
+ * instant a worker decides to shut down from being idle could be
+ * silently stranded at "Queued" forever).
  */
 class DownloadService : Service() {
 
     private val queue = LinkedBlockingQueue<DownloadJob>()
+    private val lock = Any()
     private var workerThread: Thread? = null
 
     override fun onCreate() {
@@ -48,7 +60,6 @@ class DownloadService : Service() {
             val qualityIndex = intent.getIntExtra(EXTRA_QUALITY_INDEX, 0)
             if (!url.isNullOrBlank()) {
                 val job = DownloadJob(id = UUID.randomUUID().toString(), url = url, qualityIndex = qualityIndex)
-                queue.add(job)
                 DownloadQueueBus.upsert(
                     DownloadJobStatus(
                         id = job.id,
@@ -58,25 +69,72 @@ class DownloadService : Service() {
                         progressText = "Queued"
                     )
                 )
-                ensureWorkerRunning()
+                synchronized(lock) {
+                    queue.add(job)
+                    if (workerThread?.isAlive != true) {
+                        workerThread = startWorkerLocked()
+                    }
+                }
             }
         }
         return START_NOT_STICKY
     }
 
-    private fun ensureWorkerRunning() {
-        if (workerThread?.isAlive == true) return
-        workerThread = Thread {
-            startForegroundWithNotification("Starting downloads\u2026")
-            var job = queue.poll()
-            while (job != null) {
-                runJob(job)
-                job = queue.poll()
+    /**
+     * Creates and starts the single background worker that drains
+     * [queue]. Conceptually must be called while holding [lock] (the
+     * thread body itself only re-acquires the lock for the brief
+     * idle-exit check below — it does not hold it while downloading).
+     *
+     * ROADMAP.md Step 3 fix: the old version used a plain
+     * `queue.poll()` (non-blocking) with no way to wait for more
+     * work, so `ensureWorkerRunning()` had to guess whether an
+     * existing thread would still be around to pick up a freshly
+     * enqueued job — sometimes it wouldn't be, and the job was
+     * stranded at "Queued" with no error shown.
+     *
+     * This version blocks on `queue.poll(timeout)` instead, and
+     * re-checks the queue *inside* the same [lock] the enqueue path
+     * uses right before actually giving up. This is deliberately a
+     * little more careful than the sample fix sketched in
+     * ROADMAP.md's Step 3 text: guarding only `queue.add()` + the
+     * `isAlive` check + the `null`-out with a lock still leaves a
+     * narrow window where the worker's "poll timed out, I'm exiting"
+     * decision happens *outside* that lock, before it ever touches
+     * `workerThread`. Making that exact decision happen inside the
+     * lock (see below) closes that window completely: a job that
+     * arrives in the split-second between "the idle timeout fired"
+     * and "the worker exits" is always either handed to this worker
+     * or handled by a freshly-started one — never dropped.
+     */
+    private fun startWorkerLocked(): Thread = Thread {
+        startForegroundWithNotification("Starting downloads\u2026")
+        try {
+            while (true) {
+                val job = queue.poll(IDLE_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+                if (job != null) {
+                    runJob(job)
+                    continue
+                }
+
+                var shouldExit = false
+                synchronized(lock) {
+                    if (queue.isEmpty()) {
+                        workerThread = null
+                        shouldExit = true
+                    }
+                    // else: something was enqueued right at the
+                    // boundary — leave workerThread pointing at this
+                    // thread and loop again; poll() will pick the new
+                    // job up immediately since the queue is non-empty.
+                }
+                if (shouldExit) break
             }
+        } finally {
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
-        }.also { it.start() }
-    }
+        }
+    }.also { it.start() }
 
     private fun runJob(job: DownloadJob) {
         val preset = qualityPresets.getOrElse(job.qualityIndex) { qualityPresets[0] }
@@ -99,7 +157,13 @@ class DownloadService : Service() {
                 preset.apply(this)
             }
 
-            YoutubeDL.getInstance().execute(request, job.id) { progress, etaInSeconds ->
+            // ROADMAP.md Step 2 [HIGH, fixed]: youtubedl-android's
+            // progress callback is 3-parameter (progress, etaInSeconds,
+            // line), not 2 — confirmed against the library's own
+            // sample app source (DownloadingExampleActivity.java uses
+            // Function3<Float, Long, String, Unit>). The raw yt-dlp
+            // output line isn't needed here, hence the `_`.
+            YoutubeDL.getInstance().execute(request, job.id) { progress, etaInSeconds, _ ->
                 DownloadQueueBus.update(job.id) {
                     it.copy(progressText = "$progress% (ETA ${etaInSeconds}s)")
                 }
@@ -129,6 +193,18 @@ class DownloadService : Service() {
         } catch (e: InterruptedException) {
             DownloadQueueBus.update(job.id) {
                 it.copy(state = JobState.FAILED, progressText = "Cancelled")
+            }
+        } catch (e: Exception) {
+            // ROADMAP.md Step 3 [CRITICAL, fixed]: without this
+            // catch-all, any exception type other than the two above
+            // (IOException, an unexpected NPE from an unusual library
+            // response shape, etc.) propagated out of this worker
+            // thread uncaught — and Android's default behavior for an
+            // uncaught exception on *any* thread is to kill the whole
+            // process, silently taking down every other job still
+            // waiting in the queue.
+            DownloadQueueBus.update(job.id) {
+                it.copy(state = JobState.FAILED, progressText = friendlyError(e.message ?: e.javaClass.simpleName))
             }
         }
     }
@@ -208,6 +284,9 @@ class DownloadService : Service() {
         private const val ACTION_ENQUEUE = "com.baltic.ytoffline.ACTION_ENQUEUE"
         private const val EXTRA_URL = "extra_url"
         private const val EXTRA_QUALITY_INDEX = "extra_quality_index"
+
+        /** How long the worker waits for a new job before shutting the service down. */
+        private const val IDLE_TIMEOUT_MS = 5_000L
 
         /** Adds a download to the queue and starts the service if needed. */
         fun enqueue(context: Context, url: String, qualityIndex: Int) {

@@ -27,7 +27,7 @@ Do these *before* running `./gradlew assembleDebug` for the first time —
 they're the ones the review is fairly confident will fail loudly and
 immediately.
 
-- [ ] **[CRITICAL] Fix the Compose BOM version.**
+- [x] **[CRITICAL] Fix the Compose BOM version.** (Fixed — patch 01)
   `app/build.gradle.kts` currently pins:
   ```kotlin
   val composeBom = platform("androidx.compose:compose-bom:2026.08.00")
@@ -43,7 +43,7 @@ immediately.
   `./gradlew dependencies` and let Gradle's own resolution error tell you
   the nearest valid version.
 
-- [ ] **[LOW, cleanup] Remove dead `requestLegacyExternalStorage="true"`**
+- [x] **[LOW, cleanup] Remove dead `requestLegacyExternalStorage="true"`** (Fixed — patch 01)
   from `AndroidManifest.xml`. Only honored at `targetSdkVersion <= 29`;
   here `targetSdk = 35`, so it's silently ignored. `MediaStore`-based
   publishing (Phase 3) is the real mechanism already handling this
@@ -81,7 +81,7 @@ Fix compile errors **top-down, earliest-phase code first** — an early
 wrong assumption commonly cascades into unrelated-looking errors further
 down the same file. Specifically watch for:
 
-- [ ] **[HIGH] `YoutubeDL.getInstance().execute(request, job.id) { progress, etaInSeconds -> ... }`**
+- [x] **[HIGH] `YoutubeDL.getInstance().execute(request, job.id) { progress, etaInSeconds -> ... }`** (Fixed — patch 01: confirmed 3-parameter callback against the library's sample app source)
   in `DownloadService.kt` — the real `youtubedl-android` progress callback
   is believed to be **three-parameter**
   (`progress: Float, etaInSeconds: Long, line: String`), not two. Kotlin
@@ -99,7 +99,7 @@ down the same file. Specifically watch for:
   compiler's "cannot resolve symbol" errors if any appear) rather than
   trusting anyone's memory, including this document's.
 
-- [ ] **[LOW] `updateYoutubeDL()` return type** in `YtDlpUpdater.kt` — if
+- [x] **[LOW] `updateYoutubeDL()` return type** in `YtDlpUpdater.kt` (Fixed — patch 01: added the required `UpdateChannel` argument) — if
   the real method returns an enum (`YoutubeDLUpdateStatus`) rather than a
   printable `String`, this is a type-mismatch compile error, not a silent
   runtime no-op. Low-impact either way (fails loud and cheap to fix here,
@@ -122,7 +122,7 @@ product's Customer Journey Map: queuing several videos back-to-back at
 home the night before a trip, when a silent failure is most likely and
 most expensive (no way to retry once already in-region).
 
-- [ ] **[CRITICAL] Race condition in `DownloadService.ensureWorkerRunning()`.**
+- [x] **[CRITICAL] Race condition in `DownloadService.ensureWorkerRunning()`.** (Fixed — patch 01, with a tighter lock than the sample fix below — see the code comment in DownloadService.kt)
   `queue.poll()` is non-blocking and the `workerThread?.isAlive == true`
   check is unsynchronized. Sequence that strands a job forever at
   "Queued": worker thread finishes a job, `poll()` returns `null`, worker
@@ -159,7 +159,7 @@ most expensive (no way to retry once already in-region).
   around it, and brings the file in line with the `kotlinx-coroutines-core`
   dependency already used elsewhere.
 
-- [ ] **[CRITICAL] Unhandled exceptions in `runJob()` can crash the whole app.**
+- [x] **[CRITICAL] Unhandled exceptions in `runJob()` can crash the whole app.** (Fixed — patch 01)
   Only `YoutubeDLException` and `InterruptedException` are caught. Any
   other exception type (`IOException`, an unexpected `NullPointerException`
   from an unusual library response shape, etc.) propagates out of the
@@ -560,10 +560,10 @@ the sections above get edited over time.
 
 | # | Priority | Finding | Location | Status |
 |---|---|---|---|---|
-| 1 | Critical | Compose BOM version inconsistent with rest of toolchain | `app/build.gradle.kts` | Open — Step 1 |
-| 2 | Critical | Race condition: job can be silently stranded at "Queued" | `DownloadService.kt` | Open — Step 3 |
-| 3 | Critical | Unhandled exception types crash the whole app process | `DownloadService.kt` | Open — Step 3 |
-| 4 | High | `execute()` progress callback possibly wrong lambda arity | `DownloadService.kt` | Open — Step 2 |
+| 1 | Critical | Compose BOM version inconsistent with rest of toolchain | `app/build.gradle.kts` | ✅ Fixed — patch 01 |
+| 2 | Critical | Race condition: job can be silently stranded at "Queued" | `DownloadService.kt` | ✅ Fixed — patch 01 |
+| 3 | Critical | Unhandled exception types crash the whole app process | `DownloadService.kt` | ✅ Fixed — patch 01 |
+| 4 | High | `execute()` progress callback possibly wrong lambda arity | `DownloadService.kt` | ✅ Fixed — patch 01 (confirmed 3-param) |
 | 5 | High | Downloaded files/library entries have raw-UUID names | `DownloadService.kt`, `MediaStorage.kt` | Open — Step 4 |
 | 6 | Medium | Output filename/extension assumption (narrower risk, `/b` fallback branch) | `QualityPresets.kt`, `DownloadService.kt` | Open — Step 4 |
 | 7 | Medium | `RELATIVE_PATH` trailing-slash mismatch, insert vs. query | `MediaStorage.kt` | Open — Step 4 |
@@ -571,9 +571,9 @@ the sections above get edited over time.
 | 9 | Medium | No subfolder name sanitization | `Settings.kt` | Open — Step 4 |
 | 10 | Medium | No host validation on shared/pasted URLs | `MainActivity.kt` | Open — Step 4 |
 | 11 | Low | `youtubedl-android`/`ffmpeg` import paths | multiple files | Verify — Step 2 |
-| 12 | Low | `updateYoutubeDL()` return type assumption | `YtDlpUpdater.kt` | Verify — Step 2 |
+| 12 | Low | `updateYoutubeDL()` return type assumption | `YtDlpUpdater.kt` | ✅ Fixed — patch 01 (UpdateChannel arg added) |
 | 13 | Low | Unguarded `startActivity(ACTION_VIEW)` | `MainActivity.kt` | Open — Step 4 |
-| 14 | Low | Dead `requestLegacyExternalStorage="true"` flag | `AndroidManifest.xml` | Open — Step 1 |
+| 14 | Low | Dead `requestLegacyExternalStorage="true"` flag | `AndroidManifest.xml` | ✅ Fixed — patch 01 |
 | 15 | Low | Adaptive icon tray clips outside safe zone on circular masks | `ic_launcher_foreground.xml` | Open — Step 6.6 |
 | 16 | Low | Inconsistent Thread/Handler vs. coroutines style | `YtOfflineApp.kt`, `MainActivity.kt` | Open — Step 3 (partial), Backlog (rest) |
 | 17 | Low | Only `app_name` externalized to `strings.xml` | `strings.xml` | Backlog |

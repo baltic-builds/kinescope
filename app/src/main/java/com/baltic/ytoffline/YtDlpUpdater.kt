@@ -2,6 +2,7 @@ package com.baltic.ytoffline
 
 import android.content.Context
 import android.util.Log
+import com.yausername.youtubedl_android.UpdateChannel
 import com.yausername.youtubedl_android.YoutubeDL
 
 /**
@@ -12,13 +13,16 @@ import com.yausername.youtubedl_android.YoutubeDL
  * intended way to keep extraction working as YouTube changes things
  * over time, instead of us reverse-engineering anything ourselves.
  *
- * NOTE: the exact return type of `updateYoutubeDL()` (an enum with
- * values roughly like DONE / ALREADY_UP_TO_DATE in the versions of
- * this library Claude has seen) was not verified against a real
- * compile — same caveat as the other youtubedl-android calls
- * elsewhere in this project (see ROADMAP.md "open risks"). The
- * try/catch here is deliberately broad so a wrong assumption fails
- * soft (logged, non-fatal) rather than crashing app startup.
+ * ROADMAP.md Step 2 [fixed]: the library's current README (matching
+ * the 0.18.1 version pinned in app/build.gradle.kts) documents
+ * `updateYoutubeDL(context, updateChannel)` — a required UpdateChannel
+ * argument — not the single-argument call this file used to have.
+ * STABLE is used here since this app never wants nightly/pre-release
+ * yt-dlp builds on a personal device. The try/catch stays
+ * deliberately broad, and the result is immediately turned into a
+ * String via `.toString()`, so a wrong assumption about the *exact*
+ * return type (enum vs. String) still fails soft rather than crashing
+ * app startup.
  */
 object YtDlpUpdater {
     private const val TAG = "YtDlpUpdater"
@@ -26,7 +30,7 @@ object YtDlpUpdater {
     /** Blocking — call this from a background thread, not the main thread. */
     fun updateBlocking(context: Context): String {
         return try {
-            val status = YoutubeDL.getInstance().updateYoutubeDL(context)
+            val status = YoutubeDL.getInstance().updateYoutubeDL(context, UpdateChannel.STABLE)
             Log.i(TAG, "yt-dlp update result: $status")
             status.toString()
         } catch (e: Exception) {

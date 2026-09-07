@@ -82,7 +82,13 @@ android {
 }
 
 dependencies {
-    val composeBom = platform("androidx.compose:compose-bom:2026.08.00")
+    // ROADMAP.md Step 1 [CRITICAL, fixed]: 2026.08.00 does not exist --
+    // every other pinned version below clusters around Sept-Nov 2024
+    // (AGP 8.7.2, Kotlin 2.1.0, activity-compose 1.9.3, core-ktx 1.15.0,
+    // kotlinx-coroutines-core 1.9.0). 2024.11.00 is a real BOM release
+    // from that same window -- see
+    // https://developer.android.com/jetpack/compose/bom/bom-mapping
+    val composeBom = platform("androidx.compose:compose-bom:2024.11.00")
     implementation(composeBom)
     androidTestImplementation(composeBom)
 
