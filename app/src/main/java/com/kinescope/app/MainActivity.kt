@@ -1,4 +1,4 @@
-package com.baltic.ytoffline
+package com.kinescope.app
 
 import android.Manifest
 import android.content.ActivityNotFoundException
@@ -228,7 +228,7 @@ private fun DownloadScreen(prefillUrl: String) {
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text("YT Offline", style = MaterialTheme.typography.headlineSmall) },
+                title = { Text("Kinescope", style = MaterialTheme.typography.headlineSmall) },
                 actions = {
                     IconButton(enabled = !isUpdating, onClick = { runUpdate() }) {
                         Icon(Icons.Default.Refresh, contentDescription = "Check for yt-dlp update")

@@ -1,4 +1,4 @@
-package com.baltic.ytoffline
+package com.kinescope.app
 
 import com.yausername.youtubedl_android.YoutubeDLRequest
 

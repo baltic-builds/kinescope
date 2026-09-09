@@ -1,4 +1,4 @@
-package com.baltic.ytoffline
+package com.kinescope.app
 
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow

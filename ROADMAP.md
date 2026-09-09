@@ -1,9 +1,10 @@
 # Roadmap
 
-**Status as of this update (after patches 01-04):** Steps 1-4 and Step 6
-(6.1-6.6; 6.7 is optional and still skipped) are done. `./gradlew
-assembleDebug` has **still never run** — nothing here has been
-build-verified yet. A full deep code review of the entire codebase was
+**Status as of this update (after patches 01-06):** Steps 1-4, Step 6
+(6.1-6.6; 6.7 is optional and still skipped), and Step 7 (Kinescope
+rename) are done. `./gradlew assembleDebug` has **still never run** —
+nothing here has been build-verified yet. A full deep code review of
+the entire codebase was
 performed by Claude Fable 5.1 in 4 passes; this document consolidates every
 finding from that review into one ordered implementation plan, and its
 checkboxes/Appendix are kept current as work actually gets done (see
@@ -19,8 +20,8 @@ Android treats it as a different app), and Step 6 needed to be finished
 first since Step 7 touches many of the same files:
 
 1. ~~Step 6 — Design system v2~~ ✅ done (6.1-6.6; 6.7 optional, skipped)
-2. **Step 7 — Kinescope rename** ← next
-3. Step 5 — First device install + testing
+2. ~~Step 7 — Kinescope rename~~ ✅ done (patch 06)
+3. **Step 5 — First device install + testing** ← next
 4. Step 8 — Documentation
 5. Step 9 — Signed release
 
@@ -465,24 +466,32 @@ No changes needed — already coherent: `extraSmall` 6dp (badges),
 
 ---
 
-## Step 7 — Branding: rename to Kinescope
+## Step 7 — Branding: rename to Kinescope ✅ done (patch 06)
 
-- [ ] **[Do this now, not later]** `namespace`/`applicationId`/
+- [x] **[Do this now, not later]** `namespace`/`applicationId`/
       `rootProject.name` in `app/build.gradle.kts` and
-      `settings.gradle.kts` still say `com.baltic.ytoffline` / `yt-offline`.
-      **Because the app has never been installed on a real device yet,
-      this is the last safe window to change `applicationId` cleanly** —
-      once a real device install exists, changing `applicationId` becomes
-      a one-way door (Android treats it as an entirely new app: separate
-      data, separate install, old one needs manual uninstall). If you
-      want the "Kinescope" rename to be permanent and clean, do the full
-      `applicationId`/`namespace` rename **before** Step 5's first
-      install, not after.
-- [ ] Update `app_name` in `strings.xml` from `"YT Offline"` to
-      `"Kinescope"` — this one is always safe to change at any time,
-      `android:label` is purely cosmetic (unlike `applicationId`).
-- [ ] No icon/color changes are required for a name-only rebrand — the
-      existing terracotta/cream identity carries over fine.
+      `settings.gradle.kts` renamed to `com.kinescope.app` / `kinescope`.
+      Done before Step 5's first device install, while `applicationId`
+      was still a safe, reversible change. (Fixed — patch 06.) The
+      Kotlin package directory moved to match
+      (`app/src/main/java/com/kinescope/app/`, was
+      `com/baltic/ytoffline/`), and every file's `package` declaration
+      updated accordingly.
+- [x] Update `app_name` in `strings.xml` from `"YT Offline"` to
+      `"Kinescope"`. (Fixed — patch 06.) Also updated two other
+      user-visible strings left over from the old name so the rebrand
+      doesn't look half-done on screen: the foreground-service
+      notification title (`DownloadService.kt`) and the `TopAppBar`
+      title (`MainActivity.kt`). The internal `ACTION_ENQUEUE` intent-
+      action string was also updated to match the new package for
+      hygiene, though it's self-referential and wasn't a functional
+      requirement.
+- [x] No icon/color changes are required for a name-only rebrand — the
+      existing terracotta/cream identity carries over fine, confirmed,
+      no action taken. (Kotlin *identifiers* like `YtOfflineTheme`,
+      `YtOfflineApp`, `YtOfflineExtras` were deliberately left
+      unchanged — internal-only, not user-visible, never part of this
+      Step's scope; revisit only if it becomes annoying to read.)
 
 ---
 
@@ -601,7 +610,7 @@ the sections above get edited over time.
 | 18 | Low | Dead unreachable `else` branch in foreground-service start | `DownloadService.kt` | ✅ Fixed — patch 02 |
 | 19 | Info | No monochrome adaptive-icon layer (Android 13+ themed icons) | resources | Backlog |
 | 20 | Info | `dataSync` foreground service execution time budget on API 34+ | `DownloadService.kt` | Informational only |
-| 21 | Info | `applicationId`/`namespace`/`rootProject.name` still say `ytoffline` | build files | Open — Step 7 |
+| 21 | Info | `applicationId`/`namespace`/`rootProject.name` still say `ytoffline` | build files | ✅ Fixed — patch 06 |
 | 22 | — | `sdkmanager` package identifiers | `.devcontainer/setup.sh` | ✅ Confirmed correct |
 | 23 | — | `extractNativeLibs="true"` | `AndroidManifest.xml` | ✅ Confirmed correct, keep |
 | 24 | — | AGP/Gradle/Kotlin toolchain compatibility | `app/build.gradle.kts` | ✅ Confirmed compatible |

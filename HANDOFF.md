@@ -11,10 +11,9 @@ repomix export covering) `CLAUDE.md`, `ROADMAP.md`, `design.md`, and
 Personal Android app for downloading YouTube videos at home for
 offline viewing during work trips to a network-restricted region.
 Sideload-distributed only — no Google Play, no backend, no required
-cost. Currently mid-rename: the codebase and package are still
-`com.baltic.ytoffline` / "YT Offline"; the decided new identity is
-**Kinescope**, `applicationId`/`namespace` **`com.kinescope.app`** —
-that's Step 7, not done yet (see "What's next" below).
+cost. The rename to **Kinescope** is done: the codebase and package
+are `com.kinescope.app` / "Kinescope" (previously
+`com.baltic.ytoffline` / "YT Offline").
 
 ## How this codebase got here
 
@@ -22,7 +21,7 @@ Written by Claude across 7 phases with no intermediate compilation
 (explicit user instruction at the time: "keep going, test everything
 at the end"). A deep 4-part review by Claude Fable 5.1 then produced
 `ROADMAP.md` — a sequenced, prioritized fix list with a 33-item
-findings-traceability Appendix. Four patch scripts have since been
+findings-traceability Appendix. Six patch scripts have since been
 applied against that roadmap, all delivered as self-contained Python
 scripts for GitHub Codespaces, each one extracted into a working copy
 and dry-run-verified (diffs + bracket balance + idempotency) before
@@ -65,6 +64,24 @@ being handed over — never delivered untested:
   sectioned Settings screen (with a persisted yt-dlp-last-updated
   timestamp, new), a dismissible connectivity-loss banner, and a
   composer-bar focus-border fix.
+- **Patch 06** — ROADMAP Step 7 (Kinescope rename): `namespace` /
+  `applicationId` in `app/build.gradle.kts` and `rootProject.name` in
+  `settings.gradle.kts` renamed to `com.kinescope.app` / `kinescope`;
+  every Kotlin source file physically moved from
+  `app/src/main/java/com/baltic/ytoffline/` to
+  `app/src/main/java/com/kinescope/app/` with its `package`
+  declaration updated to match; `app_name` in `strings.xml` changed to
+  "Kinescope"; the two other user-visible leftover strings
+  (`DownloadService`'s notification title, `MainActivity`'s
+  `TopAppBar` title) updated so the rebrand doesn't look half-done on
+  screen; `design.md`'s three "YT Offline" mentions updated. Internal
+  Kotlin identifiers containing "YtOffline" (the `YtOfflineApp` class,
+  `YtOfflineTheme`, `YtOfflineExtras`, etc.) were deliberately left
+  unchanged — not user-visible, not in ROADMAP.md's Step 7 checklist,
+  and renaming them would add risk for no user-facing benefit.
+  (Patch 05 isn't listed here as a numbered accomplishment — it was
+  the documentation-only patch that produced this file and the
+  current ROADMAP.md status section.)
 
 **Version-compatibility note worth remembering:** Compose BOM
 2024.11.00 (fixed in patch 01) pulls in Material3 **1.3.1**. Some APIs
@@ -83,34 +100,39 @@ older pinned version.
 
 Read `ROADMAP.md`'s top section first — it has the authoritative,
 up-to-date status summary and the correct execution order (which does
-**not** match the document's own Step numbering, because Step 7 must
-happen before Step 5's first device install). As of this snapshot:
+**not** match the document's own Step numbering). As of this snapshot:
 
 **Done:** Steps 1, 2 (except Appendix finding #11 — the
 `youtubedl-android`/`ffmpeg` import paths can only be confirmed by an
-actual `./gradlew assembleDebug`, which still hasn't run), 3, 4, and 6
+actual `./gradlew assembleDebug`, which still hasn't run), 3, 4, 6
 (6.1-6.6; 6.7 — an optional monochrome adaptive-icon layer for Android
-13+ themed icons — is still skipped, opt-in only, not required).
+13+ themed icons — is still skipped, opt-in only, not required), and 7
+(Kinescope rename — `applicationId`/`namespace`/`rootProject.name` now
+`com.kinescope.app` / `kinescope`, Kotlin package directory moved and
+repackaged, user-visible strings updated).
 
 **Not done, in the order to actually do them:**
 
-1. **Step 7 — Kinescope rename** (`applicationId`/`namespace` →
-   `com.kinescope.app`). Time-sensitive: must happen before Step 5's
-   first device install, since changing `applicationId` after that is
-   effectively irreversible (Android treats it as a different app).
-2. **Step 5 — First device install + testing.** Also the first time
+1. **Step 5 — First device install + testing.** Also the first time
    `./gradlew assembleDebug` actually runs — expect to find and fix
    compile errors here, most likely around the `youtubedl-android`
    import paths (Appendix finding #11, never confirmed any other
    way). `ROADMAP.md`'s Step 5 section has the full manual test
    checklist, including explicitly stress-testing the
    `DownloadService` race-condition fix from patch 01 (queue several
-   videos in quick succession).
-3. **Step 8 — Documentation** (a rewritten `README.md` is already
+   videos in quick succession). Now that the `applicationId` is
+   settled (`com.kinescope.app`), this is safe to run without
+   revisiting the rename afterward.
+2. **Step 8 — Documentation** (a rewritten `README.md` is already
    drafted and ready to paste in per `ROADMAP.md`; a `CJM.md`
    customer-journey-map document; keep `ROADMAP.md` itself current).
-4. **Step 9 — Signed release**, per `RELEASE.md`, only once every item
-   in Steps 1-5 is confirmed working on a real device.
+3. **Step 9 — Signed release**, per `RELEASE.md`, only once every item
+   in Steps 1-5 is confirmed working on a real device. Note:
+   `RELEASE.md` still uses the old `yt-offline` name for the keystore
+   filename/alias and the GitHub release title — those are free-form
+   labels with no functional tie to `applicationId`, left alone during
+   the Step 7 rename and worth a quick pass (or not — purely cosmetic)
+   when Step 9 actually happens.
 
 **Backlog (optional, unscheduled — see `ROADMAP.md`'s Backlog section
 for the full list with reasoning):** persisting queue state across a
@@ -119,23 +141,27 @@ remaining `Thread`/`Handler` usage to coroutines for consistency with
 `DownloadService`'s own fix, externalizing hardcoded UI strings to
 `strings.xml`, `collectAsState()` → `collectAsStateWithLifecycle()`,
 playlist batch-queueing, a self-hosted sync backend (explicitly never
-required, per `CLAUDE.md`). In-app delete — previously listed here as
-only partially done — is now **fully done** as of patch 04.
+required, per `CLAUDE.md`). In-app delete is fully done as of patch 04.
 
-## File map (current, pre-Kinescope-rename names)
+## File map (current, post-Kinescope-rename — package `com.kinescope.app`)
+
+All files below live under
+`app/src/main/java/com/kinescope/app/` (was
+`app/src/main/java/com/baltic/ytoffline/` before patch 06).
 
 - `MainActivity.kt` — screen composables: `DownloadScreen`,
   `QueueRow`, `EmptyQueueState`, `ConnectivityBanner`, `LibraryRow`,
   `ComposerBar`, `SettingsPanel`/`SettingsSectionHeader`. Also
   `playItem()`/`shareItem()` (Intent-based, both guard
   `ActivityNotFoundException`) and `isYouTubeUrl()`/`extractUrl()`
-  (host allowlist).
+  (host allowlist). `TopAppBar` title now reads "Kinescope".
 - `DownloadService.kt` — foreground service; a single background
   worker `Thread` draining a `LinkedBlockingQueue`, restarted on
   demand (see the `startWorkerLocked()` doc comment for the
   race-condition reasoning); `runJob()` does the actual yt-dlp
   `execute()` call, job-id-tag file scanning, and `friendlyError()`
-  mapping.
+  mapping. Notification title now reads "Kinescope";
+  `ACTION_ENQUEUE` now `com.kinescope.app.ACTION_ENQUEUE`.
 - `DownloadQueueBus.kt` — shared
   `MutableStateFlow<List<DownloadJobStatus>>` between the service
   (producer) and UI (consumer); `NO_INTERNET_MESSAGE` constant shared
@@ -150,49 +176,58 @@ only partially done — is now **fully done** as of patch 04.
 - `YtDlpUpdater.kt` — wraps the library's self-update call, records
   the last-update timestamp on success.
 - `YtOfflineApp.kt` — yt-dlp/ffmpeg init + startup update check.
+  Class name kept as `YtOfflineApp` (internal identifier, not
+  user-visible, not part of the Step 7 rename scope) despite living in
+  `com.kinescope.app` now.
 - `Theme.kt` — `YtOfflineTheme` (light + dark `ColorScheme`),
   `YtOfflineExtras` (the `success`/`warning`/`surfaceRaised` extension
   colors), the full typography scale, downloadable Google Fonts
-  (Inter/Lora) via `font_certs.xml`.
+  (Inter/Lora) via `font_certs.xml`. Same note on identifier names as
+  above.
 - `ic_launcher_foreground.xml` / `ic_launcher_background.xml` /
   `mipmap-anydpi-v26/ic_launcher*.xml` — adaptive icon, safe-zone
-  fixed in patch 03.
+  fixed in patch 03. Unchanged by the rename (no icon/color changes
+  needed for a name-only rebrand).
 - `RELEASE.md` — signing key generation, signed build, install
-  instructions. `design.md` — the visual design system, with a
-  section on what it approximates and what it deliberately avoids
-  (Anthropic's actual fonts/logo/name). `CLAUDE.md` — project ground
+  instructions; still uses the old `yt-offline` name in places
+  (Step 9 scope, not touched by patch 06). `design.md` — the visual
+  design system, with a section on what it approximates and what it
+  deliberately avoids (Anthropic's actual fonts/logo/name); its "YT
+  Offline" mentions are now "Kinescope". `CLAUDE.md` — project ground
   rules. `ROADMAP.md` — the living, checkbox-tracked implementation
   plan (read its top section first).
 
 `minSdk` 29, `compileSdk`/`targetSdk` 35, `versionCode` 7,
 `versionName` "1.0.0", Compose BOM `2024.11.00` (Material3 1.3.1),
-`youtubedl-android` 0.18.1.
+`youtubedl-android` 0.18.1. `applicationId`/`namespace`:
+`com.kinescope.app`. App name: "Kinescope".
 
 ## How to resume in a new conversation
 
 1. Export a fresh repomix XML of the repo (it should already reflect
-   patches 01-04 if they were applied and committed — confirm with
+   patches 01-06 if they were applied and committed — confirm with
    `git log`).
 2. Paste it plus this file. `CLAUDE.md`/`ROADMAP.md`/`design.md` are
    nice-to-have if not already covered by the repomix export, but this
    file's "What's actually done vs. still open" section above should
    be enough to know where to pick up.
-3. State which of the four "not done" items above to work on next —
-   they're meant to happen in that order (Step 7 before Step 5,
-   specifically), but say so explicitly, since a new conversation has
-   no memory of *why* that order matters otherwise.
+3. State which of the three "not done" items above to work on next —
+   they're meant to happen in that order, but say so explicitly, since
+   a new conversation has no memory of *why* that order matters
+   otherwise.
 
 ## Immediate next step for Claude (in a new conversation)
 
-Continue at **Step 7 (Kinescope rename)** unless told otherwise.
-`ROADMAP.md`'s Step 7 section has the specific file-by-file rename
-checklist (`applicationId`, `namespace`, `rootProject.name`, package
-declarations, `R` class references, `strings.xml` app name, and the
-`design.md` line that still says the app "stays YT Offline"). Continue
-the established pattern for this project:
+Continue at **Step 5 (first device install + testing)** unless told
+otherwise. `ROADMAP.md`'s Step 5 section has the full manual test
+checklist. This is also the first time `./gradlew assembleDebug`
+actually runs — expect compile errors, most likely around the
+`youtubedl-android`/`ffmpeg` import paths (Appendix finding #11, never
+confirmed any other way). Continue the established pattern for this
+project:
 
 - Read the actual current file content before editing — don't assume
-  memory of it is accurate; things have changed across 4 patches.
+  memory of it is accurate; things have changed across 6 patches.
 - Verify uncertain library/API claims against a real source (the
   library's own sample code, the actual androidx API surface, etc.)
   rather than guessing from general familiarity — this project has

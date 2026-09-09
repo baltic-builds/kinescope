@@ -33,7 +33,7 @@ Two things follow from that:
 this app.** Borrowing a similar visual *feel* for your own,
 unaffiliated personal project is fine; borrowing the actual brand
 name/mark would incorrectly suggest Anthropic made or endorses this
-app. The app stays "YT Offline."
+app. The app is named **Kinescope** -- a name with no connection to Anthropic or Claude.
 
 ## Design principles
 
@@ -74,7 +74,7 @@ scheme only. Worth a follow-up if it turns out to matter day to day.
 
 | Role | Family | Weight | Used for |
 |---|---|---|---|
-| `headlineSmall` | `FontFamily.Serif` (system serif, e.g. Noto Serif) | SemiBold | The "YT Offline" title only |
+| `headlineSmall` | `FontFamily.Serif` (system serif, e.g. Noto Serif) | SemiBold | The "Kinescope" title only |
 | `titleMedium` / `titleSmall` | `FontFamily.Default` (system sans, e.g. Roboto) | SemiBold | Section headers: "Queue", "Library", settings labels |
 | `labelLarge` | `FontFamily.Default` | Medium | Button text |
 | everything else | `FontFamily.Default` | Regular | Body text, list rows, status lines |
@@ -101,7 +101,7 @@ assumption on top of the existing nine.
 
 ## Where this lands in the existing screen
 
-- **App title** ("YT Offline") → `headlineSmall` (serif).
+- **App title** ("Kinescope") → `headlineSmall` (serif).
 - **Section headers** ("Queue", "Library", settings labels) →
   `titleMedium`/`titleSmall` (sans, semibold).
 - **Quality chips** → already `FilterChip` from Phase 2; theming

@@ -20,11 +20,11 @@ if (hasKeystoreConfig) {
 }
 
 android {
-    namespace = "com.baltic.ytoffline"
+    namespace = "com.kinescope.app"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.baltic.ytoffline"
+        applicationId = "com.kinescope.app"
         // Bumped from 26 to 29 in Phase 3: MediaStore.Downloads (used
         // to publish finished files to the public Downloads folder)
         // doesn't exist before Android 10. Personal app, one device —

@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "yt-offline"
+rootProject.name = "kinescope"
 include(":app")

@@ -1,4 +1,4 @@
-package com.baltic.ytoffline
+package com.kinescope.app
 
 import android.content.Context
 import android.util.Log

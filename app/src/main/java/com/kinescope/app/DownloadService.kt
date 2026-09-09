@@ -1,4 +1,4 @@
-package com.baltic.ytoffline
+package com.kinescope.app
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -293,7 +293,7 @@ class DownloadService : Service() {
 
     private fun buildNotification(text: String): Notification =
         NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("YT Offline")
+            .setContentTitle("Kinescope")
             .setContentText(text)
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setOngoing(true)
@@ -311,7 +311,7 @@ class DownloadService : Service() {
     companion object {
         private const val CHANNEL_ID = "downloads"
         private const val NOTIFICATION_ID = 1001
-        private const val ACTION_ENQUEUE = "com.baltic.ytoffline.ACTION_ENQUEUE"
+        private const val ACTION_ENQUEUE = "com.kinescope.app.ACTION_ENQUEUE"
         private const val EXTRA_URL = "extra_url"
         private const val EXTRA_QUALITY_INDEX = "extra_quality_index"
 
