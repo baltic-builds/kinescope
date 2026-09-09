@@ -258,7 +258,7 @@ private fun DownloadScreen(prefillUrl: String) {
                                 Column(modifier = Modifier.padding(12.dp)) {
                                     Text(text = "${job.qualityLabel} \u2014 ${job.url}", maxLines = 1)
                                     val statusColor = when (job.state) {
-                                        JobState.DONE -> SuccessGreen
+                                        JobState.DONE -> YtOfflineExtras.colors.success
                                         JobState.FAILED -> MaterialTheme.colorScheme.error
                                         else -> MaterialTheme.colorScheme.onSurfaceVariant
                                     }

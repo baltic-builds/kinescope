@@ -342,16 +342,16 @@ merged before Step 7.
 
 ### 6.1 Color tokens — light (additions to the existing palette)
 
-- [ ] Add `surfaceRaised` — white surface + soft shadow (`alpha 0.04`
+- [x] Add `surfaceRaised` — white surface + soft shadow (`alpha 0.04`
       black), for modal sheets/dialogs, distinct from flat row cards.
-- [ ] Add `warning` (`#B8862E`) — new middle state between success/error,
+- [x] Add `warning` (`#B8862E`) — new middle state between success/error,
       for "Paused"/"Retrying" job status (currently missing).
-- [ ] Add `errorContainer` (`#F9DEDC`) — for error banners and empty-state
+- [x] Add `errorContainer` (`#F9DEDC`) — for error banners and empty-state
       backgrounds, distinct from the existing per-row `error` color.
 
 ### 6.2 Color tokens — dark (new, currently missing entirely)
 
-- [ ] Implement a `darkColorScheme(...)` alongside the existing
+- [x] Implement a `darkColorScheme(...)` alongside the existing
       `lightColorScheme(...)`, selected via `isSystemInDarkTheme()` in
       `Theme.kt` (standard Material3 pattern, no new architectural risk):
 
@@ -378,13 +378,13 @@ Keep the Inter (body) + Lora (headline) pairing already implemented
 (low-risk per the review). Make sure every role below is actually defined,
 not just the ones currently in use:
 
-- [ ] `displaySmall` — Lora SemiBold — app title, true empty/first-run state only
-- [ ] `headlineSmall` — Lora SemiBold — screen-level headers, for if more screens are added
-- [ ] `titleMedium` — Inter SemiBold — section headers ("Queue", "Library")
-- [ ] `titleSmall` — Inter Medium — row titles (video name)
-- [ ] `bodyMedium` — Inter Regular — status lines, settings descriptions
-- [ ] `labelLarge` — Inter Medium — button text
-- [ ] `labelSmall` — Inter Medium — chips, timestamps, byte counts
+- [x] `displaySmall` — Lora SemiBold — app title, true empty/first-run state only (Fixed — patch 03)
+- [x] `headlineSmall` — Lora SemiBold — screen-level headers, for if more screens are added (Fixed — patch 03)
+- [x] `titleMedium` — Inter SemiBold — section headers ("Queue", "Library") (Fixed — patch 03)
+- [x] `titleSmall` — Inter Medium — row titles (video name) (Fixed — patch 03)
+- [x] `bodyMedium` — Inter Regular — status lines, settings descriptions (Fixed — patch 03)
+- [x] `labelLarge` — Inter Medium — button text (Fixed — patch 03)
+- [x] `labelSmall` — Inter Medium — chips, timestamps, byte counts (Fixed — patch 03)
 
 ### 6.4 Shape scale
 
@@ -426,7 +426,7 @@ No changes needed — already coherent: `extraSmall` 6dp (badges),
 
 ### 6.6 Adaptive icon fix
 
-- [ ] **[LOW] Fix `ic_launcher_foreground.xml`'s tray shape clipping
+- [x] **[LOW, fixed — patch 03] Fix `ic_launcher_foreground.xml`'s tray shape clipping
   outside the adaptive-icon safe zone.** The tray/base rectangle's bottom
   corners (`34,87` / `74,87`) sit ~38.6dp from center — outside the
   guaranteed-visible 33dp-radius safe circle. On circular-mask
@@ -574,7 +574,7 @@ the sections above get edited over time.
 | 12 | Low | `updateYoutubeDL()` return type assumption | `YtDlpUpdater.kt` | ✅ Fixed — patch 01 (UpdateChannel arg added) |
 | 13 | Low | Unguarded `startActivity(ACTION_VIEW)` | `MainActivity.kt` | ✅ Fixed — patch 02 |
 | 14 | Low | Dead `requestLegacyExternalStorage="true"` flag | `AndroidManifest.xml` | ✅ Fixed — patch 01 |
-| 15 | Low | Adaptive icon tray clips outside safe zone on circular masks | `ic_launcher_foreground.xml` | Open — Step 6.6 |
+| 15 | Low | Adaptive icon tray clips outside safe zone on circular masks | `ic_launcher_foreground.xml` | ✅ Fixed — patch 03 |
 | 16 | Low | Inconsistent Thread/Handler vs. coroutines style | `YtOfflineApp.kt`, `MainActivity.kt` | Open — Step 3 (partial), Backlog (rest) |
 | 17 | Low | Only `app_name` externalized to `strings.xml` | `strings.xml` | Backlog |
 | 18 | Low | Dead unreachable `else` branch in foreground-service start | `DownloadService.kt` | ✅ Fixed — patch 02 |

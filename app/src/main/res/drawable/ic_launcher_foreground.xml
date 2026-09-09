@@ -12,7 +12,12 @@
         android:fillColor="#FAF9F5"
         android:pathData="M38,49 L70,49 L54,71 Z" />
     <!-- Tray / base line -->
+    <!-- ROADMAP.md Step 6.6 [LOW, fixed]: narrowed from 34/74 to
+         40/68 so the bottom corners land inside the adaptive-icon
+         safe-zone circle (33dp radius from center) -- the wider
+         version was getting silently clipped on circular-mask
+         launchers/OEM skins. -->
     <path
         android:fillColor="#FAF9F5"
-        android:pathData="M34,79 L74,79 L74,87 L34,87 Z" />
+        android:pathData="M40,79 L68,79 L68,87 L40,87 Z" />
 </vector>
