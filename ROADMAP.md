@@ -1,23 +1,43 @@
 # Roadmap
 
-**Status as of this update:** All 7 original numbered phases + two design passes are
-written but **still unbuilt** — `./gradlew assembleDebug` has never run. A full
-deep code review of the entire codebase (docs, build config, all Kotlin
-source, all resources) was performed by Claude Fable 5.1, in 4 passes, and
-this document consolidates every finding from that review into one ordered
-implementation plan.
+**Status as of this update (after patches 01-04):** Steps 1-4 and Step 6
+(6.1-6.6; 6.7 is optional and still skipped) are done. `./gradlew
+assembleDebug` has **still never run** — nothing here has been
+build-verified yet. A full deep code review of the entire codebase was
+performed by Claude Fable 5.1 in 4 passes; this document consolidates every
+finding from that review into one ordered implementation plan, and its
+checkboxes/Appendix are kept current as work actually gets done (see
+`HANDOFF.md` for the patch-by-patch history).
+
+**Decided:** the Kinescope rename (Step 7) uses `applicationId` /
+`namespace` **`com.kinescope.app`**.
+
+**Execution order from here — this deliberately does NOT match the Step
+numbers below**, because Step 7 must happen before Step 5's first device
+install (changing `applicationId` after that is effectively irreversible —
+Android treats it as a different app), and Step 6 needed to be finished
+first since Step 7 touches many of the same files:
+
+1. ~~Step 6 — Design system v2~~ ✅ done (6.1-6.6; 6.7 optional, skipped)
+2. **Step 7 — Kinescope rename** ← next
+3. Step 5 — First device install + testing
+4. Step 8 — Documentation
+5. Step 9 — Signed release
+
+Steps 1-4 (compile blockers, then critical/product-quality fixes) are done
+and came first, as they had to — nothing else matters until the app
+actually compiles.
 
 **There is no Phase 8.** The sections below are **verification and fix
 steps**, not new numbered feature phases — this document extends the
-`Step 1–5` verification plan Fable proposed, it doesn't replace it with new
+`Step 1-5` verification plan Fable proposed, it doesn't replace it with new
 "Phases." See `HANDOFF.md` and `CLAUDE.md` for why that distinction matters.
 
-**How to use this document:** work top to bottom. Steps 1–3 are blocking —
-nothing else matters until the app compiles and runs once on a real phone.
-Steps 4–6 (design, branding, docs) can happen in any order once Steps 1–3
-are done, ideally before Step 7 (signed release). The Appendix at the end
-is a full traceability table — every single finding from all 4 review
-parts is listed there with its current status, so nothing gets lost.
+**How to use this document:** the numbered Step sections below keep their
+original order (matching the initial review) for reference — follow the
+**execution order above**, not the numbering, for what to actually do
+next. The Appendix at the end is a full traceability table; every finding
+from the original 4-part review is listed there with its current status.
 
 ---
 
@@ -510,10 +530,11 @@ commitment or a new numbered phase:
       manager (Xiaomi/Huawei/Samsung-class skins do this even to
       foreground services) — scan for leftover temp files from a
       previous run on service start, resume or clean them up.
-- [ ] In-app delete for library entries (vs. relying on an external file
-      manager) — partially addressed by the Step 6.5 overflow-menu
-      pattern; make sure the actual delete logic (both the `MediaStore`
-      row and file) gets implemented, not just the UI affordance.
+- [x] In-app delete for library entries (vs. relying on an external file
+      manager) — done as of patch 04: the Step 6.5 overflow menu's
+      Delete action calls `MediaStorage.delete()`
+      (`ContentResolver.delete()` on the app's own `MediaStore` row),
+      not just the UI affordance.
 - [ ] Migrate `collectAsState()` to `collectAsStateWithLifecycle()` in
       `MainActivity.kt` — fine as-is for a single-screen app, revisit only
       if a second screen (e.g. a dedicated Library screen) is added.

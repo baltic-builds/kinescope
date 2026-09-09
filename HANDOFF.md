@@ -1,98 +1,209 @@
 # Handoff Snapshot
 
-Paste this file's contents (plus CLAUDE.md, ROADMAP.md, and
-RELEASE.md if the new conversation doesn't already have repo access)
-at the start of a new conversation to resume work with minimal
-re-explaining.
+Paste this file's contents at the start of a new conversation to
+resume work with minimal re-explaining. If the new conversation
+doesn't already have repo access, also paste (or attach a fresh
+repomix export covering) `CLAUDE.md`, `ROADMAP.md`, `design.md`, and
+`RELEASE.md`.
 
-## Last updated
-**All 7 roadmap phases are written, plus two post-roadmap design
-passes** (see `design.md`) applied while the user's first Codespace
-build was running. None of it has been build-verified — not even
-once. Everything was written in a sandboxed environment with no
-Android SDK, at the user's explicit, repeated request to keep going
-and test everything together at the end, rather than pausing after
-any individual phase. `./gradlew assembleDebug` / `assembleRelease`
-have never actually been run. This is now the single most important
-next step, full stop.
+## Project identity
 
-Design pass #2 restructured the screen around `Scaffold` +
-`TopAppBar` + a bottom composer bar, and added downloadable Google
-Fonts (Inter/Lora) via `Theme.kt`. This part is lower-risk than the
-youtubedl-android integration — standard, long-stable Compose
-Material3 API throughout, and the font setup fails soft to the
-system font rather than breaking anything if it's misconfigured.
+Personal Android app for downloading YouTube videos at home for
+offline viewing during work trips to a network-restricted region.
+Sideload-distributed only — no Google Play, no backend, no required
+cost. Currently mid-rename: the codebase and package are still
+`com.baltic.ytoffline` / "YT Offline"; the decided new identity is
+**Kinescope**, `applicationId`/`namespace` **`com.kinescope.app`** —
+that's Step 7, not done yet (see "What's next" below).
 
-## What exists right now
-Full app: URL input (or share a link in via ACTION_SEND), quality
-picker, queue with live status, MediaStore-backed library with a Play
-button, settings (default quality, Downloads subfolder), automatic +
-manual yt-dlp updates, friendly error messages, and a documented
-signed-release process (`RELEASE.md`) that deliberately requires the
-user to generate their own keystore rather than Claude generating one
-(a signing key is a secret).
+## How this codebase got here
 
-File map:
-- `MainActivity.kt` — main screen + `SettingsPanel`.
-- `DownloadService.kt` — foreground service, queue processing,
-  connectivity check, friendly errors, notification.
-- `DownloadQueueBus.kt` — shared `StateFlow` between service and UI.
-- `QualityPresets.kt` — the four quality/format options.
+Written by Claude across 7 phases with no intermediate compilation
+(explicit user instruction at the time: "keep going, test everything
+at the end"). A deep 4-part review by Claude Fable 5.1 then produced
+`ROADMAP.md` — a sequenced, prioritized fix list with a 33-item
+findings-traceability Appendix. Four patch scripts have since been
+applied against that roadmap, all delivered as self-contained Python
+scripts for GitHub Codespaces, each one extracted into a working copy
+and dry-run-verified (diffs + bracket balance + idempotency) before
+being handed over — never delivered untested:
+
+- **Patch 01** — ROADMAP Steps 1-3: the Compose BOM version (was a
+  fabricated future release that doesn't exist), `execute()`'s
+  progress-callback arity (confirmed 3-parameter against the
+  youtubedl-android library's own sample-app source, not guessed),
+  `updateYoutubeDL()`'s required `UpdateChannel` argument, the
+  `DownloadService` worker race condition (fixed more thoroughly than
+  the roadmap's own sample fix actually closes — see the doc comment
+  above `startWorkerLocked()` for why), and a catch-all exception
+  handler so one bad download can no longer crash the whole process.
+- **Patch 02** — ROADMAP Step 4: filename humanization (yt-dlp writes
+  the real title via its own output template; a bracketed job-id tag
+  makes the resulting file findable afterward, then gets stripped back
+  out), job-id-tag-based output file scanning (replacing an
+  exact-filename assumption that a humanized title also broke),
+  `MediaStore.RELATIVE_PATH`'s trailing-slash mismatch between insert
+  and query, atomic `DownloadQueueBus` updates
+  (`MutableStateFlow.update {}` instead of a racy read-then-write),
+  Downloads-subfolder-name sanitization, YouTube-host validation on
+  shared/pasted URLs, and an `ActivityNotFoundException` guard on the
+  video-player launch intent.
+- **Patch 03** — ROADMAP Step 6.1/6.2/6.3/6.6: a real dark
+  `ColorScheme` (there was only ever a light one), three tokens
+  Material3's baseline `ColorScheme` has no slot for (`surfaceRaised`,
+  `warning`, `errorContainer`) exposed via a `CompositionLocal`-backed
+  `YtOfflineExtras` object (mirrors how `MaterialTheme.colorScheme`
+  itself is accessed), a completed typography scale, and the
+  adaptive-icon safe-zone clipping fix.
+- **Patch 04** — ROADMAP Step 6.5: queue-row thumbnail placeholders
+  and a real `LinearProgressIndicator` (required adding a
+  `progressFraction: Float?` field to `DownloadJobStatus` — previously
+  there was only a formatted string like "45% (ETA 12s)"), an
+  empty-queue illustration, a Library overflow menu with **working**
+  Share (`Intent.ACTION_SEND`) and Delete (`ContentResolver.delete()`
+  — genuinely new functionality, not just a UI affordance), a
+  sectioned Settings screen (with a persisted yt-dlp-last-updated
+  timestamp, new), a dismissible connectivity-loss banner, and a
+  composer-bar focus-border fix.
+
+**Version-compatibility note worth remembering:** Compose BOM
+2024.11.00 (fixed in patch 01) pulls in Material3 **1.3.1**. Some APIs
+changed shape in *later* Material3 versions than that — e.g.
+`LinearProgressIndicator`'s lambda-based `progress: () -> Float`
+overload wasn't added until 1.5.0-alpha17, so patch 04 deliberately
+uses the older plain-`Float` overload (confirmed still valid, not even
+deprecated, at 1.3.1 — verified against the actual androidx API
+surface, not assumed). **If a future change bumps the Compose BOM,
+recheck call sites like this one against whatever Material3 version
+the new BOM actually pulls in** — current docs/tutorials default to
+showing the latest API, which won't necessarily compile against an
+older pinned version.
+
+## What's actually done vs. still open
+
+Read `ROADMAP.md`'s top section first — it has the authoritative,
+up-to-date status summary and the correct execution order (which does
+**not** match the document's own Step numbering, because Step 7 must
+happen before Step 5's first device install). As of this snapshot:
+
+**Done:** Steps 1, 2 (except Appendix finding #11 — the
+`youtubedl-android`/`ffmpeg` import paths can only be confirmed by an
+actual `./gradlew assembleDebug`, which still hasn't run), 3, 4, and 6
+(6.1-6.6; 6.7 — an optional monochrome adaptive-icon layer for Android
+13+ themed icons — is still skipped, opt-in only, not required).
+
+**Not done, in the order to actually do them:**
+
+1. **Step 7 — Kinescope rename** (`applicationId`/`namespace` →
+   `com.kinescope.app`). Time-sensitive: must happen before Step 5's
+   first device install, since changing `applicationId` after that is
+   effectively irreversible (Android treats it as a different app).
+2. **Step 5 — First device install + testing.** Also the first time
+   `./gradlew assembleDebug` actually runs — expect to find and fix
+   compile errors here, most likely around the `youtubedl-android`
+   import paths (Appendix finding #11, never confirmed any other
+   way). `ROADMAP.md`'s Step 5 section has the full manual test
+   checklist, including explicitly stress-testing the
+   `DownloadService` race-condition fix from patch 01 (queue several
+   videos in quick succession).
+3. **Step 8 — Documentation** (a rewritten `README.md` is already
+   drafted and ready to paste in per `ROADMAP.md`; a `CJM.md`
+   customer-journey-map document; keep `ROADMAP.md` itself current).
+4. **Step 9 — Signed release**, per `RELEASE.md`, only once every item
+   in Steps 1-5 is confirmed working on a real device.
+
+**Backlog (optional, unscheduled — see `ROADMAP.md`'s Backlog section
+for the full list with reasoning):** persisting queue state across a
+process kill, orphaned-temp-file cleanup on service start, migrating
+remaining `Thread`/`Handler` usage to coroutines for consistency with
+`DownloadService`'s own fix, externalizing hardcoded UI strings to
+`strings.xml`, `collectAsState()` → `collectAsStateWithLifecycle()`,
+playlist batch-queueing, a self-hosted sync backend (explicitly never
+required, per `CLAUDE.md`). In-app delete — previously listed here as
+only partially done — is now **fully done** as of patch 04.
+
+## File map (current, pre-Kinescope-rename names)
+
+- `MainActivity.kt` — screen composables: `DownloadScreen`,
+  `QueueRow`, `EmptyQueueState`, `ConnectivityBanner`, `LibraryRow`,
+  `ComposerBar`, `SettingsPanel`/`SettingsSectionHeader`. Also
+  `playItem()`/`shareItem()` (Intent-based, both guard
+  `ActivityNotFoundException`) and `isYouTubeUrl()`/`extractUrl()`
+  (host allowlist).
+- `DownloadService.kt` — foreground service; a single background
+  worker `Thread` draining a `LinkedBlockingQueue`, restarted on
+  demand (see the `startWorkerLocked()` doc comment for the
+  race-condition reasoning); `runJob()` does the actual yt-dlp
+  `execute()` call, job-id-tag file scanning, and `friendlyError()`
+  mapping.
+- `DownloadQueueBus.kt` — shared
+  `MutableStateFlow<List<DownloadJobStatus>>` between the service
+  (producer) and UI (consumer); `NO_INTERNET_MESSAGE` constant shared
+  with `DownloadService` so the connectivity banner can't drift out of
+  sync with a hand-typed string duplicated in two files.
+- `QualityPresets.kt` — the four quality/format options
+  (`label`/`mimeType`/`apply: YoutubeDLRequest.() -> Unit`).
+- `MediaStorage.kt` — `publish()`, `listPublished()`, `delete()`
+  against `MediaStore.Downloads`.
+- `Settings.kt` — `SharedPreferences` wrapper: default quality index,
+  sanitized Downloads subfolder name, last-yt-dlp-update timestamp.
+- `YtDlpUpdater.kt` — wraps the library's self-update call, records
+  the last-update timestamp on success.
 - `YtOfflineApp.kt` — yt-dlp/ffmpeg init + startup update check.
-- `YtDlpUpdater.kt` — wraps the library's self-update call.
-- `MediaStorage.kt` — MediaStore publish/list, configurable subfolder.
-- `Settings.kt` — SharedPreferences wrapper.
-- `RELEASE.md` — signing key generation, signed build, GitHub Release
-  upload, phone install instructions.
-- `design.md` — visual design system (colors, typography, shapes),
-  with an explicit honesty section on how approximate it is and why
-  Anthropic's real fonts/logo are deliberately not used.
-- `Theme.kt` — the design.md tokens as actual Compose Material3
-  theming (`YtOfflineTheme`), applied in `MainActivity.kt`. Uses
-  downloadable Google Fonts (Inter/Lora) as of design pass #2.
-- `values/font_certs.xml` — Google's official downloadable-fonts
-  certificate array, fetched verbatim (not hand-typed) from Google's
-  own sample repo.
-- New adaptive app icon (`drawable/ic_launcher_*.xml`,
-  `mipmap-anydpi-v26/ic_launcher*.xml`), referenced from the manifest.
-- `.devcontainer/` — installs JDK, Gradle, Android SDK cmdline-tools
-  automatically on Codespace creation.
+- `Theme.kt` — `YtOfflineTheme` (light + dark `ColorScheme`),
+  `YtOfflineExtras` (the `success`/`warning`/`surfaceRaised` extension
+  colors), the full typography scale, downloadable Google Fonts
+  (Inter/Lora) via `font_certs.xml`.
+- `ic_launcher_foreground.xml` / `ic_launcher_background.xml` /
+  `mipmap-anydpi-v26/ic_launcher*.xml` — adaptive icon, safe-zone
+  fixed in patch 03.
+- `RELEASE.md` — signing key generation, signed build, install
+  instructions. `design.md` — the visual design system, with a
+  section on what it approximates and what it deliberately avoids
+  (Anthropic's actual fonts/logo/name). `CLAUDE.md` — project ground
+  rules. `ROADMAP.md` — the living, checkbox-tracked implementation
+  plan (read its top section first).
 
 `minSdk` 29, `compileSdk`/`targetSdk` 35, `versionCode` 7,
-`versionName` "1.0.0".
+`versionName` "1.0.0", Compose BOM `2024.11.00` (Material3 1.3.1),
+`youtubedl-android` 0.18.1.
 
-## Known risks (see ROADMAP.md "Notes / open risks" for full detail — 9 items)
-The two biggest classes of risk, in order of how early they'd surface:
-1. **Compile-time**: unverified `youtubedl-android` import paths and
-   `addOption` overloads (Phase 1–2). If the build fails, start here
-   — everything else depends on these compiling.
-2. **Runtime**: assumed output filename/extension, assumed
-   `updateYoutubeDL()` signature, `friendlyError()` string matching
-   based on secondhand error text, foreground service type. These
-   will only surface once the app actually runs and downloads
-   something on a device — Codespaces has no emulator, so this needs
-   a real phone.
+## How to resume in a new conversation
 
-Full list of all 9 flagged assumptions is in ROADMAP.md; not
-repeating all of them here to keep this snapshot short.
+1. Export a fresh repomix XML of the repo (it should already reflect
+   patches 01-04 if they were applied and committed — confirm with
+   `git log`).
+2. Paste it plus this file. `CLAUDE.md`/`ROADMAP.md`/`design.md` are
+   nice-to-have if not already covered by the repomix export, but this
+   file's "What's actually done vs. still open" section above should
+   be enough to know where to pick up.
+3. State which of the four "not done" items above to work on next —
+   they're meant to happen in that order (Step 7 before Step 5,
+   specifically), but say so explicitly, since a new conversation has
+   no memory of *why* that order matters otherwise.
 
-## Immediate next step for the user
-1. Push this project to a (private) GitHub repo, or update the
-   existing one.
-2. Open/reopen it in a Codespace, let `postCreateCommand` finish.
-3. `./gradlew assembleDebug` first (faster, no signing needed) — fix
-   any compile errors top-down.
-4. Install the debug APK on a real phone, actually try downloading a
-   video. This is where the runtime assumptions get tested.
-5. Only once that works end-to-end: follow `RELEASE.md` for a signed
-   build.
-6. Report back what broke, if anything — paste this file plus the
-   exact error into a new conversation.
+## Immediate next step for Claude (in a new conversation)
 
-## Immediate next step for Claude
-There is no Phase 8. Once the user reports back build/runtime
-results, the work becomes: fix whatever's actually broken (using the
-known-risks list above as a first-guess index, not a guarantee it's
-exhaustive), then take feature requests as they come. Don't invent
-new "phases" — ask what the user actually wants next once the app is
-confirmed working.
+Continue at **Step 7 (Kinescope rename)** unless told otherwise.
+`ROADMAP.md`'s Step 7 section has the specific file-by-file rename
+checklist (`applicationId`, `namespace`, `rootProject.name`, package
+declarations, `R` class references, `strings.xml` app name, and the
+`design.md` line that still says the app "stays YT Offline"). Continue
+the established pattern for this project:
+
+- Read the actual current file content before editing — don't assume
+  memory of it is accurate; things have changed across 4 patches.
+- Verify uncertain library/API claims against a real source (the
+  library's own sample code, the actual androidx API surface, etc.)
+  rather than guessing from general familiarity — this project has
+  already been burned once by a fabricated dependency version and
+  once by a plausible-but-wrong callback signature.
+- Deliver changes as a self-contained Python patch script for GitHub
+  Codespaces. Extract the repomix into a local working copy first,
+  dry-run the script against it, verify diffs and bracket balance and
+  idempotency (run it twice), *then* deliver — never hand over an
+  untested script.
+- Update `ROADMAP.md`'s checkboxes and Appendix in the same patch as
+  the code change they correspond to.
+- Write all code, code comments, commit messages, and documentation in
+  English, regardless of what language the conversation itself is in.
