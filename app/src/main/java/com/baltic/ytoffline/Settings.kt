@@ -12,6 +12,7 @@ object Settings {
     private const val PREFS_NAME = "yt_offline_settings"
     private const val KEY_DEFAULT_QUALITY = "default_quality_index"
     private const val KEY_DOWNLOAD_SUBFOLDER = "download_subfolder"
+    private const val KEY_LAST_UPDATE_TIMESTAMP = "last_ytdlp_update_timestamp"
     const val DEFAULT_SUBFOLDER = "YTOffline"
 
     fun getDefaultQualityIndex(context: Context): Int =
@@ -42,6 +43,16 @@ object Settings {
     private fun sanitizeSubfolder(name: String): String {
         val stripped = name.replace("/", "").replace("\\", "").trim()
         return if (stripped.isEmpty() || stripped == "." || stripped == "..") DEFAULT_SUBFOLDER else stripped
+    }
+
+    // ROADMAP.md Step 6.5: backs the Extractor section's
+    // "Last updated" line in Settings. 0L (epoch) means never --
+    // formatTimestamp() in MainActivity.kt maps that to "Never".
+    fun getLastUpdateTimestamp(context: Context): Long =
+        prefs(context).getLong(KEY_LAST_UPDATE_TIMESTAMP, 0L)
+
+    fun setLastUpdateTimestamp(context: Context, timestampMillis: Long) {
+        prefs(context).edit().putLong(KEY_LAST_UPDATE_TIMESTAMP, timestampMillis).apply()
     }
 
     private fun prefs(context: Context) =

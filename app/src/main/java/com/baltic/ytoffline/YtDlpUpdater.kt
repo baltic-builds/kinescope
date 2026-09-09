@@ -23,6 +23,9 @@ import com.yausername.youtubedl_android.YoutubeDL
  * String via `.toString()`, so a wrong assumption about the *exact*
  * return type (enum vs. String) still fails soft rather than crashing
  * app startup.
+ *
+ * ROADMAP.md Step 6.5: records a last-updated timestamp on success
+ * only (not on failure), for Settings' Extractor section.
  */
 object YtDlpUpdater {
     private const val TAG = "YtDlpUpdater"
@@ -32,6 +35,7 @@ object YtDlpUpdater {
         return try {
             val status = YoutubeDL.getInstance().updateYoutubeDL(context, UpdateChannel.STABLE)
             Log.i(TAG, "yt-dlp update result: $status")
+            Settings.setLastUpdateTimestamp(context, System.currentTimeMillis())
             status.toString()
         } catch (e: Exception) {
             Log.w(TAG, "yt-dlp update failed", e)

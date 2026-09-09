@@ -137,12 +137,14 @@ class DownloadService : Service() {
 
     private fun runJob(job: DownloadJob) {
         val preset = qualityPresets.getOrElse(job.qualityIndex) { qualityPresets[0] }
-        DownloadQueueBus.update(job.id) { it.copy(state = JobState.RUNNING, progressText = "Starting\u2026") }
+        DownloadQueueBus.update(job.id) {
+            it.copy(state = JobState.RUNNING, progressText = "Starting\u2026", progressFraction = null)
+        }
         updateNotification("Downloading: ${job.url}")
 
         if (!hasNetwork()) {
             DownloadQueueBus.update(job.id) {
-                it.copy(state = JobState.FAILED, progressText = "No internet connection")
+                it.copy(state = JobState.FAILED, progressText = DownloadQueueBus.NO_INTERNET_MESSAGE)
             }
             return
         }
@@ -172,7 +174,14 @@ class DownloadService : Service() {
             // output line isn't needed here, hence the `_`.
             YoutubeDL.getInstance().execute(request, job.id) { progress, etaInSeconds, _ ->
                 DownloadQueueBus.update(job.id) {
-                    it.copy(progressText = "$progress% (ETA ${etaInSeconds}s)")
+                    it.copy(
+                        progressText = "$progress% (ETA ${etaInSeconds}s)",
+                        // ROADMAP.md Step 6.5: a real fraction for the queue
+                        // row's progress bar -- yt-dlp reports progress as a
+                        // 0-100 percentage (see the "%" right above), hence
+                        // /100f.
+                        progressFraction = (progress / 100f).coerceIn(0f, 1f)
+                    )
                 }
                 updateNotification("${job.url}: $progress%")
             }

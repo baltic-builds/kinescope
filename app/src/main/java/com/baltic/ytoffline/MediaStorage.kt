@@ -113,6 +113,22 @@ object MediaStorage {
         }
         return items
     }
+
+    /**
+     * Deletes a previously published item from MediaStore. Returns
+     * true on success. ROADMAP.md Step 6.5: backs the Library row's
+     * overflow-menu Delete action -- no RecoverableSecurityException
+     * handling needed since these are rows this app itself inserted,
+     * and apps always have delete permission for their own rows on
+     * API 29+.
+     */
+    fun delete(context: Context, item: LibraryItem): Boolean {
+        return try {
+            context.contentResolver.delete(item.uri, null, null) > 0
+        } catch (e: SecurityException) {
+            false
+        }
+    }
 }
 
 data class LibraryItem(

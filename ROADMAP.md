@@ -394,33 +394,33 @@ No changes needed — already coherent: `extraSmall` 6dp (badges),
 
 ### 6.5 Component patterns to implement per screen
 
-- [ ] **Download queue (active)** — `medium`-shape surface on
+- [x] **Download queue (active)** (Fixed — patch 04) — `medium`-shape surface on
       `surfaceVariant`, solid `accentContainer` thumbnail placeholder with
       a play-glyph (no network thumbnail fetch, keeps cost/scope at zero),
       status line colored per state (`onSurfaceVariant` queued, `accent`
       downloading, `success` done, `warning` retrying, `error` failed),
       linear progress bar in `accent` only while actively downloading.
-- [ ] **Download queue (empty)** — centered `accentContainer` circle
+- [x] **Download queue (empty)** (Fixed — patch 04) — centered `accentContainer` circle
       behind a download-arrow icon, no button (the composer bar below is
       already the call to action — don't duplicate it).
-- [ ] **Library** — same row pattern as queue, filled icon-only Play
+- [x] **Library** (Fixed — patch 04) — same row pattern as queue, filled icon-only Play
       button in `accent`, secondary overflow icon (⋮) for
       delete/share-file actions (this is also the fix for the CJM's
       "no in-app delete" gap, see Backlog).
-- [ ] **Settings** — group into labeled sections (`titleMedium` headers,
+- [x] **Settings** (Fixed — patch 04) — group into labeled sections (`titleMedium` headers,
       `outline`-divided rows) instead of a flat list: Default Quality,
       Storage (subfolder name), Extractor (yt-dlp version + manual update
       button + last-updated timestamp).
-- [ ] **Error states** — inline per-row errors keep `error`/`errorContainer`
+- [x] **Error states** (Fixed — patch 04) — inline per-row errors keep `error`/`errorContainer`
       as today; add a new dismissible banner pattern
       (`errorContainer` background, `error` text) specifically for
       connectivity-loss-at-queue-time, since that's a systemic state that
       deserves different visual treatment than a single video's failure.
-- [ ] **Composer bar** — keep the existing `large`-shape pill with `accent`
+- [x] **Composer bar** (Fixed — patch 04) — keep the existing `large`-shape pill with `accent`
       send button; add a subtle `outline`-colored focus border (currently
       likely relies on fill alone for affordance) and an inline greyed
       placeholder hint ("Paste a YouTube link").
-- [ ] **App icon** — no change needed to the concept (terracotta
+- [x] **App icon** (N/A — no icon concept change needed; see Step 6.6 for the safe-zone fix) — no change needed to the concept (terracotta
       background, cream download-glyph, no external assets/licensing
       risk) — but see the safe-zone fix below.
 

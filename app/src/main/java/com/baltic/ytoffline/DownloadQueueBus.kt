@@ -11,7 +11,14 @@ data class DownloadJobStatus(
     val url: String,
     val qualityLabel: String,
     val state: JobState,
-    val progressText: String
+    val progressText: String,
+    // ROADMAP.md Step 6.5 [fixed]: a real 0f..1f fraction for the
+    // queue row's LinearProgressIndicator. Null while queued/
+    // starting/done/failed -- only meaningful during RUNNING, between
+    // the first progress callback tick and completion. progressText
+    // stays the source of truth for the human-readable line; this is
+    // purely for the progress bar.
+    val progressFraction: Float? = null
 )
 
 /**
@@ -37,4 +44,11 @@ object DownloadQueueBus {
     fun update(id: String, transform: (DownloadJobStatus) -> DownloadJobStatus) {
         _jobs.update { current -> current.map { if (it.id == id) transform(it) else it } }
     }
+
+    // ROADMAP.md Step 6.5: shared between DownloadService (where it's
+    // set) and MainActivity (where it's checked, to decide whether to
+    // show the connectivity-loss banner) so the two files can't drift
+    // out of sync over a hand-typed string literal duplicated in both
+    // places.
+    const val NO_INTERNET_MESSAGE = "No internet connection"
 }
