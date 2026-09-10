@@ -350,7 +350,7 @@ specifically target the bugs found in Step 3.
       unlikely to matter for typical video lengths, but worth knowing if
       it ever happens.
 
-Do not move to Step 7 (signed release) until every item above passes.
+Do not move to Step 9 (signed release) until every item above passes.
 
 ---
 
