@@ -83,6 +83,8 @@ being handed over — never delivered untested:
   the documentation-only patch that produced this file and the
   current ROADMAP.md status section.)
 
+- **Patch 07** — Pre-Step-5 environment fix: `.devcontainer/setup.sh` had a `pipefail` bug (`yes | sdkmanager --licenses`, see `ROADMAP.md` Appendix #34) that could silently abort setup before the Gradle wrapper was ever generated — fixed by disabling `pipefail` around just that one pipeline and checking `sdkmanager`'s real exit status explicitly. Also pre-verified the `youtubedl-android`/`ffmpeg` import paths and API shapes (`YoutubeDL`/`YoutubeDLRequest`/`YoutubeDLException`/`UpdateChannel` in `com.yausername.youtubedl_android`, `FFmpeg` in `com.yausername.ffmpeg`, the 3-parameter `execute()` progress callback, `updateYoutubeDL(context, UpdateChannel)`) against the library's own current GitHub source and README — all matched, though this still isn't a substitute for the real `./gradlew assembleDebug` run.
+
 **Version-compatibility note worth remembering:** Compose BOM
 2024.11.00 (fixed in patch 01) pulls in Material3 **1.3.1**. Some APIs
 changed shape in *later* Material3 versions than that — e.g.

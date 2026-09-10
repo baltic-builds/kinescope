@@ -1,6 +1,6 @@
 # Roadmap
 
-**Status as of this update (after patches 01-06):** Steps 1-4, Step 6
+**Status as of this update (after patches 01-07):** Steps 1-4, Step 6
 (6.1-6.6; 6.7 is optional and still skipped), and Step 7 (Kinescope
 rename) are done. `./gradlew assembleDebug` has **still never run** —
 nothing here has been build-verified yet. A full deep code review of
@@ -309,6 +309,8 @@ No emulator exists in this environment — this step is manual, on your own
 phone. Beyond Fable's original test sequence, a few additions below
 specifically target the bugs found in Step 3.
 
+**Environment note (patch 07):** `.devcontainer/setup.sh` had a `pipefail`-related bug that could silently abort setup before `gradlew` was ever generated (see Appendix #34) — fixed. Appendix #11 (`youtubedl-android`/`ffmpeg` import paths) has also been pre-verified against the library's own current source — still needs final confirmation by an actual `./gradlew assembleDebug` run, but the single most-likely compile blocker going into this step is now lower-risk than before.
+
 - [ ] Install the debug APK (`adb install`, or transfer + tap).
 - [ ] Grant any runtime permissions prompted (notifications, etc.).
 - [ ] Share a real YouTube link into the app via the Android share sheet;
@@ -600,7 +602,7 @@ the sections above get edited over time.
 | 8 | Medium | `DownloadQueueBus` read-modify-write not atomic | `DownloadQueueBus.kt` | ✅ Fixed — patch 02 |
 | 9 | Medium | No subfolder name sanitization | `Settings.kt` | ✅ Fixed — patch 02 |
 | 10 | Medium | No host validation on shared/pasted URLs | `MainActivity.kt` | ✅ Fixed — patch 02 |
-| 11 | Low | `youtubedl-android`/`ffmpeg` import paths | multiple files | Verify — Step 2 |
+| 11 | Low | `youtubedl-android`/`ffmpeg` import paths | multiple files | Pre-verified against library source — patch 07 (still needs final `./gradlew` confirmation) |
 | 12 | Low | `updateYoutubeDL()` return type assumption | `YtDlpUpdater.kt` | ✅ Fixed — patch 01 (UpdateChannel arg added) |
 | 13 | Low | Unguarded `startActivity(ACTION_VIEW)` | `MainActivity.kt` | ✅ Fixed — patch 02 |
 | 14 | Low | Dead `requestLegacyExternalStorage="true"` flag | `AndroidManifest.xml` | ✅ Fixed — patch 01 |
@@ -623,3 +625,4 @@ the sections above get edited over time.
 | 31 | — | `versionCode` hardcoding | `app/build.gradle.kts` | ✅ Confirmed resolved (Phase 7) |
 | 32 | — | English-only / no custom extractor / zero required cost / sideload-only | whole codebase | ✅ Confirmed `CLAUDE.md`-compliant |
 | 33 | — | `friendlyError()` string matching against real yt-dlp output | `DownloadService.kt` | Needs device verification — Step 5 |
+| 34 | — | `.devcontainer/setup.sh`: `pipefail` + `yes \| sdkmanager --licenses` silently aborts setup before the Gradle wrapper is generated | `.devcontainer/setup.sh` | ✅ Fixed — patch 07 (found during Step 5 environment prep, not part of the original 4-part review) |
