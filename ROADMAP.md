@@ -25,6 +25,8 @@ first since Step 7 touches many of the same files:
 4. Step 8 — Documentation
 5. Step 9 — Signed release
 
+**After Step 9 is done, and only then:** this repo also has a `roadmap.md` (lowercase) — a separate, newer sprint-based audit/plan (S0-S11, findings F01-F42) from GPT Astra, added by the user and not yet started. Do not merge it into this document or start it early — finish everything above (through Step 9) first. Once both this `ROADMAP.md` and `roadmap.md` are fully executed, both files get deleted.
+
 Steps 1-4 (compile blockers, then critical/product-quality fixes) are done
 and came first, as they had to — nothing else matters until the app
 actually compiles.

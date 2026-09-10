@@ -135,6 +135,7 @@ repackaged, user-visible strings updated).
    labels with no functional tie to `applicationId`, left alone during
    the Step 7 rename and worth a quick pass (or not — purely cosmetic)
    when Step 9 actually happens.
+4. **`roadmap.md` (lowercase) — GPT Astra's audit/plan.** A separate, newer sprint-based document (S0-S11, findings F01-F42) added by the user on top of this one. Explicitly queued for **after** Step 9 above is fully done — don't start it early or merge it into this `ROADMAP.md`. Once both roadmaps are fully executed, delete both files.
 
 **Backlog (optional, unscheduled — see `ROADMAP.md`'s Backlog section
 for the full list with reasoning):** persisting queue state across a
