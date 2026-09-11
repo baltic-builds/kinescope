@@ -352,6 +352,8 @@ specifically target the bugs found in Step 3.
 
 Do not move to Step 9 (signed release) until every item above passes.
 
+**Hypothesis under test (patch 11):** the first real `./gradlew assembleDebug` run failed before Kotlin compilation even started, with a bare `25.0.2` version-number error -- suspected JDK-too-new-for-Gradle-8.10.2 mismatch, not a project code issue. Patch 11 added auto-detection/pinning of an installed JDK 17 via `org.gradle.java.home` in `gradle.properties`. Not yet confirmed working -- needs the next `./gradlew assembleDebug` run to either succeed or show a different error.
+
 ---
 
 ## Step 6 — Design system v2
