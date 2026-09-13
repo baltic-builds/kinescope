@@ -90,8 +90,17 @@ def patch_setup_sh(repo_root: Path):
         'echo "== Setup complete. In a new terminal, try: ./gradlew assembleDebug =="\n'
     )
     if anchor not in text:
-        if "Pinning Gradle's JDK to a detected JDK 17" in text:
-            print("setup.sh already has the JDK 17 pin step -- skipping.")
+        # Either this patch already ran (its own marker is present), or
+        # patch 12 later broadened/replaced this same block (its marker
+        # is present instead) -- both mean "nothing to do here", not an
+        # error. Without this second check, re-running the full 07-12
+        # chain a second time makes patch 11 fail, because by then
+        # patch 12 has already rewritten the text patch 11 looks for.
+        if (
+            "Pinning Gradle's JDK to a detected JDK 17" in text
+            or "find_gradle_compatible_jdk" in text
+        ):
+            print("setup.sh already has a JDK pin step (this patch or a later one) -- skipping.")
             return
         fail("Gradle-wrapper-generation anchor not found in setup.sh")
 
@@ -155,9 +164,17 @@ def patch_roadmap(repo_root: Path):
         fail(f"{path} not found")
     text = path.read_text()
 
-    marker = "**Hypothesis under test (patch 11):**"
-    if marker in text:
-        print("ROADMAP.md already documents the JDK-17-pin hypothesis -- skipping.")
+    # Either this patch's own note is present, or patch 12 later
+    # superseded it with a "Confirmed root cause" note -- both mean
+    # "nothing to do here". Without checking for patch 12's marker too,
+    # re-running the full 07-12 chain a second time would re-insert this
+    # patch's now-stale hypothesis note right before patch 12's note,
+    # duplicating content instead of leaving it alone.
+    if (
+        "**Hypothesis under test (patch 11):**" in text
+        or "**Confirmed root cause (patch 12):**" in text
+    ):
+        print("ROADMAP.md already documents this (patch 11 or the patch-12 update) -- skipping.")
         return
 
     anchor = "Do not move to Step 9 (signed release) until every item above passes."
