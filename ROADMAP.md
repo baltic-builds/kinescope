@@ -630,3 +630,4 @@ the sections above get edited over time.
 | 32 | — | English-only / no custom extractor / zero required cost / sideload-only | whole codebase | ✅ Confirmed `CLAUDE.md`-compliant |
 | 33 | — | `friendlyError()` string matching against real yt-dlp output | `DownloadService.kt` | Needs device verification — Step 5 |
 | 34 | — | `.devcontainer/setup.sh`: `pipefail` + `yes \| sdkmanager --licenses` silently aborts setup before the Gradle wrapper is generated | `.devcontainer/setup.sh` | ✅ Fixed — patch 07 (found during Step 5 environment prep, not part of the original 4-part review) |
+| 35 | — | Invalid XML comment (`--` inside a comment body) in `ic_launcher_foreground.xml` broke `mergeDebugResources` -- the first real compile error hit after the JDK/Gradle environment was fixed | `ic_launcher_foreground.xml` | ✅ Fixed — patch 13 (found via the first successful `./gradlew assembleDebug` attempt) |
