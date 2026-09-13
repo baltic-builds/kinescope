@@ -141,6 +141,13 @@ def patch_roadmap(repo_root: Path):
     if old_row_11 in text:
         text = text.replace(old_row_11, new_row_11)
     elif new_row_11 in text:
+        pass  # already patched
+    elif "Confirmed via real compile — patch 14" in text:
+        # Patch 14 later superseded this row's text entirely (it found
+        # and fixed a real bug -- UpdateChannel -- that this patch's
+        # source-reading pass missed). That's a strictly newer, more
+        # authoritative status for the same row, so there's nothing for
+        # patch 07 to do here on a repeated full-chain run.
         pass
     else:
         fail("Appendix row #11 anchor not found in ROADMAP.md")

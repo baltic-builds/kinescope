@@ -606,7 +606,7 @@ the sections above get edited over time.
 | 8 | Medium | `DownloadQueueBus` read-modify-write not atomic | `DownloadQueueBus.kt` | ✅ Fixed — patch 02 |
 | 9 | Medium | No subfolder name sanitization | `Settings.kt` | ✅ Fixed — patch 02 |
 | 10 | Medium | No host validation on shared/pasted URLs | `MainActivity.kt` | ✅ Fixed — patch 02 |
-| 11 | Low | `youtubedl-android`/`ffmpeg` import paths | multiple files | Pre-verified against library source — patch 07 (still needs final `./gradlew` confirmation) |
+| 11 | Low | `youtubedl-android`/`ffmpeg` import paths | multiple files | ✅ Confirmed via real compile — patch 14. One mistake found and fixed: `UpdateChannel` is a nested class of `YoutubeDL`, not top-level (patch 07's README-based pre-verification missed this); everything else patch 07 checked was correct, re-confirmed against the actual tagged 0.18.1 source |
 | 12 | Low | `updateYoutubeDL()` return type assumption | `YtDlpUpdater.kt` | ✅ Fixed — patch 01 (UpdateChannel arg added) |
 | 13 | Low | Unguarded `startActivity(ACTION_VIEW)` | `MainActivity.kt` | ✅ Fixed — patch 02 |
 | 14 | Low | Dead `requestLegacyExternalStorage="true"` flag | `AndroidManifest.xml` | ✅ Fixed — patch 01 |

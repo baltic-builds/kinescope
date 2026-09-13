@@ -2,7 +2,7 @@ package com.kinescope.app
 
 import android.content.Context
 import android.util.Log
-import com.yausername.youtubedl_android.UpdateChannel
+import com.yausername.youtubedl_android.YoutubeDL.UpdateChannel
 import com.yausername.youtubedl_android.YoutubeDL
 
 /**
