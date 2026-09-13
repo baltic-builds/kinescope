@@ -352,7 +352,7 @@ specifically target the bugs found in Step 3.
 
 Do not move to Step 9 (signed release) until every item above passes.
 
-**Hypothesis under test (patch 11):** the first real `./gradlew assembleDebug` run failed before Kotlin compilation even started, with a bare `25.0.2` version-number error -- suspected JDK-too-new-for-Gradle-8.10.2 mismatch, not a project code issue. Patch 11 added auto-detection/pinning of an installed JDK 17 via `org.gradle.java.home` in `gradle.properties`. Not yet confirmed working -- needs the next `./gradlew assembleDebug` run to either succeed or show a different error.
+**Confirmed root cause (patch 12):** a real diagnostic run confirmed the patch-11 hypothesis and refined it. `java`/`javac` resolve to a Codespace-provided JDK 25.0.2 (`/home/codespace/java/current`), separate from and taking priority over the devcontainer Java feature's SDKMAN-managed install. SDKMAN itself only has `21.0.10-ms` and `25.0.2-ms` -- no 17.x at all, despite `devcontainer.json` requesting version 17. Gradle's own 8.10 release notes confirm the ceiling: "Gradle now supports running on Java 23" -- JDK 24+ cannot run Gradle 8.10.2. Patch 12 broadened patch 11's JDK search to accept any installed JDK in the 17-23 range (picking up the already-installed 21.0.10-ms here) instead of requiring exactly 17. Still needs the next `./gradlew assembleDebug` run to confirm.
 
 ---
 

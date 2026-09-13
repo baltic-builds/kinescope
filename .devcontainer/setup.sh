@@ -86,41 +86,54 @@ fi
 echo "== Generating the Gradle wrapper =="
 gradle wrapper --gradle-version 8.10.2
 
-echo "== Pinning Gradle's JDK to a detected JDK 17 (matches devcontainer.json) =="
-# Patch 11: the devcontainer Java feature is asked for JDK 17
-# (see devcontainer.json), installed via SDKMAN under
-# /usr/local/sdkman/candidates/java/<version>. Whatever JVM
-# ./gradlew itself launches under has been observed NOT to be
-# that JDK 17 in practice (a real ./gradlew assembleDebug run
-# failed with a bare '25.0.2' version-number error, consistent
-# with a too-new JDK breaking Gradle 8.10.2 / AGP). Rather than
-# guess at an exact JDK identifier or path, discover an
-# installed 17.x JDK live in this environment and pin Gradle to
-# it explicitly via org.gradle.java.home, instead of relying on
-# whatever 'java' happens to resolve first on PATH.
-JDK17_HOME=""
-for base in "/usr/local/sdkman/candidates/java" "/usr/lib/jvm"; do
-  if [ -d "$base" ]; then
-    found=$(find "$base" -maxdepth 1 -type d \( -name "17.*" -o -iname "*17*" \) 2>/dev/null | sort -V | tail -n 1)
-    if [ -n "$found" ]; then
-      JDK17_HOME="$found"
+echo "== Pinning Gradle to a JDK it can actually run on =="
+# Patch 12: patch 11 only looked for a literal JDK 17, on the
+# assumption that devcontainer.json's "version": "17" request had
+# been honored. A real diagnostic run showed that assumption was
+# wrong in this environment -- only 21.0.10-ms and 25.0.2-ms exist
+# under SDKMAN, no 17.x at all -- and confirmed the root cause via
+# Gradle's own 8.10 release notes: "Gradle now supports running on
+# Java 23", i.e. JDK 24+ cannot run Gradle 8.10.2. `java`/`javac` on
+# PATH resolve to a separate, newer JDK provided by the Codespace
+# itself (/home/codespace/java/current, currently 25.0.2), which is
+# why the build failed with a bare '25.0.2' error. Broaden the
+# search to accept any installed JDK Gradle 8.10.2 can run on
+# (17-23 inclusive), preferring the highest one found, rather than
+# requiring exactly 17.
+find_gradle_compatible_jdk() {
+  best_major=0
+  best_dir=""
+  for base in "/usr/local/sdkman/candidates/java" "/usr/lib/jvm"; do
+    if [ -d "$base" ]; then
+      for dir in "$base"/*/; do
+        dir="${dir%/}"
+        name=$(basename "$dir")
+        [ "$name" = "current" ] && continue
+        major=$(echo "$name" | grep -oE '[0-9]+' | head -n 1)
+        if [ -n "$major" ] && [ "$major" -ge 17 ] && [ "$major" -le 23 ] && [ "$major" -gt "$best_major" ]; then
+          best_major="$major"
+          best_dir="$dir"
+        fi
+      done
     fi
-  fi
-done
+  done
+  echo "$best_dir"
+}
 
-if [ -z "$JDK17_HOME" ]; then
-  echo "WARNING: no JDK 17 install found under /usr/local/sdkman/candidates/java or /usr/lib/jvm." >&2
-  echo "Gradle will use whatever 'java' resolves to on PATH, which may not be JDK 17." >&2
-  echo "If ./gradlew assembleDebug fails with a bare version-number error, this is" >&2
-  echo "likely why -- install one manually (e.g. 'sdk install java 17.0.13-ms') and" >&2
-  echo "re-run this script." >&2
+JDK_HOME=$(find_gradle_compatible_jdk)
+
+if [ -z "$JDK_HOME" ]; then
+  echo "WARNING: no JDK between 17 and 23 found under /usr/local/sdkman/candidates/java or /usr/lib/jvm." >&2
+  echo "Gradle will use whatever 'java' resolves to on PATH, which may be too new for Gradle 8.10.2." >&2
+  echo "Install one manually (e.g. 'sdk install java 21.0.10-ms') and re-run this script." >&2
 else
-  echo "Found JDK 17 at: $JDK17_HOME"
-  if ! grep -qF "org.gradle.java.home=" gradle.properties 2>/dev/null; then
-    echo "org.gradle.java.home=$JDK17_HOME" >> gradle.properties
-    echo "Pinned org.gradle.java.home=$JDK17_HOME in gradle.properties"
+  echo "Found a Gradle-compatible JDK at: $JDK_HOME"
+  if grep -qF "org.gradle.java.home=" gradle.properties 2>/dev/null; then
+    sed -i "s#^org.gradle.java.home=.*#org.gradle.java.home=$JDK_HOME#" gradle.properties
+    echo "Updated org.gradle.java.home=$JDK_HOME in gradle.properties"
   else
-    echo "gradle.properties already sets org.gradle.java.home -- leaving it as-is."
+    echo "org.gradle.java.home=$JDK_HOME" >> gradle.properties
+    echo "Pinned org.gradle.java.home=$JDK_HOME in gradle.properties"
   fi
 fi
 
