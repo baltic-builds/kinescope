@@ -77,8 +77,10 @@ def patch_handoff(repo_root: Path):
         fail(f"{path} not found")
     text = path.read_text()
 
-    marker = "**`roadmap.md` (lowercase) — GPT Astra's audit/plan.**"
-    if marker in text:
+    # Match either dash character (patch 15's later full rewrite of
+    # HANDOFF.md used a plain "--" here instead of an em-dash) so this
+    # check isn't fooled by that cosmetic difference.
+    if "GPT Astra's audit/plan" in text:
         print("HANDOFF.md already documents the second roadmap -- skipping.")
         return
 
@@ -92,6 +94,11 @@ def patch_handoff(repo_root: Path):
         "   when Step 9 actually happens.\n"
     )
     if anchor not in text:
+        # A later, more comprehensive documentation patch (15) may have
+        # rewritten this file wholesale, in a way that already covers
+        # this same information but doesn't match this literal anchor.
+        # The "GPT Astra's audit/plan" check above already ruled that
+        # in; if we get here, this really is an unexpected state.
         fail("Step 9 bullet anchor not found in HANDOFF.md")
 
     addition = (

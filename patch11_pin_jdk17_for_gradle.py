@@ -164,17 +164,18 @@ def patch_roadmap(repo_root: Path):
         fail(f"{path} not found")
     text = path.read_text()
 
-    # Either this patch's own note is present, or patch 12 later
-    # superseded it with a "Confirmed root cause" note -- both mean
-    # "nothing to do here". Without checking for patch 12's marker too,
-    # re-running the full 07-12 chain a second time would re-insert this
-    # patch's now-stale hypothesis note right before patch 12's note,
-    # duplicating content instead of leaving it alone.
+    # Either this patch's own note is present, patch 12 superseded it
+    # with a "Confirmed root cause" note, or patch 15 later consolidated
+    # both into a single "Build environment" paragraph -- all three mean
+    # "nothing to do here". Missing any one of these markers would make
+    # this check re-insert a now-stale note on every full-chain re-run,
+    # which a later patch would then fold into yet another duplicate.
     if (
         "**Hypothesis under test (patch 11):**" in text
         or "**Confirmed root cause (patch 12):**" in text
+        or "**Build environment (patches 07-14):**" in text
     ):
-        print("ROADMAP.md already documents this (patch 11 or the patch-12 update) -- skipping.")
+        print("ROADMAP.md already documents this (patch 11, the patch-12 update, or the patch-15 consolidation) -- skipping.")
         return
 
     anchor = "Do not move to Step 9 (signed release) until every item above passes."

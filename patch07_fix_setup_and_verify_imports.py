@@ -186,9 +186,19 @@ def patch_roadmap(repo_root: Path):
         "run, but the single most-likely compile blocker going into this "
         "step is now lower-risk than before."
     )
-    if step5_anchor in text and "**Environment note (patch 07):**" not in text:
+    # Patch 15 later consolidated this note (and patch 12's) into a
+    # single "Build environment (patches 07-14)" paragraph and removed
+    # the original text entirely. Without checking for that marker too,
+    # a repeated full-chain run would see this note "missing" and
+    # re-insert it every time -- which patch 15 would then re-consolidate
+    # into yet another duplicate paragraph, growing by one on every pass.
+    already_present = (
+        "**Environment note (patch 07):**" in text
+        or "**Build environment (patches 07-14):**" in text
+    )
+    if step5_anchor in text and not already_present:
         text = text.replace(step5_anchor, step5_note)
-    elif "**Environment note (patch 07):**" in text:
+    elif already_present:
         pass
     else:
         fail("Step 5 intro anchor not found in ROADMAP.md")
@@ -204,6 +214,14 @@ def patch_roadmap(repo_root: Path):
         text = text.replace(old_status, new_status)
     elif new_status in text:
         pass
+    elif "**Status as of this update (after patches 01-" in text:
+        # A later, more comprehensive documentation patch (15) already
+        # rewrote this status line to reference a higher patch number.
+        # That's strictly newer/better information than what this patch
+        # would set, so there's nothing to do here -- this is a purely
+        # cosmetic status line, not a functional change, so treat any
+        # already-updated version of it as satisfying this step.
+        print("Top status line already reflects a later patch -- skipping.")
     else:
         fail("Top status line anchor not found in ROADMAP.md")
 

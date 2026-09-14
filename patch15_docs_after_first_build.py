@@ -1,4 +1,133 @@
-# Handoff Snapshot
+#!/usr/bin/env python3
+"""
+Patch 15 -- Documentation consolidation after the first successful build.
+
+Context: patch 14 fixed the last compile error, and the user's real
+`./gradlew assembleDebug` succeeded for the first time in this
+project's history. This is a natural checkpoint before handing off to a
+new conversation, so this patch:
+
+  1. Replaces README.md (previously just a bare "# kinescope" title)
+     with a real one: what the app is/isn't, build instructions, and a
+     documentation map. ROADMAP.md's Step 8 checklist referenced an
+     already-drafted README "ready to paste in" from the original
+     review, but that draft text isn't present anywhere in the repo
+     files available this session -- so this is a fresh rewrite instead
+     of pasting in a draft that can no longer be located.
+  2. Replaces HANDOFF.md with a full refresh: patch history extended
+     through patch 14 (previously stopped at 07), the "what's done"
+     summary updated to reflect the successful build, and a new "Key
+     learnings" section capturing what patches 07-14 actually
+     discovered (multiple JDKs per Codespace, Gradle's per-version JDK
+     ceiling, XML comment rules, verifying against tagged source over
+     READMEs, cross-patch idempotency pitfalls).
+  3. Updates ROADMAP.md:
+     - Rewrites the top status block (was still stuck at "after patches
+       01-07" and "assembleDebug has still never run", both stale).
+     - Marks Step 2's `youtubedl-android`/`ffmpeg` import-path checkbox
+       done (it's now confirmed by an actual successful compile, not
+       just pre-verified).
+     - Consolidates the two scattered environment-debugging notes left
+       in the Step 5 section by patches 07 and 12 into one clean
+       "build environment" note, since the full story now belongs in
+       HANDOFF.md's patch history rather than inline in the living
+       roadmap. The actual Step 5 device-testing checklist itself is
+       untouched -- none of it has been done yet.
+
+Usage:
+    python3 patch15_docs_after_first_build.py [path to repo root]
+
+Idempotent: safe to run twice.
+"""
+import sys
+from pathlib import Path
+
+
+def fail(msg):
+    print(f"ERROR: {msg}", file=sys.stderr)
+    sys.exit(1)
+
+
+NEW_README = """# Kinescope
+
+A personal Android app for downloading YouTube videos at home, for
+offline viewing during work trips to a network-restricted region.
+
+**Status:** the first successful `./gradlew assembleDebug` was achieved
+after patches 01-14. Not yet installed on a real device -- Step 5
+(device install + manual testing) is next. See `HANDOFF.md` for the
+current session-handoff snapshot and `ROADMAP.md` for the full,
+actively-tracked implementation plan.
+
+## What this is
+
+Share a YouTube link into the app (or paste one directly), pick a
+quality preset, and it downloads in the background via a foreground
+service. The finished file lands in the device's Downloads folder,
+ready for offline playback in any video player -- no connectivity
+needed once it's downloaded.
+
+## What this explicitly is not
+
+- Not distributed via Google Play -- **sideload only** (install the
+  debug or signed APK directly).
+- No backend, no account system, no cross-device sync.
+- No custom YouTube extraction logic. All extraction goes through
+  [yt-dlp](https://github.com/yt-dlp/yt-dlp), via the
+  [youtubedl-android](https://github.com/yausername/youtubedl-android)
+  wrapper library -- never reverse-engineered independently.
+- No required paid services.
+- Built for one person's own use, not for general distribution.
+
+## Building
+
+This project is developed in GitHub Codespaces.
+
+1. Open a Codespace on this repo. `.devcontainer/devcontainer.json`
+   requests a JDK and installs Gradle automatically on container
+   creation via `postCreateCommand`.
+2. If `gradlew` isn't present yet (a fresh Codespace, or the
+   `postCreateCommand` didn't finish), run `bash .devcontainer/setup.sh`
+   manually. It installs the Android SDK command-line tools, accepts
+   licenses, installs `platform-tools`/`platform 35`/`build-tools`,
+   generates the Gradle wrapper, and pins Gradle to a JDK version it
+   actually supports -- see `HANDOFF.md`'s "Key learnings" section for
+   why a Codespace can have multiple JDKs and why that last step
+   matters.
+3. `./gradlew assembleDebug`
+4. Install the resulting APK on a device (`adb install
+   app/build/outputs/apk/debug/app-debug.apk`, or transfer the file and
+   tap it).
+
+## Documentation map
+
+- **`CLAUDE.md`** -- ground rules for this project (no custom
+  extraction, English-only code/docs, no paid services, no Anthropic
+  branding).
+- **`ROADMAP.md`** -- the current, active implementation plan (Claude
+  Fable 5.1's original 9-step review, plus an ongoing patch-by-patch
+  traceability Appendix). Work happens here first.
+- **`roadmap.md`** (lowercase) -- a second, separate sprint-based
+  audit/plan (S0-S11) from GPT Astra. Deliberately queued for **after**
+  `ROADMAP.md` above is fully done -- see the note near the top of
+  `ROADMAP.md` for why, and don't start it early.
+- **`HANDOFF.md`** -- cross-session snapshot: what's done, what's next,
+  full patch history, key learnings. Read this first when resuming work
+  in a new conversation.
+- **`design.md`** -- the visual design system (colors, typography,
+  icon), including an explicit section on what it approximates and what
+  it deliberately avoids.
+- **`RELEASE.md`** -- signing-key generation and the signed-release
+  process (Step 9 -- not started yet).
+
+## Tech stack
+
+Kotlin, Jetpack Compose (Material3), `youtubedl-android` 0.18.1 (a
+yt-dlp wrapper), Gradle 8.10.2. `compileSdk`/`targetSdk` 35, `minSdk`
+29.
+"""
+
+NEW_HANDOFF = """# Handoff Snapshot
 
 Paste this file's contents at the start of a new conversation to
 resume work with minimal re-explaining. If the new conversation
@@ -374,3 +503,162 @@ succession). Continue the established pattern for this project:
   the code change they correspond to.
 - Write all code, code comments, commit messages, and documentation in
   English, regardless of what language the conversation itself is in.
+"""
+
+
+def write_if_needed(path: Path, content: str, marker: str, label: str):
+    if path.exists():
+        existing = path.read_text()
+        if marker in existing:
+            print(f"{label} already up to date -- skipping.")
+            return
+    path.write_text(content)
+    print(f"Wrote {path}")
+
+
+def patch_readme(repo_root: Path):
+    write_if_needed(
+        repo_root / "README.md",
+        NEW_README,
+        "the first successful `./gradlew assembleDebug` was achieved",
+        "README.md",
+    )
+
+
+def patch_handoff(repo_root: Path):
+    write_if_needed(
+        repo_root / "HANDOFF.md",
+        NEW_HANDOFF,
+        "Milestone: the first successful",
+        "HANDOFF.md",
+    )
+
+
+def patch_roadmap(repo_root: Path):
+    path = repo_root / "ROADMAP.md"
+    if not path.exists():
+        fail(f"{path} not found")
+    text = path.read_text()
+
+    # 1. Top status block
+    old_status_block = (
+        "**Status as of this update (after patches 01-07):** Steps 1-4, Step 6\n"
+        "(6.1-6.6; 6.7 is optional and still skipped), and Step 7 (Kinescope\n"
+        "rename) are done. `./gradlew assembleDebug` has **still never run** —\n"
+        "nothing here has been build-verified yet. A full deep code review of\n"
+        "the entire codebase was\n"
+        "performed by Claude Fable 5.1 in 4 passes; this document consolidates every\n"
+        "finding from that review into one ordered implementation plan, and its\n"
+        "checkboxes/Appendix are kept current as work actually gets done (see\n"
+        "`HANDOFF.md` for the patch-by-patch history).\n"
+    )
+    new_status_block = (
+        "**Status as of this update (after patches 01-15):** Steps 1-4, Step 6\n"
+        "(6.1-6.6; 6.7 is optional and still skipped), Step 7 (Kinescope\n"
+        "rename), and the full build-environment/compile-error fix chain\n"
+        "(patches 07-14) are done. **`./gradlew assembleDebug` succeeds** — the\n"
+        "first successful build in this project's history. Nothing has\n"
+        "touched a real device yet; that's Step 5, next. A full deep code\n"
+        "review of the entire codebase was performed by Claude Fable 5.1 in 4\n"
+        "passes; this document consolidates every finding from that review\n"
+        "into one ordered implementation plan, and its checkboxes/Appendix are\n"
+        "kept current as work actually gets done (see `HANDOFF.md` for the\n"
+        "patch-by-patch history).\n"
+    )
+    if old_status_block in text:
+        text = text.replace(old_status_block, new_status_block)
+    elif new_status_block in text:
+        pass
+    else:
+        fail("Top status block anchor not found in ROADMAP.md")
+
+    # 2. Step 2 checkbox
+    old_step2 = (
+        "- [ ] **[LOW] `youtubedl-android`/`com.yausername.ffmpeg` import paths** —\n"
+        "  believed correct after review, but do a 30-second sanity check\n"
+        "  (`unzip -l` the resolved AAR in `~/.gradle/caches`, or just read the\n"
+        "  compiler's \"cannot resolve symbol\" errors if any appear) rather than\n"
+        "  trusting anyone's memory, including this document's.\n"
+    )
+    new_step2 = (
+        "- [x] **[LOW] `youtubedl-android`/`com.yausername.ffmpeg` import paths**\n"
+        "  (Fixed — patch 14: confirmed via an actual successful compile,\n"
+        "  after finding and fixing one real bug — `UpdateChannel` is a\n"
+        "  nested class of `YoutubeDL`, not top-level — by reading the\n"
+        "  library's actual tagged 0.18.1 source directly. See Appendix #11.)\n"
+    )
+    if old_step2 in text:
+        text = text.replace(old_step2, new_step2)
+    elif new_step2 in text:
+        pass
+    else:
+        fail("Step 2 import-path checkbox anchor not found in ROADMAP.md")
+
+    # 3. Consolidate the two scattered Step 5 environment notes
+    old_note_1 = (
+        "**Environment note (patch 07):** `.devcontainer/setup.sh` had a "
+        "`pipefail`-related bug that could silently abort setup before "
+        "`gradlew` was ever generated (see Appendix #34) — fixed. Appendix "
+        "#11 (`youtubedl-android`/`ffmpeg` import paths) has also been "
+        "pre-verified against the library's own current source — still "
+        "needs final confirmation by an actual `./gradlew assembleDebug` "
+        "run, but the single most-likely compile blocker going into this "
+        "step is now lower-risk than before.\n"
+    )
+    old_note_2 = (
+        "\n**Confirmed root cause (patch 12):** a real diagnostic run "
+        "confirmed the patch-11 hypothesis and refined it. `java`/`javac` "
+        "resolve to a Codespace-provided JDK 25.0.2 "
+        "(`/home/codespace/java/current`), separate from and taking "
+        "priority over the devcontainer Java feature's SDKMAN-managed "
+        "install. SDKMAN itself only has `21.0.10-ms` and `25.0.2-ms` -- "
+        "no 17.x at all, despite `devcontainer.json` requesting version "
+        "17. Gradle's own 8.10 release notes confirm the ceiling: "
+        '"Gradle now supports running on Java 23" -- JDK 24+ cannot run '
+        "Gradle 8.10.2. Patch 12 broadened patch 11's JDK search to "
+        "accept any installed JDK in the 17-23 range (picking up the "
+        "already-installed 21.0.10-ms here) instead of requiring exactly "
+        "17. Still needs the next `./gradlew assembleDebug` run to "
+        "confirm.\n"
+    )
+    new_note = (
+        "**Build environment (patches 07-14):** the environment needed five "
+        "fixes before the first compile could even be attempted — a "
+        "`pipefail` bug in `setup.sh` (07), two re-run/idempotency bugs in "
+        "`setup.sh` (10), and a JDK/Gradle mismatch where this Codespace's "
+        "actual default JDK (25.0.2) is too new for Gradle 8.10.2 (ceiling: "
+        "Java 23, per Gradle's own 8.10 release notes), fixed by pinning "
+        "Gradle to an already-installed JDK 21 instead (11-12). Two real "
+        "compile errors followed: an invalid `--` inside an XML comment "
+        "(13), and `UpdateChannel` actually being a nested class of "
+        "`YoutubeDL` rather than top-level, i.e. Appendix #11 (14). Full "
+        "story in `HANDOFF.md`'s patch history and \"Key learnings\" — kept "
+        "brief here since it's now resolved history, not an open risk. "
+        "**`./gradlew assembleDebug` succeeds.**\n"
+    )
+    if old_note_1 in text and old_note_2 in text:
+        text = text.replace(old_note_1, new_note)
+        text = text.replace(old_note_2, "")
+    elif "**Build environment (patches 07-14):**" in text:
+        pass
+    else:
+        fail("Step 5 environment-note anchors not found in ROADMAP.md")
+
+    path.write_text(text)
+    print(f"Patched {path}")
+
+
+def main():
+    repo_root = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(".")
+    repo_root = repo_root.resolve()
+    print(f"Applying patch 15 against: {repo_root}")
+
+    patch_readme(repo_root)
+    patch_handoff(repo_root)
+    patch_roadmap(repo_root)
+
+    print("\nPatch 15 applied successfully.")
+
+
+if __name__ == "__main__":
+    main()

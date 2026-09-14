@@ -1,14 +1,16 @@
 # Roadmap
 
-**Status as of this update (after patches 01-07):** Steps 1-4, Step 6
-(6.1-6.6; 6.7 is optional and still skipped), and Step 7 (Kinescope
-rename) are done. `./gradlew assembleDebug` has **still never run** —
-nothing here has been build-verified yet. A full deep code review of
-the entire codebase was
-performed by Claude Fable 5.1 in 4 passes; this document consolidates every
-finding from that review into one ordered implementation plan, and its
-checkboxes/Appendix are kept current as work actually gets done (see
-`HANDOFF.md` for the patch-by-patch history).
+**Status as of this update (after patches 01-15):** Steps 1-4, Step 6
+(6.1-6.6; 6.7 is optional and still skipped), Step 7 (Kinescope
+rename), and the full build-environment/compile-error fix chain
+(patches 07-14) are done. **`./gradlew assembleDebug` succeeds** — the
+first successful build in this project's history. Nothing has
+touched a real device yet; that's Step 5, next. A full deep code
+review of the entire codebase was performed by Claude Fable 5.1 in 4
+passes; this document consolidates every finding from that review
+into one ordered implementation plan, and its checkboxes/Appendix are
+kept current as work actually gets done (see `HANDOFF.md` for the
+patch-by-patch history).
 
 **Decided:** the Kinescope rename (Step 7) uses `applicationId` /
 `namespace` **`com.kinescope.app`**.
@@ -116,11 +118,11 @@ down the same file. Specifically watch for:
   compile-time question that resolves itself here — just don't be
   surprised by it.
 
-- [ ] **[LOW] `youtubedl-android`/`com.yausername.ffmpeg` import paths** —
-  believed correct after review, but do a 30-second sanity check
-  (`unzip -l` the resolved AAR in `~/.gradle/caches`, or just read the
-  compiler's "cannot resolve symbol" errors if any appear) rather than
-  trusting anyone's memory, including this document's.
+- [x] **[LOW] `youtubedl-android`/`com.yausername.ffmpeg` import paths**
+  (Fixed — patch 14: confirmed via an actual successful compile,
+  after finding and fixing one real bug — `UpdateChannel` is a
+  nested class of `YoutubeDL`, not top-level — by reading the
+  library's actual tagged 0.18.1 source directly. See Appendix #11.)
 
 - [x] **[LOW] `updateYoutubeDL()` return type** in `YtDlpUpdater.kt` (Fixed — patch 01: added the required `UpdateChannel` argument) — if
   the real method returns an enum (`YoutubeDLUpdateStatus`) rather than a
@@ -311,7 +313,7 @@ No emulator exists in this environment — this step is manual, on your own
 phone. Beyond Fable's original test sequence, a few additions below
 specifically target the bugs found in Step 3.
 
-**Environment note (patch 07):** `.devcontainer/setup.sh` had a `pipefail`-related bug that could silently abort setup before `gradlew` was ever generated (see Appendix #34) — fixed. Appendix #11 (`youtubedl-android`/`ffmpeg` import paths) has also been pre-verified against the library's own current source — still needs final confirmation by an actual `./gradlew assembleDebug` run, but the single most-likely compile blocker going into this step is now lower-risk than before.
+**Build environment (patches 07-14):** the environment needed five fixes before the first compile could even be attempted — a `pipefail` bug in `setup.sh` (07), two re-run/idempotency bugs in `setup.sh` (10), and a JDK/Gradle mismatch where this Codespace's actual default JDK (25.0.2) is too new for Gradle 8.10.2 (ceiling: Java 23, per Gradle's own 8.10 release notes), fixed by pinning Gradle to an already-installed JDK 21 instead (11-12). Two real compile errors followed: an invalid `--` inside an XML comment (13), and `UpdateChannel` actually being a nested class of `YoutubeDL` rather than top-level, i.e. Appendix #11 (14). Full story in `HANDOFF.md`'s patch history and "Key learnings" — kept brief here since it's now resolved history, not an open risk. **`./gradlew assembleDebug` succeeds.**
 
 - [ ] Install the debug APK (`adb install`, or transfer + tap).
 - [ ] Grant any runtime permissions prompted (notifications, etc.).
@@ -351,8 +353,6 @@ specifically target the bugs found in Step 3.
       it ever happens.
 
 Do not move to Step 9 (signed release) until every item above passes.
-
-**Confirmed root cause (patch 12):** a real diagnostic run confirmed the patch-11 hypothesis and refined it. `java`/`javac` resolve to a Codespace-provided JDK 25.0.2 (`/home/codespace/java/current`), separate from and taking priority over the devcontainer Java feature's SDKMAN-managed install. SDKMAN itself only has `21.0.10-ms` and `25.0.2-ms` -- no 17.x at all, despite `devcontainer.json` requesting version 17. Gradle's own 8.10 release notes confirm the ceiling: "Gradle now supports running on Java 23" -- JDK 24+ cannot run Gradle 8.10.2. Patch 12 broadened patch 11's JDK search to accept any installed JDK in the 17-23 range (picking up the already-installed 21.0.10-ms here) instead of requiring exactly 17. Still needs the next `./gradlew assembleDebug` run to confirm.
 
 ---
 

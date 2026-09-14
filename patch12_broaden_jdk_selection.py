@@ -175,9 +175,17 @@ def patch_roadmap(repo_root: Path):
         fail(f"{path} not found")
     text = path.read_text()
 
-    marker = "**Confirmed root cause (patch 12):**"
-    if marker in text:
-        print("ROADMAP.md already records the confirmed root cause -- skipping.")
+    # Either this patch's own note is present, or patch 15 later
+    # consolidated it (and patch 11's) into a single "Build environment"
+    # paragraph -- both mean "nothing to do here". Missing the patch-15
+    # marker would make this check re-insert a now-stale note on every
+    # full-chain re-run, which patch 15 would then fold into yet another
+    # duplicate paragraph.
+    if (
+        "**Confirmed root cause (patch 12):**" in text
+        or "**Build environment (patches 07-14):**" in text
+    ):
+        print("ROADMAP.md already records this (patch 12 or the patch-15 consolidation) -- skipping.")
         return
 
     anchor = (
@@ -192,6 +200,9 @@ def patch_roadmap(repo_root: Path):
         "different error."
     )
     if anchor not in text:
+        # Both markers were already ruled out by the check above, so
+        # if the anchor is also missing there's genuinely nothing safe
+        # to do here.
         fail("Patch-11 hypothesis-note anchor not found in ROADMAP.md")
 
     replacement = (
