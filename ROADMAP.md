@@ -1,16 +1,20 @@
 # Roadmap
 
-**Status as of this update (after patches 01-15):** Steps 1-4, Step 6
+**Status as of this update (after patch 16):** Steps 1-4, Step 6
 (6.1-6.6; 6.7 is optional and still skipped), Step 7 (Kinescope
 rename), and the full build-environment/compile-error fix chain
 (patches 07-14) are done. **`./gradlew assembleDebug` succeeds** — the
 first successful build in this project's history. Nothing has
-touched a real device yet; that's Step 5, next. A full deep code
-review of the entire codebase was performed by Claude Fable 5.1 in 4
-passes; this document consolidates every finding from that review
-into one ordered implementation plan, and its checkboxes/Appendix are
-kept current as work actually gets done (see `HANDOFF.md` for the
-patch-by-patch history).
+touched a real device yet; that's Step 5, next — now also buildable
+via `.github/workflows/build-debug.yml` (manual `workflow_dispatch`,
+hand-assigned version) as an alternative to a local Codespace build. A
+full deep code review of the entire codebase was performed by Claude
+Fable 5.1 in 4 passes; this document consolidated every finding from
+that review into one ordered implementation plan. **As of patch 16,
+completed Step sections below are collapsed to a one-line pointer
+instead of repeating their full original checklist — see
+`CHANGELOG.md` for what each patch actually did, and `HANDOFF.md` for
+the patch-by-patch narrative.**
 
 **Decided:** the Kinescope rename (Step 7) uses `applicationId` /
 `namespace` **`com.kinescope.app`**.
@@ -41,269 +45,52 @@ steps**, not new numbered feature phases — this document extends the
 **How to use this document:** the numbered Step sections below keep their
 original order (matching the initial review) for reference — follow the
 **execution order above**, not the numbering, for what to actually do
-next. The Appendix at the end is a full traceability table; every finding
-from the original 4-part review is listed there with its current status.
+next. Completed Steps are collapsed to a pointer at `CHANGELOG.md`
+rather than repeating their checklist. The Appendix at the end now only
+lists findings that are still open or informational — closed findings
+moved to `CHANGELOG.md` too.
 
 ---
 
 ## Step 1 — Fix known compile-time blockers, before first sync
 
-Do these *before* running `./gradlew assembleDebug` for the first time —
-they're the ones the review is fairly confident will fail loudly and
-immediately.
-
-- [x] **[CRITICAL] Fix the Compose BOM version.** (Fixed — patch 01)
-  `app/build.gradle.kts` currently pins:
-  ```kotlin
-  val composeBom = platform("androidx.compose:compose-bom:2026.08.00")
-  ```
-  Every other pinned version in the same file (AGP 8.7.2, Kotlin 2.1.0,
-  Gradle 8.10.2, `activity-compose` 1.9.3, `core-ktx` 1.15.0,
-  `kotlinx-coroutines-core` 1.9.0) clusters around Sept–Nov 2024. The BOM
-  is the one outlier, ~21 months later — almost certainly a fabricated
-  version string. Replace it with a real BOM from the same window (check
-  the [Compose BOM mapping table](https://developer.android.com/jetpack/compose/bom/bom-mapping)
-  for the latest one that actually existed at write time — `2024.10.01` or
-  `2024.11.00` are good starting guesses), or just run
-  `./gradlew dependencies` and let Gradle's own resolution error tell you
-  the nearest valid version.
-
-- [x] **[LOW, cleanup] Remove dead `requestLegacyExternalStorage="true"`** (Fixed — patch 01)
-  from `AndroidManifest.xml`. Only honored at `targetSdkVersion <= 29`;
-  here `targetSdk = 35`, so it's silently ignored. `MediaStore`-based
-  publishing (Phase 3) is the real mechanism already handling this
-  correctly — the flag is leftover noise from copy-pasting
-  `youtubedl-android`'s own README setup instructions. Zero functional
-  risk either way, just delete it for clarity.
-
-- [ ] **[Optional, not required] Trim `x86`/`x86_64` from `ndk.abiFilters`**
-  in `app/build.gradle.kts` if your target phone is arm64 (the
-  overwhelming majority are) and you don't need emulator support — shrinks
-  the APK, since `youtubedl-android`'s bundled native binaries dominate
-  APK size. Purely optional; the full 4-ABI set is not wrong, just larger
-  than necessary for a single-physical-phone target.
-
-**Confirmed fine, no action needed at this step** (verified against the
-real build files during the review, listed here so you don't waste time
-re-checking them): `sdkmanager` package identifiers
-(`platforms;android-35`, `build-tools;35.0.0`) match `compileSdk`/`targetSdk`
-correctly · `android:extractNativeLibs="true"` is correct and required by
-`youtubedl-android`'s native binaries, keep it · AGP 8.7.2 + Gradle 8.10.2
-+ Kotlin 2.1.0 is a real, mutually compatible toolchain · `isMinifyEnabled
-= false` on release is a deliberate, reasonable call (avoids R8 breaking
-reflection-heavy coroutine/yt-dlp-wrapper code) for a personal one-user
-app, revisit only if APK size ever actually becomes a problem.
+✅ **Done.** Compose BOM version fixed, dead `requestLegacyExternalStorage`
+removed. See `CHANGELOG.md`'s Patch 01 entry for detail. (The optional,
+never-done `ndk.abiFilters` trim moved to the Backlog section below —
+it was never blocking anything.)
 
 ---
 
 ## Step 2 — First headless compile
 
-```bash
-./gradlew assembleDebug
-```
-
-Fix compile errors **top-down, earliest-phase code first** — an early
-wrong assumption commonly cascades into unrelated-looking errors further
-down the same file. Specifically watch for:
-
-- [x] **[HIGH] `YoutubeDL.getInstance().execute(request, job.id) { progress, etaInSeconds -> ... }`** (Fixed — patch 01: confirmed 3-parameter callback against the library's sample app source)
-  in `DownloadService.kt` — the real `youtubedl-android` progress callback
-  is believed to be **three-parameter**
-  (`progress: Float, etaInSeconds: Long, line: String`), not two. Kotlin
-  requires exact arity for lambda literals against a function type, so
-  this should either fail to compile (in which case: add the third
-  parameter, ignore it if unused — `{ progress, etaInSeconds, _ -> ... }`)
-  or, if it *does* compile as written, that means the real signature is
-  two-parameter after all and no fix is needed. Either way this is a
-  compile-time question that resolves itself here — just don't be
-  surprised by it.
-
-- [x] **[LOW] `youtubedl-android`/`com.yausername.ffmpeg` import paths**
-  (Fixed — patch 14: confirmed via an actual successful compile,
-  after finding and fixing one real bug — `UpdateChannel` is a
-  nested class of `YoutubeDL`, not top-level — by reading the
-  library's actual tagged 0.18.1 source directly. See Appendix #11.)
-
-- [x] **[LOW] `updateYoutubeDL()` return type** in `YtDlpUpdater.kt` (Fixed — patch 01: added the required `UpdateChannel` argument) — if
-  the real method returns an enum (`YoutubeDLUpdateStatus`) rather than a
-  printable `String`, this is a type-mismatch compile error, not a silent
-  runtime no-op. Low-impact either way (fails loud and cheap to fix here,
-  or fails soft at runtime if the assumption happens to be compatible).
-
-**Confirmed fine, no action needed at this step:** `addOption(key)` /
-`addOption(key, value)` overload usage in `QualityPresets.kt` matches the
-real `YoutubeDLRequest` API shape.
-
-Do not move to Step 3 until `assembleDebug` succeeds cleanly.
+✅ **Done.** `./gradlew assembleDebug` succeeds (first achieved after
+patch 14). Progress-callback arity confirmed 3-parameter,
+`updateYoutubeDL()`'s `UpdateChannel` argument added, import paths
+confirmed against the library's real tagged source. See `CHANGELOG.md`'s
+Patch 01, 07, and 14 entries.
 
 ---
 
 ## Step 3 — Critical runtime fixes, before first device install
 
-These two are **confirmed real bugs found by reading the actual source**,
-not speculation — fix both before the first real-device test, not after.
-They map directly onto the single highest-risk moment in the whole
-product's Customer Journey Map: queuing several videos back-to-back at
-home the night before a trip, when a silent failure is most likely and
-most expensive (no way to retry once already in-region).
-
-- [x] **[CRITICAL] Race condition in `DownloadService.ensureWorkerRunning()`.** (Fixed — patch 01, with a tighter lock than the sample fix below — see the code comment in DownloadService.kt)
-  `queue.poll()` is non-blocking and the `workerThread?.isAlive == true`
-  check is unsynchronized. Sequence that strands a job forever at
-  "Queued": worker thread finishes a job, `poll()` returns `null`, worker
-  is about to exit → at that exact moment a new job is enqueued from the
-  main thread → `ensureWorkerRunning()` sees `isAlive == true` (worker
-  hasn't finished tearing down yet) and assumes the existing worker will
-  pick it up → but the worker already committed to exiting and never
-  re-polls. The new job sits at "Queued" forever with no error shown.
-
-  **Fix** — replace the poll-until-empty pattern with a blocking consumer
-  loop and a lock-guarded state transition:
-  ```kotlin
-  workerThread = Thread {
-      startForegroundWithNotification("Starting downloads…")
-      try {
-          while (true) {
-              val job = queue.poll(IDLE_TIMEOUT_MS, TimeUnit.MILLISECONDS) ?: break
-              runJob(job)
-          }
-      } finally {
-          synchronized(lock) { workerThread = null }
-          stopForeground(STOP_FOREGROUND_REMOVE)
-          stopSelf()
-      }
-  }
-  ```
-  with `queue.add()`, the `isAlive` check, and the `workerThread`
-  assignment all guarded by the same lock. **Better long-term fix**, worth
-  doing now since it also resolves the idiomaticity note in the Backlog
-  section below: replace the raw `Thread` + `LinkedBlockingQueue` with a
-  `Channel<DownloadJob>` consumed by a single coroutine launched once in
-  `onCreate()` and never torn down until the service itself is destroyed —
-  this removes the restart-detection problem entirely instead of patching
-  around it, and brings the file in line with the `kotlinx-coroutines-core`
-  dependency already used elsewhere.
-
-- [x] **[CRITICAL] Unhandled exceptions in `runJob()` can crash the whole app.** (Fixed — patch 01)
-  Only `YoutubeDLException` and `InterruptedException` are caught. Any
-  other exception type (`IOException`, an unexpected `NullPointerException`
-  from an unusual library response shape, etc.) propagates out of the
-  worker thread uncaught — and Android's default behavior for an uncaught
-  exception on *any* thread is to kill the whole process. One malformed
-  video or one unexpected error type can silently take down every other
-  job still waiting in the queue, with zero explanation to the user.
-
-  **Fix** — add a catch-all after the existing specific catches, so
-  specific handling still takes priority but nothing escapes:
-  ```kotlin
-  } catch (e: Exception) {
-      DownloadQueueBus.update(job.id) {
-          it.copy(state = JobState.FAILED, progressText = friendlyError(e.message ?: e.javaClass.simpleName))
-      }
-  }
-  ```
+✅ **Done.** The `DownloadService.ensureWorkerRunning()` race condition
+(jobs silently stranded at "Queued") fixed with a blocking consumer loop
+and lock-guarded state transitions; a catch-all exception handler added
+so one bad download can't crash the whole app. See `CHANGELOG.md`'s
+Patch 01 entry — and the doc comment above `startWorkerLocked()` in
+`DownloadService.kt` for why this fix is tighter than the sample fix
+originally sketched here.
 
 ---
 
 ## Step 4 — Product-quality fixes, cheap wins before device testing
 
-Not crash-level bugs, but real defects with disproportionately bad
-failure modes for what this app is actually for. All cheap (minutes each)
-relative to their impact — do these in the same sitting as Step 3 since
-you'll already be in `DownloadService.kt`/`MediaStorage.kt`.
-
-- [x] **[HIGH] Downloaded files and library entries have no human-readable name.** (Fixed — patch 02)
-  `job.id` (a raw UUID) is used as both the temp filename and the
-  `DISPLAY_NAME` shown in the app's own Library and in any file manager —
-  every file looks like `download_3f9a2e1b-....mp4`. This directly
-  undermines the CJM's "is this the right file?" / library-management
-  stage, especially with multiple videos queued at once (the realistic
-  usage pattern). **Fix, pick one:**
-  - Cheapest: after a successful download, run a near-instant second
-    yt-dlp invocation with `--print title` (no download) to get the
-    title, sanitize it (strip `/`, `:`, etc.), and use it as
-    `DISPLAY_NAME` while keeping the UUID-based temp filename internally.
-  - Better, and pairs naturally with the next fix: use yt-dlp's own title
-    template directly, e.g. `-o "${cacheDir}/%(title).150B [${job.id}].%(ext)s"`
-    — the bracketed job id keeps the file uniquely identifiable for the
-    "find the output file" step, and gets a real title into the filename
-    with no extra yt-dlp invocation. Strip the bracketed id back out
-    before setting `DISPLAY_NAME`.
-
-- [x] **[MEDIUM] Keep the "scan cache dir for newest matching file" fallback** (Fixed — patch 02)
-  for locating the completed download, rather than assuming an exact
-  `tempBaseName.expectedExtension`. The `--merge-output-format mp4` option
-  reliably forces `.mp4` when the format selector's primary branch
-  (`bv*[height<=1080]+ba`) is used — but if the `/b` fallback branch
-  triggers (no separate video+audio streams available for that video),
-  `--merge-output-format` may not apply and the real extension could be
-  whatever the single pre-muxed stream uses (occasionally `.webm`). Narrower
-  risk than originally feared, but still worth the defensive fix — and it
-  naturally combines with the filename fix above if you search for
-  `*[${job.id}]*` instead of an exact name match.
-
-- [x] **[MEDIUM] Fix the `RELATIVE_PATH` trailing-slash mismatch** (Fixed — patch 02) between
-  `MediaStorage.publish()` (no trailing slash on insert) and
-  `MediaStorage.listPublished()` (trailing slash in the query selection).
-  `MediaStore` conventionally stores `RELATIVE_PATH` with a trailing slash
-  and *usually* normalizes a missing one on insert — but relying on that
-  normalization behaving identically across OEM `MediaStore`
-  implementations is exactly the kind of assumption this project has
-  already been burned by. If it doesn't normalize on some device, the
-  exact-match query silently returns zero rows and the Library list
-  appears permanently empty even though downloads succeeded. **Fix**: use
-  the identical string, with trailing slash, in both places:
-  ```kotlin
-  put(MediaStore.Downloads.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/$subfolder/")
-  ```
-
-- [x] **[MEDIUM] Make `DownloadQueueBus` updates atomic.** (Fixed — patch 02) `upsert()` and
-  `update()` both do a plain read-`_jobs.value`-then-write, not atomic —
-  `upsert()` runs from the main/binder thread (enqueue), `update()` runs
-  from the worker thread (progress ticks), and these genuinely race. Worst
-  case is a dropped progress tick or a briefly-missing row, not a crash,
-  but the fix is trivial:
-  ```kotlin
-  fun upsert(status: DownloadJobStatus) {
-      _jobs.update { current -> current.filterNot { it.id == status.id } + status }
-  }
-  fun update(id: String, transform: (DownloadJobStatus) -> DownloadJobStatus) {
-      _jobs.update { current -> current.map { if (it.id == id) transform(it) else it } }
-  }
-  ```
-
-- [x] **[MEDIUM] Sanitize the user-editable Downloads subfolder name** (Fixed — patch 02)
-  in `Settings.kt` before it flows into `MediaStore.RELATIVE_PATH` for
-  both insert and query. Reject or strip path separators (`/`, `\`) and
-  `..` segments — worst case today is a silently-failed publish or files
-  landing somewhere unexpected.
-
-- [x] **[MEDIUM] Host-validate shared/pasted URLs** in `MainActivity.kt`. (Fixed — patch 02)
-  The current regex (`https?://\S+`) accepts any http(s) URL, not just
-  YouTube — yt-dlp will happily attempt any of the 1000+ sites it
-  supports. This doesn't violate the "no custom extractor" rule (still
-  100% via yt-dlp), but it's scope creep against the app's stated single
-  purpose. Restrict to `youtube.com`/`youtu.be` hosts before enqueueing,
-  both as a UX guardrail and to keep the app doing exactly one thing.
-
-- [x] **[LOW] Guard `startActivity(ACTION_VIEW)`** (Fixed — patch 02) in `MainActivity.kt`'s
-  `playItem()` with a try/catch around the call, showing a toast/snackbar
-  on `ActivityNotFoundException` instead of crashing. Very unlikely on a
-  real phone with any video player installed, but cheap insurance.
-
-- [x] **[LOW, cleanup] Remove the dead `else` branch** (Fixed — patch 02) in
-  `DownloadService.startForegroundWithNotification()` — the
-  no-type `startForeground()` fallback is unreachable since
-  `minSdk = 29` already satisfies the `>= Build.VERSION_CODES.Q` check
-  guarding the typed branch. Harmless, just simplify.
-
-**Confirmed fine, no action needed:** foreground service type declaration
-+ runtime `startForeground(..., FOREGROUND_SERVICE_TYPE_DATA_SYNC)` call
-match exactly · `POST_NOTIFICATIONS` is both declared in the manifest and
-requested at runtime in `MainActivity.onCreate()`, correctly non-fatal if
-denied · no `<queries>` manifest entry is needed — `playItem()` calls
-`startActivity()` directly with no `resolveActivity()` precheck, so the
-API 30+ package-visibility restriction never applies here.
+✅ **Done.** Filenames humanized via yt-dlp's own title template,
+job-id-tag output-file scanning, the `RELATIVE_PATH` trailing-slash
+mismatch fixed, `DownloadQueueBus` updates made atomic, subfolder-name
+sanitization, YouTube-host validation on shared/pasted URLs, an
+`ActivityNotFoundException` guard on video playback, and a dead branch
+removed. See `CHANGELOG.md`'s Patch 02 entry.
 
 ---
 
@@ -358,111 +145,12 @@ Do not move to Step 9 (signed release) until every item above passes.
 
 ## Step 6 — Design system v2
 
-Building on `design.md`/`Theme.kt`'s existing foundation (same nature:
-warm palette, single accent, soft geometry) but tightened into an actual
-system — a real dark theme, semantic tokens for states the original
-palette didn't cover, and named component patterns per screen instead of
-colors/shapes applied ad hoc. **No "Claude"/Anthropic name, logo, or
-licensed fonts anywhere — this constraint is unchanged and non-negotiable.**
-This step can happen in parallel with Steps 1–5 if you want, but should be
-merged before Step 7.
-
-### 6.1 Color tokens — light (additions to the existing palette)
-
-- [x] Add `surfaceRaised` — white surface + soft shadow (`alpha 0.04`
-      black), for modal sheets/dialogs, distinct from flat row cards.
-- [x] Add `warning` (`#B8862E`) — new middle state between success/error,
-      for "Paused"/"Retrying" job status (currently missing).
-- [x] Add `errorContainer` (`#F9DEDC`) — for error banners and empty-state
-      backgrounds, distinct from the existing per-row `error` color.
-
-### 6.2 Color tokens — dark (new, currently missing entirely)
-
-- [x] Implement a `darkColorScheme(...)` alongside the existing
-      `lightColorScheme(...)`, selected via `isSystemInDarkTheme()` in
-      `Theme.kt` (standard Material3 pattern, no new architectural risk):
-
-  | Token | Hex | Notes |
-  |---|---|---|
-  | `background` | `#1B1A17` | Warm near-black, keeps the "warm" principle in dark mode |
-  | `surface` | `#252420` | |
-  | `surfaceVariant` | `#302E28` | |
-  | `onBackground`/`onSurface` | `#F5F3EC` | |
-  | `onSurfaceVariant` | `#B8B6AC` | |
-  | `outline` | `#3D3B34` | |
-  | `accent` | `#E08D6D` | Lightened terracotta — pure `#D97757` loses contrast on dark |
-  | `onAccent` | `#3D1A0E` | Dark text on the lightened accent reads better than white |
-  | `accentContainer` | `#5C3423` | |
-  | `onAccentContainer` | `#F3DDD2` | |
-  | `success` | `#9AB07C` | |
-  | `warning` | `#D6A24E` | |
-  | `error` | `#FFB4AB` | Material3-standard dark-scheme error red |
-  | `errorContainer` | `#5C0F0C` | |
-
-### 6.3 Typography — tighten the existing scale
-
-Keep the Inter (body) + Lora (headline) pairing already implemented
-(low-risk per the review). Make sure every role below is actually defined,
-not just the ones currently in use:
-
-- [x] `displaySmall` — Lora SemiBold — app title, true empty/first-run state only (Fixed — patch 03)
-- [x] `headlineSmall` — Lora SemiBold — screen-level headers, for if more screens are added (Fixed — patch 03)
-- [x] `titleMedium` — Inter SemiBold — section headers ("Queue", "Library") (Fixed — patch 03)
-- [x] `titleSmall` — Inter Medium — row titles (video name) (Fixed — patch 03)
-- [x] `bodyMedium` — Inter Regular — status lines, settings descriptions (Fixed — patch 03)
-- [x] `labelLarge` — Inter Medium — button text (Fixed — patch 03)
-- [x] `labelSmall` — Inter Medium — chips, timestamps, byte counts (Fixed — patch 03)
-
-### 6.4 Shape scale
-
-No changes needed — already coherent: `extraSmall` 6dp (badges),
-`small` 10dp (text fields/chips), `medium` 14dp (row cards), `large` 20dp
-(composer bar/dialogs), `extraLarge` 28dp (pill buttons).
-
-### 6.5 Component patterns to implement per screen
-
-- [x] **Download queue (active)** (Fixed — patch 04) — `medium`-shape surface on
-      `surfaceVariant`, solid `accentContainer` thumbnail placeholder with
-      a play-glyph (no network thumbnail fetch, keeps cost/scope at zero),
-      status line colored per state (`onSurfaceVariant` queued, `accent`
-      downloading, `success` done, `warning` retrying, `error` failed),
-      linear progress bar in `accent` only while actively downloading.
-- [x] **Download queue (empty)** (Fixed — patch 04) — centered `accentContainer` circle
-      behind a download-arrow icon, no button (the composer bar below is
-      already the call to action — don't duplicate it).
-- [x] **Library** (Fixed — patch 04) — same row pattern as queue, filled icon-only Play
-      button in `accent`, secondary overflow icon (⋮) for
-      delete/share-file actions (this is also the fix for the CJM's
-      "no in-app delete" gap, see Backlog).
-- [x] **Settings** (Fixed — patch 04) — group into labeled sections (`titleMedium` headers,
-      `outline`-divided rows) instead of a flat list: Default Quality,
-      Storage (subfolder name), Extractor (yt-dlp version + manual update
-      button + last-updated timestamp).
-- [x] **Error states** (Fixed — patch 04) — inline per-row errors keep `error`/`errorContainer`
-      as today; add a new dismissible banner pattern
-      (`errorContainer` background, `error` text) specifically for
-      connectivity-loss-at-queue-time, since that's a systemic state that
-      deserves different visual treatment than a single video's failure.
-- [x] **Composer bar** (Fixed — patch 04) — keep the existing `large`-shape pill with `accent`
-      send button; add a subtle `outline`-colored focus border (currently
-      likely relies on fill alone for affordance) and an inline greyed
-      placeholder hint ("Paste a YouTube link").
-- [x] **App icon** (N/A — no icon concept change needed; see Step 6.6 for the safe-zone fix) — no change needed to the concept (terracotta
-      background, cream download-glyph, no external assets/licensing
-      risk) — but see the safe-zone fix below.
-
-### 6.6 Adaptive icon fix
-
-- [x] **[LOW, fixed — patch 03] Fix `ic_launcher_foreground.xml`'s tray shape clipping
-  outside the adaptive-icon safe zone.** The tray/base rectangle's bottom
-  corners (`34,87` / `74,87`) sit ~38.6dp from center — outside the
-  guaranteed-visible 33dp-radius safe circle. On circular-mask
-  launchers/OEM skins, the bottom corners will be silently clipped,
-  making the tray look shortened/asymmetric (fine on squircle/rounded-
-  square masks, which is why this is easy to miss). **Fix**: narrow the
-  tray's x-range at the bottom, e.g. `40,79 → 68,79 → 68,87 → 40,87`
-  instead of `34...74`. Purely cosmetic, fix whenever you're already
-  looking at the icon on a real device.
+✅ **Done** (6.1-6.6: light/dark color tokens, a completed typography
+scale, per-screen component patterns, adaptive-icon safe-zone fix). **No
+"Claude"/Anthropic name, logo, or licensed fonts anywhere — this
+constraint is unchanged and non-negotiable**, and nothing in patches
+03-04 violated it. See `CHANGELOG.md`'s Patch 03 and 04 entries for
+detail. 6.7 below is the one item still open.
 
 ### 6.7 Optional, not required for v2
 
@@ -472,42 +160,26 @@ No changes needed — already coherent: `extraSmall` 6dp (badges),
 
 ---
 
-## Step 7 — Branding: rename to Kinescope ✅ done (patch 06)
+## Step 7 — Branding: rename to Kinescope
 
-- [x] **[Do this now, not later]** `namespace`/`applicationId`/
-      `rootProject.name` in `app/build.gradle.kts` and
-      `settings.gradle.kts` renamed to `com.kinescope.app` / `kinescope`.
-      Done before Step 5's first device install, while `applicationId`
-      was still a safe, reversible change. (Fixed — patch 06.) The
-      Kotlin package directory moved to match
-      (`app/src/main/java/com/kinescope/app/`, was
-      `com/baltic/ytoffline/`), and every file's `package` declaration
-      updated accordingly.
-- [x] Update `app_name` in `strings.xml` from `"YT Offline"` to
-      `"Kinescope"`. (Fixed — patch 06.) Also updated two other
-      user-visible strings left over from the old name so the rebrand
-      doesn't look half-done on screen: the foreground-service
-      notification title (`DownloadService.kt`) and the `TopAppBar`
-      title (`MainActivity.kt`). The internal `ACTION_ENQUEUE` intent-
-      action string was also updated to match the new package for
-      hygiene, though it's self-referential and wasn't a functional
-      requirement.
-- [x] No icon/color changes are required for a name-only rebrand — the
-      existing terracotta/cream identity carries over fine, confirmed,
-      no action taken. (Kotlin *identifiers* like `YtOfflineTheme`,
-      `YtOfflineApp`, `YtOfflineExtras` were deliberately left
-      unchanged — internal-only, not user-visible, never part of this
-      Step's scope; revisit only if it becomes annoying to read.)
+✅ **Done.** `namespace`/`applicationId`/`rootProject.name` →
+`com.kinescope.app` / `kinescope`, done before Step 5's first device
+install while `applicationId` was still a safe, reversible change; every
+user-visible "YT Offline" string → "Kinescope". Internal-only Kotlin
+identifiers (`YtOfflineTheme`, `YtOfflineApp`, etc.) deliberately left
+unchanged — not user-visible, not in scope. See `CHANGELOG.md`'s Patch
+06 entry.
 
 ---
 
 ## Step 8 — Documentation
 
-- [ ] Replace `README.md` with the full rewritten version already drafted
-      during the review (covers: what it is, who it's for, build
-      instructions, current unbuilt status, documentation map, and
-      explicit limitations — personal use only, no custom extraction, no
-      required paid services). Paste it in as-is; it's ready to commit.
+- [x] Replace `README.md` with a real one (Fixed — patch 15; written
+      fresh rather than pasting an old drafted version, which could no
+      longer be located in the repo by that session — covers what it
+      is, who it's for, build instructions, status, documentation map,
+      and explicit limitations). This checkbox itself was accidentally
+      left unflipped until patch 16 caught it.
 - [ ] Add a `CJM.md` (or fold into `design.md`) capturing the Customer
       Journey Map produced during the review — five stages (prep at home
       → queue & download → departure/loses access → watch offline in-
@@ -536,6 +208,12 @@ unverified debug build signed into a release build is still unverified.
 Everything below is opt-in and user-prioritized, explicitly **not** a
 commitment or a new numbered phase:
 
+- [ ] Trim `x86`/`x86_64` from `ndk.abiFilters` in `app/build.gradle.kts`
+      if the target phone is arm64 (the overwhelming majority are) and
+      emulator support isn't needed — shrinks the APK, since
+      `youtubedl-android`'s bundled native binaries dominate its size.
+      Originally Step 1's one optional, non-blocking item; moved here in
+      patch 16 since it was never actually blocking anything.
 - [ ] Persist download queue state (small local DB or file) so a process
       kill doesn't silently lose in-flight job status with zero UI
       indication — currently accepted debt (`DownloadQueueBus` is a bare
@@ -589,45 +267,19 @@ meaningful change**, not just at the end of a long unattended session.
 
 ---
 
-## Appendix — Full findings traceability (all 4 review parts)
+## Appendix — Open findings only
 
-Every finding from the review, in one place, so nothing gets lost even if
-the sections above get edited over time.
+Originally a full traceability table for every finding from the 4-part
+review (35 rows). As of patch 16, closed findings (everything that was
+✅ Fixed/Confirmed — originally rows 1-15, 18, 21-32, 34-35) have moved
+to `CHANGELOG.md`'s per-patch entries, keeping this table to what's
+still actually open or informational. Original row numbers preserved
+below for cross-reference with `CHANGELOG.md` and old session history.
 
 | # | Priority | Finding | Location | Status |
 |---|---|---|---|---|
-| 1 | Critical | Compose BOM version inconsistent with rest of toolchain | `app/build.gradle.kts` | ✅ Fixed — patch 01 |
-| 2 | Critical | Race condition: job can be silently stranded at "Queued" | `DownloadService.kt` | ✅ Fixed — patch 01 |
-| 3 | Critical | Unhandled exception types crash the whole app process | `DownloadService.kt` | ✅ Fixed — patch 01 |
-| 4 | High | `execute()` progress callback possibly wrong lambda arity | `DownloadService.kt` | ✅ Fixed — patch 01 (confirmed 3-param) |
-| 5 | High | Downloaded files/library entries have raw-UUID names | `DownloadService.kt`, `MediaStorage.kt` | ✅ Fixed — patch 02 |
-| 6 | Medium | Output filename/extension assumption (narrower risk, `/b` fallback branch) | `QualityPresets.kt`, `DownloadService.kt` | ✅ Fixed — patch 02 |
-| 7 | Medium | `RELATIVE_PATH` trailing-slash mismatch, insert vs. query | `MediaStorage.kt` | ✅ Fixed — patch 02 |
-| 8 | Medium | `DownloadQueueBus` read-modify-write not atomic | `DownloadQueueBus.kt` | ✅ Fixed — patch 02 |
-| 9 | Medium | No subfolder name sanitization | `Settings.kt` | ✅ Fixed — patch 02 |
-| 10 | Medium | No host validation on shared/pasted URLs | `MainActivity.kt` | ✅ Fixed — patch 02 |
-| 11 | Low | `youtubedl-android`/`ffmpeg` import paths | multiple files | ✅ Confirmed via real compile — patch 14. One mistake found and fixed: `UpdateChannel` is a nested class of `YoutubeDL`, not top-level (patch 07's README-based pre-verification missed this); everything else patch 07 checked was correct, re-confirmed against the actual tagged 0.18.1 source |
-| 12 | Low | `updateYoutubeDL()` return type assumption | `YtDlpUpdater.kt` | ✅ Fixed — patch 01 (UpdateChannel arg added) |
-| 13 | Low | Unguarded `startActivity(ACTION_VIEW)` | `MainActivity.kt` | ✅ Fixed — patch 02 |
-| 14 | Low | Dead `requestLegacyExternalStorage="true"` flag | `AndroidManifest.xml` | ✅ Fixed — patch 01 |
-| 15 | Low | Adaptive icon tray clips outside safe zone on circular masks | `ic_launcher_foreground.xml` | ✅ Fixed — patch 03 |
 | 16 | Low | Inconsistent Thread/Handler vs. coroutines style | `YtOfflineApp.kt`, `MainActivity.kt` | Open — Step 3 (partial), Backlog (rest) |
 | 17 | Low | Only `app_name` externalized to `strings.xml` | `strings.xml` | Backlog |
-| 18 | Low | Dead unreachable `else` branch in foreground-service start | `DownloadService.kt` | ✅ Fixed — patch 02 |
-| 19 | Info | No monochrome adaptive-icon layer (Android 13+ themed icons) | resources | Backlog |
+| 19 | Info | No monochrome adaptive-icon layer (Android 13+ themed icons) | resources | Backlog (Step 6.7) |
 | 20 | Info | `dataSync` foreground service execution time budget on API 34+ | `DownloadService.kt` | Informational only |
-| 21 | Info | `applicationId`/`namespace`/`rootProject.name` still say `ytoffline` | build files | ✅ Fixed — patch 06 |
-| 22 | — | `sdkmanager` package identifiers | `.devcontainer/setup.sh` | ✅ Confirmed correct |
-| 23 | — | `extractNativeLibs="true"` | `AndroidManifest.xml` | ✅ Confirmed correct, keep |
-| 24 | — | AGP/Gradle/Kotlin toolchain compatibility | `app/build.gradle.kts` | ✅ Confirmed compatible |
-| 25 | — | `isMinifyEnabled = false` on release | `app/build.gradle.kts` | ✅ Confirmed reasonable |
-| 26 | — | Foreground service type declaration + runtime call | manifest + `DownloadService.kt` | ✅ Confirmed correct |
-| 27 | — | `POST_NOTIFICATIONS` declared + runtime request | manifest + `MainActivity.kt` | ✅ Confirmed correct |
-| 28 | — | `<queries>` manifest requirement | N/A | ✅ Confirmed not needed |
-| 29 | — | `addOption` overload usage | `QualityPresets.kt` | ✅ Confirmed correct |
-| 30 | — | `font_certs.xml` / `Theme.kt` cross-reference | resources | ✅ Confirmed correct |
-| 31 | — | `versionCode` hardcoding | `app/build.gradle.kts` | ✅ Confirmed resolved (Phase 7) |
-| 32 | — | English-only / no custom extractor / zero required cost / sideload-only | whole codebase | ✅ Confirmed `CLAUDE.md`-compliant |
 | 33 | — | `friendlyError()` string matching against real yt-dlp output | `DownloadService.kt` | Needs device verification — Step 5 |
-| 34 | — | `.devcontainer/setup.sh`: `pipefail` + `yes \| sdkmanager --licenses` silently aborts setup before the Gradle wrapper is generated | `.devcontainer/setup.sh` | ✅ Fixed — patch 07 (found during Step 5 environment prep, not part of the original 4-part review) |
-| 35 | — | Invalid XML comment (`--` inside a comment body) in `ic_launcher_foreground.xml` broke `mergeDebugResources` -- the first real compile error hit after the JDK/Gradle environment was fixed | `ic_launcher_foreground.xml` | ✅ Fixed — patch 13 (found via the first successful `./gradlew assembleDebug` attempt) |

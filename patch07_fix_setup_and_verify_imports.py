@@ -128,6 +128,18 @@ def patch_roadmap(repo_root: Path):
         fail(f"{path} not found")
     text = path.read_text()
 
+    # Patch 16 collapsed every section this patch touches (Appendix rows
+    # 11 and 34, the Step 5 note, the top status line) into CHANGELOG.md
+    # plus one-line pointers. That's a strictly newer, equally-valid
+    # "done" state for all of it -- nothing left for this patch to do on
+    # a repeated full-chain run once patch 16 has landed. Without this
+    # guard, a re-run would either fail loudly (row 11's anchor is gone)
+    # or silently resurrect row 34 (its insertion anchor, row 33, is
+    # untouched, so the old insert-if-missing check would re-add it).
+    if "## Appendix — Open findings only" in text:
+        print("ROADMAP.md already restructured by patch 16 -- skipping patch 07's ROADMAP.md edits.")
+        return
+
     # 1. Appendix row #11
     old_row_11 = (
         "| 11 | Low | `youtubedl-android`/`ffmpeg` import paths | multiple "

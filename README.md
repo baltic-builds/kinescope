@@ -49,6 +49,14 @@ This project is developed in GitHub Codespaces.
    app/build/outputs/apk/debug/app-debug.apk`, or transfer the file and
    tap it).
 
+**Alternative: build via GitHub Actions.** If adb isn't available, or
+downloading the APK through the Codespace browser UI is inconvenient,
+use the *Build Debug APK* workflow under this repo's Actions tab
+(`.github/workflows/build-debug.yml`) instead of steps 3-4 above — run
+it by hand, supply a version name, and download the resulting APK from
+the run's Artifacts. No automatic trigger; each run is a deliberate,
+manually-versioned build.
+
 ## Documentation map
 
 - **`CLAUDE.md`** -- ground rules for this project (no custom

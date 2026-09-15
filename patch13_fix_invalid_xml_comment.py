@@ -96,6 +96,14 @@ def patch_roadmap(repo_root: Path):
         fail(f"{path} not found")
     text = path.read_text()
 
+    # Patch 16 removed Appendix row 34 (this patch's insertion anchor)
+    # entirely, migrating its content to CHANGELOG.md. Without this
+    # guard, a repeated full-chain run would see row 35 "missing" and
+    # silently re-insert it after row 34's old position.
+    if "## Appendix — Open findings only" in text:
+        print("ROADMAP.md already restructured by patch 16 -- skipping patch 13's ROADMAP.md edit.")
+        return
+
     anchor = (
         "| 34 | — | `.devcontainer/setup.sh`: `pipefail` + "
         "`yes \\| sdkmanager --licenses` silently aborts setup before the "

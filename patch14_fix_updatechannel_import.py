@@ -101,6 +101,13 @@ def patch_roadmap(repo_root: Path):
         fail(f"{path} not found")
     text = path.read_text()
 
+    # Patch 16 removed Appendix row 11 entirely, migrating its content
+    # to CHANGELOG.md's Patch 14 entry. Nothing left for this patch to
+    # do on a repeated full-chain run once patch 16 has landed.
+    if "## Appendix — Open findings only" in text:
+        print("ROADMAP.md already restructured by patch 16 -- skipping patch 14's ROADMAP.md edit.")
+        return
+
     old_row_11 = (
         "| 11 | Low | `youtubedl-android`/`ffmpeg` import paths | multiple "
         "files | Pre-verified against library source — patch 07 (still "

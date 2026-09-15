@@ -540,6 +540,19 @@ def patch_roadmap(repo_root: Path):
         fail(f"{path} not found")
     text = path.read_text()
 
+    # Patch 16 rewrote the top status block's wording (not just its
+    # patch-number suffix) and collapsed Step 2 to a one-line pointer,
+    # so neither this patch's old_status_block/new_status_block nor its
+    # old_step2/new_step2 text can match anymore either way. That's a
+    # strictly newer, equally-valid "done" state -- nothing left for
+    # this patch to do on a repeated full-chain run once patch 16 has
+    # landed. (The Step 5 environment-note check below is unaffected --
+    # patch 16 doesn't touch Step 5 -- but short-circuiting here is
+    # simpler and safer than tracking each check's fate individually.)
+    if "## Appendix — Open findings only" in text:
+        print("ROADMAP.md already restructured by patch 16 -- skipping patch 15's ROADMAP.md edits.")
+        return
+
     # 1. Top status block
     old_status_block = (
         "**Status as of this update (after patches 01-07):** Steps 1-4, Step 6\n"

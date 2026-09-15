@@ -44,3 +44,12 @@ future sessions don't lose them.)
   after each one — the user will build and test everything together
   once, later. Still flag unverified/risky assumptions in code
   comments and ROADMAP.md as they come up; just don't stop and wait.
+- Build the APK via GitHub Actions (`.github/workflows/build-debug.yml`,
+  manual `workflow_dispatch` trigger only, version assigned by hand on
+  each run) instead of a local Codespace `./gradlew` build + manual
+  download — added patch 16.
+- Process, starting patch 16: work through `ROADMAP.md` in order. When
+  an item is completed, remove its detailed checklist text from
+  `ROADMAP.md` (collapse to a one-line pointer) and log what changed in
+  `CHANGELOG.md` instead. Deliver a Python patch script per stage, as
+  before.

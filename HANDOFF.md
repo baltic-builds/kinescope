@@ -3,8 +3,8 @@
 Paste this file's contents at the start of a new conversation to
 resume work with minimal re-explaining. If the new conversation
 doesn't already have repo access, also attach a fresh repomix export
-(or paste `CLAUDE.md`, `ROADMAP.md`, `roadmap.md`, `design.md`, and
-`RELEASE.md` directly).
+(or paste `CLAUDE.md`, `ROADMAP.md`, `CHANGELOG.md`, `roadmap.md`,
+`design.md`, and `RELEASE.md` directly).
 
 ## Project identity
 
@@ -25,12 +25,14 @@ Written by Claude across 7 phases with no intermediate compilation
 (explicit user instruction at the time: "keep going, test everything
 at the end"). A deep 4-part review by Claude Fable 5.1 then produced
 `ROADMAP.md` -- a sequenced, prioritized fix list with a
-findings-traceability Appendix (now 35 rows; started at 33, grew as
-patches 07-14 found more). All patches below were delivered as
-self-contained Python scripts for GitHub Codespaces, each one extracted
-into a working copy and dry-run-verified (diffs + bracket balance +
-idempotency, usually across 2-5 full-chain passes) before being handed
-over -- never delivered untested:
+findings-traceability Appendix (35 rows total across the review and
+patches 07-14's own discoveries; as of patch 16 the Appendix only
+lists the 5 still-open/informational rows -- closed ones moved to
+`CHANGELOG.md`, see its Patch 16 entry). All patches below were
+delivered as self-contained Python scripts for GitHub Codespaces, each
+one extracted into a working copy and dry-run-verified (diffs +
+bracket balance + idempotency, usually across 2-5 full-chain passes)
+before being handed over -- never delivered untested:
 
 - **Patch 01** -- ROADMAP Steps 1-3: the Compose BOM version (was a
   fabricated future release that doesn't exist), `execute()`'s
@@ -149,6 +151,39 @@ over -- never delivered untested:
   `updateYoutubeDL()`'s signature) was re-confirmed correct against
   this same real checkout. **After this patch, `./gradlew assembleDebug`
   succeeded -- the first successful build in the project's history.**
+- **Patch 15** -- Documentation consolidation after the first
+  successful build: `README.md` rewritten from scratch (the draft
+  `ROADMAP.md` referenced could no longer be located in the repo),
+  this file refreshed end to end, and `ROADMAP.md`'s top status block
+  and Step 2/Step 5 notes updated to match. (This bullet itself was
+  missing from this list until patch 16 caught it -- self-referential
+  doc patches are easy to under-describe.)
+- **Patch 16** -- Added `.github/workflows/build-debug.yml`: a
+  manual-only (`workflow_dispatch`) GitHub Actions workflow that builds
+  a debug APK and uploads it as a run artifact, so getting a build onto
+  a phone no longer depends on adb or a Codespace-browser download.
+  Version name is supplied by hand each run; `versionCode` is derived
+  from the Actions run number so it always increases. `app/build.gradle.kts`
+  updated to read optional `appVersionCode`/`appVersionName` Gradle
+  properties (falls back to the existing hardcoded `7`/`"1.0.0"` for
+  local builds). Also introduced `CHANGELOG.md` and the process behind
+  it: from this patch on, a completed `ROADMAP.md` item gets its
+  detailed checklist collapsed to a one-line pointer there, with the
+  actual change log recorded in `CHANGELOG.md` instead -- `ROADMAP.md`
+  shrank from 634 to well under 300 lines as a result. Also fixed a
+  stale, never-flipped checkbox in `ROADMAP.md`'s Step 8 (the README
+  rewrite was actually done in patch 15, but the checkbox said
+  otherwise). **Multi-pass full-chain testing caught the exact
+  "later patch breaks an earlier patch's own idempotency check" failure
+  mode already documented below** -- collapsing the Appendix removed
+  the anchor rows patches 07/13/14 depend on, and rewriting the top
+  status block/Step 2 broke patch 15's checks too. Fixed by adding a
+  short-circuit guard to each of those four scripts' `patch_roadmap()`:
+  if patch 16's Appendix-trim marker is present, skip that patch's
+  ROADMAP.md edit entirely (nothing left for it to do; patch 16's
+  rewrite already incorporates it). Without this, a repeated full-chain
+  run would have either failed loudly or, for patch 07's row 34,
+  silently resurrected content patch 16 had intentionally removed.
 
 **Version-compatibility note worth remembering:** Compose BOM
 2024.11.00 (fixed in patch 01) pulls in Material3 **1.3.1**. Some APIs
@@ -177,7 +212,8 @@ required), 7 (Kinescope rename), and the environment/build-setup work
 that had to happen before Step 5 could even start (patches 07-14: a
 working, re-runnable `setup.sh`, a Gradle/JDK pin that actually works
 in this Codespace, and every compile error fixed). **`./gradlew
-assembleDebug` now succeeds.**
+assembleDebug` now succeeds**, both locally and via the new
+`.github/workflows/build-debug.yml` GitHub Actions workflow (patch 16).
 
 **Not done, in the order to actually do them:**
 
@@ -190,6 +226,9 @@ assembleDebug` now succeeds.**
    `./gradlew assembleDebug` somehow needs to run again for any reason,
    the environment fixes (patches 07-12) are already in place, so this
    should be a normal build, not another environment debugging session.
+   Getting the APK onto the phone no longer requires adb: the
+   `Build Debug APK` GitHub Actions workflow (patch 16) builds and
+   uploads it as a downloadable run artifact instead.
 2. **Step 8 -- Documentation.** `README.md` was rewritten in this
    session (patch 15) rather than using an older draft referenced in
    `ROADMAP.md` that was no longer available in the repo. Still open:
@@ -268,13 +307,20 @@ All files below live under
   deliberately avoids (Anthropic's actual fonts/logo/name); its "YT
   Offline" mentions are now "Kinescope". `CLAUDE.md` -- project ground
   rules. `ROADMAP.md` -- the living, checkbox-tracked implementation
-  plan (read its top section first). `roadmap.md` -- GPT Astra's
+  plan (read its top section first; as of patch 16 it only carries
+  detail for what's still open -- completed Steps point to
+  `CHANGELOG.md`). `CHANGELOG.md` -- terse per-patch "what shipped"
+  record, newest first (patch 16). `roadmap.md` -- GPT Astra's
   sprint-based plan, queued for after `ROADMAP.md`.
+  `.github/workflows/build-debug.yml` -- manual GitHub Actions
+  workflow that builds and uploads a versioned debug APK (patch 16).
 
-`minSdk` 29, `compileSdk`/`targetSdk` 35, `versionCode` 7,
-`versionName` "1.0.0", Compose BOM `2024.11.00` (Material3 1.3.1),
-`youtubedl-android` 0.18.1, Gradle `8.10.2`. `applicationId`/
-`namespace`: `com.kinescope.app`. App name: "Kinescope".
+`minSdk` 29, `compileSdk`/`targetSdk` 35, `versionCode` 7 (default;
+overridable via `-PappVersionCode`, see patch 16), `versionName`
+"1.0.0" (default; overridable via `-PappVersionName`), Compose BOM
+`2024.11.00` (Material3 1.3.1), `youtubedl-android` 0.18.1, Gradle
+`8.10.2`. `applicationId`/`namespace`: `com.kinescope.app`. App name:
+"Kinescope".
 
 ## Key learnings & principles
 
@@ -334,15 +380,24 @@ All files below live under
 - **Hidden directories:** dot-prefixed folders (e.g. `.devcontainer/`)
   are silently skipped by some file transfer tools and GUI managers --
   `git add -A` from the terminal is required to capture them.
+- **A GitHub Actions runner is not the same environment as this
+  Codespace.** The JDK-pinning workaround from patches 11-12 exists
+  because *this specific Codespace* has a competing ambient JDK 25 on
+  `PATH` ahead of the one actually wanted. A GitHub Actions runner
+  (`.github/workflows/build-debug.yml`, patch 16) is a clean, single-JDK
+  environment where `actions/setup-java` is the only JDK present -- so
+  the workflow doesn't need (and doesn't include) that same pin. Don't
+  assume every environment inherits every fix a previous environment
+  needed; re-derive from first principles per environment.
 
 ## How to resume in a new conversation
 
 1. Export a fresh repomix XML of the repo (it should reflect patches
-   01-14 if they were applied and committed -- confirm with `git log`).
-2. Paste it plus this file. `CLAUDE.md`/`ROADMAP.md`/`roadmap.md`/
-   `design.md` are nice-to-have if not already covered by the repomix
-   export, but this file's "What's actually done vs. still open"
-   section above should be enough to know where to pick up.
+   01-16 if they were applied and committed -- confirm with `git log`).
+2. Paste it plus this file. `CLAUDE.md`/`ROADMAP.md`/`CHANGELOG.md`/
+   `roadmap.md`/`design.md` are nice-to-have if not already covered by
+   the repomix export, but this file's "What's actually done vs. still
+   open" section above should be enough to know where to pick up.
 3. State which of the "not done" items above to work on next -- they're
    meant to happen in that order, but say so explicitly, since a new
    conversation has no memory of *why* that order matters otherwise.
@@ -350,14 +405,17 @@ All files below live under
 ## Immediate next step for Claude (in a new conversation)
 
 Continue at **Step 5 (device install + manual testing)** unless told
-otherwise. The compile is done -- `./gradlew assembleDebug` succeeds.
-`ROADMAP.md`'s Step 5 section has the full manual test checklist,
-including explicitly stress-testing the `DownloadService`
-race-condition fix from patch 01 (queue several videos in quick
-succession). Continue the established pattern for this project:
+otherwise. The compile is done -- `./gradlew assembleDebug` succeeds,
+either locally or via the `Build Debug APK` GitHub Actions workflow
+(`.github/workflows/build-debug.yml`, patch 16 -- manual trigger, hand
+-assigned version, no adb required). `ROADMAP.md`'s Step 5 section has
+the full manual test checklist, including explicitly stress-testing the
+`DownloadService` race-condition fix from patch 01 (queue several
+videos in quick succession). Continue the established pattern for this
+project:
 
 - Read the actual current file content before editing -- don't assume
-  memory of it is accurate; things have changed across 14 patches.
+  memory of it is accurate; things have changed across 16 patches.
 - Verify uncertain library/API claims against a real source -- ideally
   the actual tagged source via `git clone` (github.com is reachable
   from the sandbox), not just a README or an old sample app, both of
@@ -370,7 +428,9 @@ succession). Continue the established pattern for this project:
   patches, run the **full chain multiple times from a clean copy**,
   since a later patch can silently break an earlier patch's own
   idempotency check (see "Key learnings" above).
-- Update `ROADMAP.md`'s checkboxes and Appendix in the same patch as
-  the code change they correspond to.
+- When a `ROADMAP.md` item is completed, collapse its checklist to a
+  one-line pointer in that file and record what actually changed in
+  `CHANGELOG.md` instead (process established patch 16) -- do this in
+  the same patch as the code change it corresponds to.
 - Write all code, code comments, commit messages, and documentation in
   English, regardless of what language the conversation itself is in.

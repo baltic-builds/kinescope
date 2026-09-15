@@ -31,8 +31,13 @@ android {
         // not worth a legacy fallback path for pre-2019 phones.
         minSdk = 29
         targetSdk = 35
-        versionCode = 7
-        versionName = "1.0.0"
+        // Patch 16: overridable via `-PappVersionCode=<n> -PappVersionName=<name>`
+        // so .github/workflows/build-debug.yml can stamp a manually-chosen
+        // version per run without editing this file. Falls back to these
+        // hardcoded defaults for local Codespace builds that don't pass
+        // the properties (e.g. plain `./gradlew assembleDebug`).
+        versionCode = (project.findProperty("appVersionCode") as String?)?.toIntOrNull() ?: 7
+        versionName = (project.findProperty("appVersionName") as String?) ?: "1.0.0"
 
         // youtubedl-android bundles native Python/yt-dlp binaries per
         // ABI; without this the APK would try to include every ABI
