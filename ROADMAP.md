@@ -180,14 +180,17 @@ unchanged — not user-visible, not in scope. See `CHANGELOG.md`'s Patch
       is, who it's for, build instructions, status, documentation map,
       and explicit limitations). This checkbox itself was accidentally
       left unflipped until patch 16 caught it.
-- [ ] Add a `CJM.md` (or fold into `design.md`) capturing the Customer
+- [x] Add a `CJM.md` (or fold into `design.md`) capturing the Customer
       Journey Map produced during the review — five stages (prep at home
       → queue & download → departure/loses access → watch offline in-
       region → return & refresh library), with the explicit finding that
       the single highest-risk moment is the silent-failure window at
       home the night before a trip. This is the "why" behind Steps 3–4's
       priority ordering and is worth keeping as a living reference, not
-      just a one-time review artifact.
+      just a one-time review artifact. (Fixed — patch 17: written as a
+      standalone `CJM.md` rather than folded into `design.md`, since the
+      two documents serve different audiences — one visual, one
+      product/prioritization.)
 - [ ] Keep this `ROADMAP.md` itself as the living source of truth for
       "what's actually been verified vs. still assumed" — update the
       checkboxes above as each item is actually done, don't let it drift

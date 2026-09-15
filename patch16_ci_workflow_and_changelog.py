@@ -97,16 +97,22 @@ def write_if_needed(path: Path, content: str, marker: str, label: str):
     print(f"Wrote {path}")
 
 
-def whole_file_guarded_replace(path: Path, expected_old: str, new_content: str, label: str):
+def whole_file_guarded_replace(path: Path, expected_old: str, new_content: str, label: str, superseded_marker: str = None):
     """Exact-match guarded replace of an ENTIRE file's content.
-    Idempotent: if the file already equals `new_content`, skip. If it
-    equals neither the expected old nor the new content, fail loudly
-    instead of overwriting something unexpected."""
+    Idempotent: if the file already equals `new_content`, skip. If
+    `superseded_marker` is given and present in the file, a later
+    patch has already modified this file further -- also skip, since
+    there's nothing left for this patch to do. If the file matches
+    none of those, fail loudly instead of overwriting something
+    unexpected."""
     if not path.exists():
         fail(f"{path} not found")
     text = path.read_text()
     if text == new_content:
         print(f"{label} already up to date -- skipping.")
+        return
+    if superseded_marker and superseded_marker in text:
+        print(f"{label} already superseded by a later patch -- skipping.")
         return
     if text != expected_old:
         fail(
@@ -5199,13 +5205,15 @@ if __name__ == "__main__":
 
 def patch_roadmap(repo_root: Path):
     whole_file_guarded_replace(
-        repo_root / "ROADMAP.md", OLD_ROADMAP_MD, NEW_ROADMAP_MD, "ROADMAP.md"
+        repo_root / "ROADMAP.md", OLD_ROADMAP_MD, NEW_ROADMAP_MD, "ROADMAP.md",
+        superseded_marker="Fixed — patch 17: written as a",
     )
 
 
 def patch_handoff(repo_root: Path):
     whole_file_guarded_replace(
-        repo_root / "HANDOFF.md", OLD_HANDOFF_MD, NEW_HANDOFF_MD, "HANDOFF.md"
+        repo_root / "HANDOFF.md", OLD_HANDOFF_MD, NEW_HANDOFF_MD, "HANDOFF.md",
+        superseded_marker="**Patch 17** -- Added `CJM.md`",
     )
 
 

@@ -3,8 +3,8 @@
 Paste this file's contents at the start of a new conversation to
 resume work with minimal re-explaining. If the new conversation
 doesn't already have repo access, also attach a fresh repomix export
-(or paste `CLAUDE.md`, `ROADMAP.md`, `CHANGELOG.md`, `roadmap.md`,
-`design.md`, and `RELEASE.md` directly).
+(or paste `CLAUDE.md`, `ROADMAP.md`, `CHANGELOG.md`, `CJM.md`,
+`roadmap.md`, `design.md`, and `RELEASE.md` directly).
 
 ## Project identity
 
@@ -184,6 +184,30 @@ before being handed over -- never delivered untested:
   rewrite already incorporates it). Without this, a repeated full-chain
   run would have either failed loudly or, for patch 07's row 34,
   silently resurrected content patch 16 had intentionally removed.
+- **Patch 17** -- Added `CJM.md`: the five-stage Customer Journey Map
+  (prep at home -> queue & download -> departure/loses access -> watch
+  offline in-region -> return & refresh library) as a standalone living
+  document, closing Step 8's last concrete checkbox. States explicitly
+  why stage 1 (queuing several videos at home, the night before a trip)
+  is the highest-risk moment: it's the last point of full internet
+  access, and nothing between it and departure is recoverable if it
+  goes wrong -- the actual reason every crash/race/silent-failure fix
+  in Steps 1/3/4 was ranked Critical/High. This was the one remaining
+  fully autonomous item -- everything else still open (Step 5's device
+  install/testing, and Step 9's signed release, which `ROADMAP.md`
+  itself explicitly gates on Step 5 being confirmed on a real device)
+  needs the user's actual phone and can't be advanced further from
+  here without that. **Also patched patch 16's own script, twice**:
+  since this patch further modifies both `ROADMAP.md` and `HANDOFF.md`
+  after patch 16 already did, patch 16's idempotency check broke on a
+  repeated full-chain run for both files, for the same reason patch 16
+  itself had to fix patches 07/13/14/15 -- caught by this patch's own
+  multi-pass regression test. Fixed by giving
+  `whole_file_guarded_replace()` an optional `superseded_marker`
+  parameter, used by both patch 16's `patch_roadmap()` and
+  `patch_handoff()` calls. Expect this to recur for any future patch
+  touching either file again -- budget time to vaccinate the immediate
+  predecessor each time.
 
 **Version-compatibility note worth remembering:** Compose BOM
 2024.11.00 (fixed in patch 01) pulls in Material3 **1.3.1**. Some APIs
@@ -212,10 +236,17 @@ required), 7 (Kinescope rename), and the environment/build-setup work
 that had to happen before Step 5 could even start (patches 07-14: a
 working, re-runnable `setup.sh`, a Gradle/JDK pin that actually works
 in this Codespace, and every compile error fixed). **`./gradlew
-assembleDebug` now succeeds**, both locally and via the new
+assembleDebug` now succeeds**, both locally and via the
 `.github/workflows/build-debug.yml` GitHub Actions workflow (patch 16).
+`CJM.md` (patch 17) closes Step 8's last concrete checkbox.
 
-**Not done, in the order to actually do them:**
+**Not done, in the order to actually do them -- and, as of patch 17,
+this is also the point where autonomous progress stops:** everything
+below needs the user's actual phone, either directly (Step 5) or
+because `ROADMAP.md` itself explicitly gates it on Step 5 being
+confirmed there first (Step 9). There is no further roadmap work a new
+session can usefully do without that -- don't invent busywork or skip
+ahead to Step 9 to look productive; wait for Step 5 results instead.
 
 1. **Step 5 -- Device install + manual testing.** The compile is done;
    nothing has touched a real device yet. `ROADMAP.md`'s Step 5 section
@@ -229,11 +260,10 @@ assembleDebug` now succeeds**, both locally and via the new
    Getting the APK onto the phone no longer requires adb: the
    `Build Debug APK` GitHub Actions workflow (patch 16) builds and
    uploads it as a downloadable run artifact instead.
-2. **Step 8 -- Documentation.** `README.md` was rewritten in this
-   session (patch 15) rather than using an older draft referenced in
-   `ROADMAP.md` that was no longer available in the repo. Still open:
-   a `CJM.md` customer-journey-map document, and keeping `ROADMAP.md`
-   itself current (ongoing, not a one-time task).
+2. **Step 8 -- Documentation.** `README.md` (patch 15) and `CJM.md`
+   (patch 17) are both done. The one remaining item, "keep `ROADMAP.md`
+   itself current," is ongoing by nature, not a one-time task -- it's
+   not something to ever check off, just a practice to keep following.
 3. **Step 9 -- Signed release**, per `RELEASE.md`, only once every item
    in Step 5 is confirmed working on a real device. Note: `RELEASE.md`
    still uses the old `yt-offline` name for the keystore filename/alias
@@ -310,10 +340,12 @@ All files below live under
   plan (read its top section first; as of patch 16 it only carries
   detail for what's still open -- completed Steps point to
   `CHANGELOG.md`). `CHANGELOG.md` -- terse per-patch "what shipped"
-  record, newest first (patch 16). `roadmap.md` -- GPT Astra's
-  sprint-based plan, queued for after `ROADMAP.md`.
-  `.github/workflows/build-debug.yml` -- manual GitHub Actions
-  workflow that builds and uploads a versioned debug APK (patch 16).
+  record, newest first (patch 17). `CJM.md` -- the five-stage Customer
+  Journey Map behind Steps 1/3/4's priority ordering (patch 17).
+  `roadmap.md` -- GPT Astra's sprint-based plan, queued for after
+  `ROADMAP.md`. `.github/workflows/build-debug.yml` -- manual GitHub
+  Actions workflow that builds and uploads a versioned debug APK
+  (patch 16).
 
 `minSdk` 29, `compileSdk`/`targetSdk` 35, `versionCode` 7 (default;
 overridable via `-PappVersionCode`, see patch 16), `versionName`
@@ -366,13 +398,18 @@ overridable via `-PappVersionCode`, see patch 16), `versionName`
 - **Patches that rewrite text produced by an earlier patch can silently
   break that earlier patch's own idempotency check**, if the earlier
   patch's "already applied" detection doesn't also recognize the later
-  patch's marker. This happened twice in this session (patch 12
+  patch's marker. This happened twice in one earlier session (patch 12
   rewriting patch 11's setup.sh block; patch 14 rewriting patch 07's
-  Appendix row) and was only caught by running the **full patch chain
-  3-5 times from a clean copy**, not a single dry run. Worth doing
-  multi-pass regression testing for any patch chain longer than a
-  couple of patches, especially once later patches start touching
-  earlier patches' output.
+  Appendix row), then twice more later (patch 16 rewriting patches
+  07/13/14/15's ROADMAP.md anchors; patch 17 then breaking patch 16's
+  own check the same way, one layer deeper) -- each time only caught by
+  running the **full patch chain 3-5+ times from a clean copy**, not a
+  single dry run. This isn't a one-off risk to remember, it's a
+  standing expectation for this project: any future patch that touches
+  `ROADMAP.md` (or any other file several patches already edit) should
+  budget time to also patch its immediate predecessor's idempotency
+  check, and multi-pass full-chain testing is the only reliable way to
+  catch when that's needed.
 - **SIGPIPE in setup scripts:** `pipefail` combined with `yes |` piped
   to a process that closes stdin early produces SIGPIPE errors; license
   acceptance in `sdkmanager` requires a more robust approach (fixed in
@@ -404,18 +441,26 @@ overridable via `-PappVersionCode`, see patch 16), `versionName`
 
 ## Immediate next step for Claude (in a new conversation)
 
-Continue at **Step 5 (device install + manual testing)** unless told
-otherwise. The compile is done -- `./gradlew assembleDebug` succeeds,
-either locally or via the `Build Debug APK` GitHub Actions workflow
+**Step 5 (device install + manual testing) is next, and it's a hard
+wall for autonomous progress** -- as of patch 17, every other item
+that could be done without the user's actual phone (Steps 1-4, 6, 7,
+8) is done. Step 9 is explicitly gated by `ROADMAP.md`'s own text on
+Step 5 being confirmed on a real device first ("do not skip ahead to
+save time"). Don't invent busywork or start Step 9/Backlog items to
+look productive while waiting -- if there's nothing left that doesn't
+need the phone, say so plainly and wait for Step 5's results instead.
+
+The compile is done -- `./gradlew assembleDebug` succeeds, either
+locally or via the `Build Debug APK` GitHub Actions workflow
 (`.github/workflows/build-debug.yml`, patch 16 -- manual trigger, hand
 -assigned version, no adb required). `ROADMAP.md`'s Step 5 section has
 the full manual test checklist, including explicitly stress-testing the
 `DownloadService` race-condition fix from patch 01 (queue several
-videos in quick succession). Continue the established pattern for this
-project:
+videos in quick succession). Once real-device results come back,
+continue the established pattern for this project:
 
 - Read the actual current file content before editing -- don't assume
-  memory of it is accurate; things have changed across 16 patches.
+  memory of it is accurate; things have changed across 17 patches.
 - Verify uncertain library/API claims against a real source -- ideally
   the actual tagged source via `git clone` (github.com is reachable
   from the sandbox), not just a README or an old sample app, both of
@@ -427,7 +472,8 @@ project:
   idempotency -- and for any patch chain longer than a couple of
   patches, run the **full chain multiple times from a clean copy**,
   since a later patch can silently break an earlier patch's own
-  idempotency check (see "Key learnings" above).
+  idempotency check (see "Key learnings" above, and patch 16's own
+  entry for a fresh example of this exact failure mode recurring).
 - When a `ROADMAP.md` item is completed, collapse its checklist to a
   one-line pointer in that file and record what actually changed in
   `CHANGELOG.md` instead (process established patch 16) -- do this in

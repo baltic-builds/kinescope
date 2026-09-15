@@ -12,6 +12,37 @@ Patches are cumulative and applied in order (01, 02, 03, ...). See each
 patch's own `.py` script for the exact, idempotent, exact-match-guarded
 edits it makes.
 
+## Patch 17 — Customer Journey Map
+
+### Added
+- `CJM.md` — the five-stage Customer Journey Map (prep at home → queue
+  & download → departure/loses access → watch offline in-region →
+  return & refresh library) originally produced during the 4-part
+  review, written up as a standalone living document rather than left
+  implicit in `ROADMAP.md`'s prioritization. States the key finding
+  explicitly: stage 1 → stage 3 is a one-way door with no retry once
+  internet access is lost, which is why every crash/race/silent-failure
+  fix in Steps 1/3/4 was ranked Critical/High regardless of how narrow
+  the trigger condition looked on paper.
+
+### Changed
+- `ROADMAP.md` — Step 8's `CJM.md` checkbox marked done.
+- `patch16_ci_workflow_and_changelog.py` — `whole_file_guarded_replace()`
+  gained an optional `superseded_marker` parameter, and its
+  `patch_roadmap()` **and** `patch_handoff()` calls now use it (patch
+  17 modifies both files after patch 16 already did). Caught by this
+  patch's own multi-pass full-chain regression test: since this patch
+  further modifies `ROADMAP.md` and `HANDOFF.md` after patch 16 already
+  did, re-running the full chain from a clean copy made patch 16's own
+  idempotency check fail on its second pass for both files (the file no
+  longer matched either patch 16's "old" or "new" expected content,
+  because patch 17 had since changed it again) — the same "later patch
+  breaks an earlier patch's idempotency check" failure mode as patch
+  16's own fix for patches 07/13/14/15, recurring one layer deeper.
+  This is expected to keep recurring for any future patch that touches
+  `ROADMAP.md` or `HANDOFF.md` again; each one should budget time to
+  vaccinate its immediate predecessor the same way.
+
 ## Patch 16 — CI build workflow, changelog process
 
 ### Added
