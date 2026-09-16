@@ -12,6 +12,35 @@ Patches are cumulative and applied in order (01, 02, 03, ...). See each
 patch's own `.py` script for the exact, idempotent, exact-match-guarded
 edits it makes.
 
+## Patch 18 — Fixed the GitHub Actions build failure
+
+### Fixed
+- **The `Build Debug APK` workflow (patch 16) failed on its first real
+  run**: `Value '/usr/local/sdkman/candidates/java/21.0.10-ms' given
+  for org.gradle.java.home Gradle property is invalid`. Root cause:
+  patch 12 wrote this JDK pin directly into the project's own
+  **committed** `gradle.properties`, which is correct for this one
+  Codespace (that exact path exists there) but wrong for literally
+  every other environment that clones the repo — including the GitHub
+  Actions runner added four patches later in patch 16, where that path
+  doesn't exist and Gradle refuses to start at all.
+- Fixed by moving the pin out of the committed, project-level
+  `gradle.properties` and into the user-level
+  `$HOME/.gradle/gradle.properties` instead — Gradle already gives
+  user-level `gradle.properties` higher precedence than the
+  project-level one (confirmed against Gradle's own build-environment
+  documentation), and that file lives outside the repo entirely, so it
+  never gets committed or shipped anywhere. `.devcontainer/setup.sh`'s
+  JDK-detection logic (unchanged) now writes there instead of into the
+  tracked file. The stale, invalid line removed from the committed
+  `gradle.properties`, which is what immediately unblocks the GitHub
+  Actions build.
+- Verified: simulated both the Codespace path (fake SDKMAN JDK
+  directories, confirmed the pin lands in `$HOME/.gradle/gradle.properties`
+  and the project file stays untouched, across two runs for
+  idempotency) and confirmed the committed `gradle.properties` no
+  longer contains any machine-specific path.
+
 ## Patch 17 — Customer Journey Map
 
 ### Added

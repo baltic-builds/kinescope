@@ -100,6 +100,19 @@ echo "== Pinning Gradle to a JDK it can actually run on =="
 # search to accept any installed JDK Gradle 8.10.2 can run on
 # (17-23 inclusive), preferring the highest one found, rather than
 # requiring exactly 17.
+#
+# Patch 18: this pin is a machine-specific absolute path (this exact
+# Codespace's SDKMAN install location). Patch 12 wrote it into the
+# project's own committed gradle.properties, which meant it got
+# pushed to git and shipped to every environment that clones this
+# repo -- including the GitHub Actions runner added in patch 16,
+# where /usr/local/sdkman/candidates/java/21.0.10-ms doesn't exist
+# and the build failed outright ("Value ... given for
+# org.gradle.java.home Gradle property is invalid"). Written to the
+# user-level $HOME/.gradle/gradle.properties instead: Gradle already
+# gives user-level gradle.properties higher precedence than the
+# project-level one, and this file lives outside the repo entirely,
+# so it never leaves this machine.
 find_gradle_compatible_jdk() {
   best_major=0
   best_dir=""
@@ -121,6 +134,7 @@ find_gradle_compatible_jdk() {
 }
 
 JDK_HOME=$(find_gradle_compatible_jdk)
+USER_GRADLE_PROPERTIES="$HOME/.gradle/gradle.properties"
 
 if [ -z "$JDK_HOME" ]; then
   echo "WARNING: no JDK between 17 and 23 found under /usr/local/sdkman/candidates/java or /usr/lib/jvm." >&2
@@ -128,12 +142,14 @@ if [ -z "$JDK_HOME" ]; then
   echo "Install one manually (e.g. 'sdk install java 21.0.10-ms') and re-run this script." >&2
 else
   echo "Found a Gradle-compatible JDK at: $JDK_HOME"
-  if grep -qF "org.gradle.java.home=" gradle.properties 2>/dev/null; then
-    sed -i "s#^org.gradle.java.home=.*#org.gradle.java.home=$JDK_HOME#" gradle.properties
-    echo "Updated org.gradle.java.home=$JDK_HOME in gradle.properties"
+  mkdir -p "$HOME/.gradle"
+  touch "$USER_GRADLE_PROPERTIES"
+  if grep -qF "org.gradle.java.home=" "$USER_GRADLE_PROPERTIES" 2>/dev/null; then
+    sed -i "s#^org.gradle.java.home=.*#org.gradle.java.home=$JDK_HOME#" "$USER_GRADLE_PROPERTIES"
+    echo "Updated org.gradle.java.home=$JDK_HOME in $USER_GRADLE_PROPERTIES"
   else
-    echo "org.gradle.java.home=$JDK_HOME" >> gradle.properties
-    echo "Pinned org.gradle.java.home=$JDK_HOME in gradle.properties"
+    echo "org.gradle.java.home=$JDK_HOME" >> "$USER_GRADLE_PROPERTIES"
+    echo "Pinned org.gradle.java.home=$JDK_HOME in $USER_GRADLE_PROPERTIES"
   fi
 fi
 

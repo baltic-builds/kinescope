@@ -208,6 +208,24 @@ before being handed over -- never delivered untested:
   `patch_handoff()` calls. Expect this to recur for any future patch
   touching either file again -- budget time to vaccinate the immediate
   predecessor each time.
+- **Patch 18** -- Fixed the `Build Debug APK` workflow's first real
+  failure, reported by the user directly from an Actions run: `Value
+  '/usr/local/sdkman/candidates/java/21.0.10-ms' given for
+  org.gradle.java.home Gradle property is invalid`. Root cause: patch
+  12 pinned Gradle's JDK by writing directly into the project's
+  **committed** `gradle.properties` -- correct for the one Codespace
+  where that exact SDKMAN path exists, wrong for every other
+  environment cloning the repo, including the Actions runner four
+  patches later. Fixed by redirecting `.devcontainer/setup.sh`'s
+  (unchanged) JDK-detection logic to write the pin into the user-level
+  `$HOME/.gradle/gradle.properties` instead, which Gradle already
+  prioritizes over the project-level file and which never leaves the
+  machine; removed the stale invalid line from the committed file,
+  which is what actually unblocks CI. Verified by simulating both
+  environments (fake SDKMAN dirs for the Codespace path, confirmed
+  project file stays clean either way) rather than just reasoning
+  about it, since this project has been burned before by assuming
+  environment behavior instead of checking it.
 
 **Version-compatibility note worth remembering:** Compose BOM
 2024.11.00 (fixed in patch 01) pulls in Material3 **1.3.1**. Some APIs
@@ -356,6 +374,22 @@ overridable via `-PappVersionCode`, see patch 16), `versionName`
 
 ## Key learnings & principles
 
+- **Machine-specific config must never be written into a committed,
+  shared file.** Patch 12 pinned Gradle's JDK by writing an absolute
+  path into the project's own tracked `gradle.properties` -- it worked
+  perfectly in the one Codespace that path existed in, and broke
+  silently (well, not silently -- loudly, but only once someone else's
+  environment actually tried to build) for every other environment
+  that cloned the repo, surfacing four patches later the first time
+  the new GitHub Actions workflow (patch 16) actually ran (patch 18).
+  The fix -- writing to `$HOME/.gradle/gradle.properties` instead,
+  which Gradle prioritizes over the project file and which never
+  leaves the machine -- was available the whole time; the bug was
+  writing to the wrong file, not the detection logic itself, which was
+  correct from patch 12 onward. General principle: anything derived
+  from *this specific machine's* filesystem layout belongs in a
+  user-level/local config location, never in a file that gets `git
+  add`ed.
 - **ApplicationId timing:** changing `applicationId` after first device
   install is effectively irreversible on Android -- the rename to
   `com.kinescope.app` was deliberately completed before any device
@@ -442,13 +476,16 @@ overridable via `-PappVersionCode`, see patch 16), `versionName`
 ## Immediate next step for Claude (in a new conversation)
 
 **Step 5 (device install + manual testing) is next, and it's a hard
-wall for autonomous progress** -- as of patch 17, every other item
+wall for autonomous progress** -- as of patch 18, every other item
 that could be done without the user's actual phone (Steps 1-4, 6, 7,
-8) is done. Step 9 is explicitly gated by `ROADMAP.md`'s own text on
-Step 5 being confirmed on a real device first ("do not skip ahead to
-save time"). Don't invent busywork or start Step 9/Backlog items to
-look productive while waiting -- if there's nothing left that doesn't
-need the phone, say so plainly and wait for Step 5's results instead.
+8, plus fixing the `Build Debug APK` workflow's first real failure --
+a Codespace-only JDK path had leaked into the committed
+`gradle.properties`, patch 18) is done. Step 9 is explicitly gated by
+`ROADMAP.md`'s own text on Step 5 being confirmed on a real device
+first ("do not skip ahead to save time"). Don't invent busywork or
+start Step 9/Backlog items to look productive while waiting -- if
+there's nothing left that doesn't need the phone, say so plainly and
+wait for Step 5's results instead.
 
 The compile is done -- `./gradlew assembleDebug` succeeds, either
 locally or via the `Build Debug APK` GitHub Actions workflow
@@ -460,7 +497,7 @@ videos in quick succession). Once real-device results come back,
 continue the established pattern for this project:
 
 - Read the actual current file content before editing -- don't assume
-  memory of it is accurate; things have changed across 17 patches.
+  memory of it is accurate; things have changed across 18 patches.
 - Verify uncertain library/API claims against a real source -- ideally
   the actual tagged source via `git clone` (github.com is reachable
   from the sandbox), not just a README or an old sample app, both of
