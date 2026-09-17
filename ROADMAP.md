@@ -1,20 +1,25 @@
 # Roadmap
 
-**Status as of this update (after patch 16):** Steps 1-4, Step 6
+**Status as of this update (after patch 19):** Steps 1-4, Step 6
 (6.1-6.6; 6.7 is optional and still skipped), Step 7 (Kinescope
-rename), and the full build-environment/compile-error fix chain
-(patches 07-14) are done. **`./gradlew assembleDebug` succeeds** — the
-first successful build in this project's history. Nothing has
-touched a real device yet; that's Step 5, next — now also buildable
-via `.github/workflows/build-debug.yml` (manual `workflow_dispatch`,
-hand-assigned version) as an alternative to a local Codespace build. A
-full deep code review of the entire codebase was performed by Claude
-Fable 5.1 in 4 passes; this document consolidated every finding from
-that review into one ordered implementation plan. **As of patch 16,
-completed Step sections below are collapsed to a one-line pointer
-instead of repeating their full original checklist — see
-`CHANGELOG.md` for what each patch actually did, and `HANDOFF.md` for
-the patch-by-patch narrative.**
+rename), Step 8 (CJM.md, patch 17 — the only remaining item is "keep
+this document current," which is ongoing by nature, not a one-time
+task), and the full build-environment/compile-error fix chain (patches
+07-14) are done. **`./gradlew assembleDebug` succeeds** — both locally
+and via `.github/workflows/build-debug.yml`, **confirmed in a real
+GitHub Actions run** after patch 18 fixed a leaked Codespace-only JDK
+path that broke the workflow's first attempt (see `CHANGELOG.md`). The
+user has downloaded a debug build via that workflow. **Per the user's
+explicit direction (patch 19), Step 9 (signed release) starts next**,
+ahead of Step 5's manual on-device checklist being individually
+itemized and confirmed back — see the Step 9 section below for what
+that means in practice. A full deep code review of the entire codebase
+was performed by Claude Fable 5.1 in 4 passes; this document
+consolidated every finding from that review into one ordered
+implementation plan. **As of patch 16, completed Step sections below
+are collapsed to a one-line pointer instead of repeating their full
+original checklist — see `CHANGELOG.md` for what each patch actually
+did, and `HANDOFF.md` for the patch-by-patch narrative.**
 
 **Decided:** the Kinescope rename (Step 7) uses `applicationId` /
 `namespace` **`com.kinescope.app`**.
@@ -27,9 +32,16 @@ first since Step 7 touches many of the same files:
 
 1. ~~Step 6 — Design system v2~~ ✅ done (6.1-6.6; 6.7 optional, skipped)
 2. ~~Step 7 — Kinescope rename~~ ✅ done (patch 06)
-3. **Step 5 — First device install + testing** ← next
-4. Step 8 — Documentation
-5. Step 9 — Signed release
+3. ~~Step 8 — Documentation~~ ✅ CJM.md done (patch 17); "keep this
+   document current" is ongoing, not a one-time checkbox
+4. **Step 9 — Signed release** ← next, per explicit user direction
+   (patch 19) — see the Step 9 section for what this means for Step
+   5's still-unconfirmed manual checklist
+5. Step 5 — First device install + testing: the debug build/CI/download
+   pipeline is confirmed working end to end; the manual on-device
+   checklist below (share/paste, race-condition stress test, broken-
+   video error text, airplane mode, large-download resilience) hasn't
+   been individually gone through and reported back yet
 
 **After Step 9 is done, and only then:** this repo also has a `roadmap.md` (lowercase) — a separate, newer sprint-based audit/plan (S0-S11, findings F01-F42) from GPT Astra, added by the user and not yet started. Do not merge it into this document or start it early — finish everything above (through Step 9) first. Once both this `ROADMAP.md` and `roadmap.md` are fully executed, both files get deleted.
 
@@ -102,6 +114,8 @@ specifically target the bugs found in Step 3.
 
 **Build environment (patches 07-14):** the environment needed five fixes before the first compile could even be attempted — a `pipefail` bug in `setup.sh` (07), two re-run/idempotency bugs in `setup.sh` (10), and a JDK/Gradle mismatch where this Codespace's actual default JDK (25.0.2) is too new for Gradle 8.10.2 (ceiling: Java 23, per Gradle's own 8.10 release notes), fixed by pinning Gradle to an already-installed JDK 21 instead (11-12). Two real compile errors followed: an invalid `--` inside an XML comment (13), and `UpdateChannel` actually being a nested class of `YoutubeDL` rather than top-level, i.e. Appendix #11 (14). Full story in `HANDOFF.md`'s patch history and "Key learnings" — kept brief here since it's now resolved history, not an open risk. **`./gradlew assembleDebug` succeeds.**
 
+**CI build pipeline (patch 16, fixed patch 18):** `.github/workflows/build-debug.yml` builds and uploads a versioned debug APK on manual trigger — **confirmed by a real, successful GitHub Actions run**, after patch 18 fixed a Codespace-only JDK path that had leaked into the committed `gradle.properties` and broke the workflow's first attempt. The user has downloaded a debug build via this path. This closes the "how do I even get a build onto the phone without adb" question; it is not the same thing as having gone through the manual checklist below.
+
 - [ ] Install the debug APK (`adb install`, or transfer + tap).
 - [ ] Grant any runtime permissions prompted (notifications, etc.).
 - [ ] Share a real YouTube link into the app via the Android share sheet;
@@ -140,6 +154,8 @@ specifically target the bugs found in Step 3.
       it ever happens.
 
 Do not move to Step 9 (signed release) until every item above passes.
+**Update (patch 19): the user has explicitly directed starting Step 9
+now anyway** — see that section for what this means and doesn't mean.
 
 ---
 
@@ -200,9 +216,25 @@ unchanged — not user-visible, not in scope. See `CHANGELOG.md`'s Patch
 
 ## Step 9 — Signed release
 
-Only once **every item in Steps 1–5 is done and confirmed on a real
-device**. Follow `RELEASE.md` in full — do not skip ahead to save time; an
-unverified debug build signed into a release build is still unverified.
+Originally: only once **every item in Steps 1–5 is done and confirmed
+on a real device**. Follow `RELEASE.md` in full — do not skip ahead to
+save time; an unverified debug build signed into a release build is
+still unverified.
+
+**Update (patch 19): the project owner explicitly directed starting
+this step now**, ahead of Step 5's manual checklist being individually
+gone through and reported back — not an oversight, a deliberate call.
+This is recorded as a standing decision in `CLAUDE.md`'s instruction
+log; a future session should act on it, not re-litigate it or refuse
+citing the paragraph above. What the original caution above still gets
+right, though, and what remains genuinely true regardless of this
+decision: a signed release is still built from the same code as the
+unverified debug build, so anything Step 5's checklist would have
+caught (the race-condition stress test, `friendlyError()` against real
+yt-dlp output, airplane-mode behavior) is still unverified — it just
+isn't blocking Step 9 from starting. If anything comes up during Step
+9 itself that depends on one of those being true, say so plainly
+rather than assuming it's fine because Step 9 was authorized to start.
 
 ---
 

@@ -16,8 +16,15 @@ are `com.kinescope.app` / "Kinescope" (previously
 `com.baltic.ytoffline` / "YT Offline").
 
 **Milestone: the first successful `./gradlew assembleDebug` in this
-project's history was achieved via patches 01-14.** Nothing has touched
-a real device yet -- that's the immediate next step (see below).
+project's history was achieved via patches 01-14.** The
+`.github/workflows/build-debug.yml` CI path (patch 16) failed on its
+first real run due to a leaked Codespace-only JDK path; patch 18 fixed
+it, and the user has since confirmed a successful GitHub Actions build
+and downloaded a debug APK. **Per the user's explicit direction (patch
+19), the next step is Step 9 (signed release)** -- ahead of Step 5's
+manual on-device checklist being individually gone through and
+reported back. See "Immediate next step" below for what that does and
+doesn't mean.
 
 ## How this codebase got here
 
@@ -226,6 +233,33 @@ before being handed over -- never delivered untested:
   project file stays clean either way) rather than just reasoning
   about it, since this project has been burned before by assuming
   environment behavior instead of checking it.
+- **Patch 19** -- Documentation/handoff update (no app code changes;
+  patch 17/18's own scripts did need a small fix, see below). The
+  user confirmed patch 18's fix worked: a real GitHub Actions run
+  succeeded and produced a downloadable debug APK. Recorded that
+  confirmation across `ROADMAP.md`/`HANDOFF.md`, and recorded an
+  explicit decision from the user: **Step 9 (signed release) starts
+  next**, ahead of Step 5's manual on-device checklist being
+  individually gone through and reported back -- logged as a standing
+  decision in `CLAUDE.md`'s instruction log so a future session acts on
+  it rather than re-litigating `ROADMAP.md`'s original Step 9 gate.
+  `ROADMAP.md`'s execution order, Step 5 section, and Step 9 section
+  all updated to match, while preserving the original caution's actual
+  point (a signed release is still built from unverified code) as
+  context rather than deleting it outright. **Also vaccinated patch 16,
+  17, and 18's own scripts, two levels deep:** `patch_claude_md()`
+  (patch 16), `patch_roadmap()` (patch 17), and
+  `patch_changelog()`/`patch_handoff()` (patch 18) each needed a
+  `superseded_marker` for this patch's direct edits to those files.
+  Then, since patch 17 also patches patch 16's *script file* (it
+  already had a `patch_patch16_script()` function, added in patch 17
+  itself to fix an earlier collision), and this patch's fix to patch
+  16's script changes that same script file again, patch 17's check on
+  it needed a `superseded_marker` too -- only surfaced on a second
+  full-chain regression run after the first round of fixes existed,
+  since the collision couldn't happen until they did. This snapshot is
+  meant to be pasted into a new conversation next, per the user's own
+  request.
 
 **Version-compatibility note worth remembering:** Compose BOM
 2024.11.00 (fixed in patch 01) pulls in Material3 **1.3.1**. Some APIs
@@ -250,44 +284,61 @@ up-to-date status summary and the correct execution order (which does
 confirmed by the actual successful compile -- not just pre-verified),
 3, 4, 6 (6.1-6.6; 6.7 -- an optional monochrome adaptive-icon layer for
 Android 13+ themed icons -- is still skipped, opt-in only, not
-required), 7 (Kinescope rename), and the environment/build-setup work
-that had to happen before Step 5 could even start (patches 07-14: a
-working, re-runnable `setup.sh`, a Gradle/JDK pin that actually works
-in this Codespace, and every compile error fixed). **`./gradlew
-assembleDebug` now succeeds**, both locally and via the
-`.github/workflows/build-debug.yml` GitHub Actions workflow (patch 16).
-`CJM.md` (patch 17) closes Step 8's last concrete checkbox.
+required), 7 (Kinescope rename), 8 (`CJM.md`, patch 17 -- the one
+remaining item, "keep this document current," is ongoing by nature,
+not a one-time task), and the environment/build-setup work that had to
+happen before Step 5 could even start (patches 07-14: a working,
+re-runnable `setup.sh`, a Gradle/JDK pin that actually works in this
+Codespace, and every compile error fixed). **`./gradlew assembleDebug`
+now succeeds**, both locally and via the `.github/workflows/build-debug.yml`
+GitHub Actions workflow (patch 16) -- **confirmed by a real,
+successful Actions run** after patch 18 fixed a Codespace-only JDK path
+that had leaked into the committed `gradle.properties` and broke the
+workflow's first attempt. The user has downloaded a debug build via
+that path.
 
-**Not done, in the order to actually do them -- and, as of patch 17,
-this is also the point where autonomous progress stops:** everything
-below needs the user's actual phone, either directly (Step 5) or
-because `ROADMAP.md` itself explicitly gates it on Step 5 being
-confirmed there first (Step 9). There is no further roadmap work a new
-session can usefully do without that -- don't invent busywork or skip
-ahead to Step 9 to look productive; wait for Step 5 results instead.
+**A note on APK size, since the user mentioned the debug build feels
+"heavy":** expected, not a bug -- debug builds include debug symbols
+and skip any size optimization. A release build (Step 9) won't
+necessarily be dramatically smaller either, though: `isMinifyEnabled =
+false` on the release build type was a deliberate Step 1 decision
+(avoids R8 breaking reflection-heavy coroutine/yt-dlp-wrapper code),
+and `youtubedl-android`'s bundled native binaries (not app code) likely
+dominate APK size regardless. `ROADMAP.md`'s Backlog has an
+never-done, optional `ndk.abiFilters` trim (drop `x86`/`x86_64` if the
+target phone is arm64) as the one concrete lever if size becomes an
+actual problem worth spending time on -- don't assume it's needed
+without the user asking.
 
-1. **Step 5 -- Device install + manual testing.** The compile is done;
-   nothing has touched a real device yet. `ROADMAP.md`'s Step 5 section
-   has the full manual test checklist, including explicitly
-   stress-testing the `DownloadService` race-condition fix from patch
-   01 (queue several videos in quick succession). No compile errors are
-   expected at this point, but can't be fully ruled out -- if
-   `./gradlew assembleDebug` somehow needs to run again for any reason,
-   the environment fixes (patches 07-12) are already in place, so this
-   should be a normal build, not another environment debugging session.
-   Getting the APK onto the phone no longer requires adb: the
-   `Build Debug APK` GitHub Actions workflow (patch 16) builds and
-   uploads it as a downloadable run artifact instead.
-2. **Step 8 -- Documentation.** `README.md` (patch 15) and `CJM.md`
-   (patch 17) are both done. The one remaining item, "keep `ROADMAP.md`
-   itself current," is ongoing by nature, not a one-time task -- it's
-   not something to ever check off, just a practice to keep following.
-3. **Step 9 -- Signed release**, per `RELEASE.md`, only once every item
-   in Step 5 is confirmed working on a real device. Note: `RELEASE.md`
-   still uses the old `yt-offline` name for the keystore filename/alias
-   and the GitHub release title -- cosmetic, worth a quick pass (or not)
-   when Step 9 actually happens.
-4. **`roadmap.md` (lowercase) -- GPT Astra's audit/plan.** A separate,
+**Not done, and the order changed as of patch 19 by explicit user
+decision:**
+
+1. **Step 9 -- Signed release, next.** Per `RELEASE.md`. This starts
+   now even though Step 5's manual checklist (below) hasn't been
+   individually gone through and reported back -- a deliberate call by
+   the project owner, recorded in `CLAUDE.md`'s instruction log. Don't
+   re-litigate this or refuse citing `ROADMAP.md`'s original "only
+   once Step 5 is confirmed" language; that language is still there,
+   with a patch-19 note explaining the override. What it still gets
+   right: a signed release is built from the same code Step 5 would
+   have exercised, so anything that checklist would have caught (the
+   race-condition stress test, `friendlyError()` against real yt-dlp
+   output, airplane-mode behavior) is genuinely still unverified -- it
+   just isn't blocking Step 9 from starting. If something during Step
+   9 depends on one of those actually being true, say so, don't assume
+   it's fine because Step 9 was authorized. Note: `RELEASE.md` still
+   uses the old `yt-offline` name for the keystore filename/alias and
+   the GitHub release title -- cosmetic, worth a quick pass while
+   already in that file for Step 9.
+2. **Step 5 -- Device install + manual testing.** Not blocking Step 9
+   anymore, but still open and still worth doing when there's a chance
+   -- `ROADMAP.md`'s Step 5 section has the full checklist, including
+   explicitly stress-testing the `DownloadService` race-condition fix
+   from patch 01 (queue several videos in quick succession) and
+   checking `friendlyError()`'s string-matching against real current
+   yt-dlp error text, which genuinely needs a real device and can't be
+   settled by reading code.
+3. **`roadmap.md` (lowercase) -- GPT Astra's audit/plan.** A separate,
    newer sprint-based document (S0-S11, findings F01-F42). Explicitly
    queued for **after** Step 9 above is fully done -- don't start it
    early or merge it into this `ROADMAP.md`. Once both roadmaps are
@@ -475,45 +526,67 @@ overridable via `-PappVersionCode`, see patch 16), `versionName`
 
 ## Immediate next step for Claude (in a new conversation)
 
-**Step 5 (device install + manual testing) is next, and it's a hard
-wall for autonomous progress** -- as of patch 18, every other item
-that could be done without the user's actual phone (Steps 1-4, 6, 7,
-8, plus fixing the `Build Debug APK` workflow's first real failure --
-a Codespace-only JDK path had leaked into the committed
-`gradle.properties`, patch 18) is done. Step 9 is explicitly gated by
-`ROADMAP.md`'s own text on Step 5 being confirmed on a real device
-first ("do not skip ahead to save time"). Don't invent busywork or
-start Step 9/Backlog items to look productive while waiting -- if
-there's nothing left that doesn't need the phone, say so plainly and
-wait for Step 5's results instead.
+**Step 9 (signed release) is next**, per the user's explicit direction
+recorded in `CLAUDE.md`'s instruction log and `ROADMAP.md`'s Step 9
+section (patch 19) -- ahead of Step 5's manual on-device checklist
+being individually gone through and reported back. This is a
+deliberate call by the project owner, not an oversight or something to
+push back on; act on it. The one thing worth keeping in mind while
+doing so: a signed release is built from the same code Step 5 would
+have exercised, so anything that checklist would have caught is
+genuinely still unverified -- if something during Step 9 turns out to
+depend on one of those things actually working (the race-condition
+fix, `friendlyError()`'s string matching, etc.), say so plainly rather
+than assuming it's fine.
 
-The compile is done -- `./gradlew assembleDebug` succeeds, either
-locally or via the `Build Debug APK` GitHub Actions workflow
-(`.github/workflows/build-debug.yml`, patch 16 -- manual trigger, hand
--assigned version, no adb required). `ROADMAP.md`'s Step 5 section has
-the full manual test checklist, including explicitly stress-testing the
-`DownloadService` race-condition fix from patch 01 (queue several
-videos in quick succession). Once real-device results come back,
-continue the established pattern for this project:
+Follow `RELEASE.md` in full for Step 9. Note it still uses the old
+`yt-offline` name for the keystore filename/alias and the GitHub
+release title -- worth a quick pass while already in that file. The
+compile itself is confirmed working both locally and via
+`.github/workflows/build-debug.yml` (patch 16, fixed patch 18) with a
+real successful Actions run, so no environment debugging is expected
+going in.
 
+**Work in sprints, not one patch per tiny step:** continue
+autonomously through a batch of work -- Step 9's steps, and Step 5's
+still-open manual checklist if/when the user reports back on it --
+without stopping between individual items, then deliver **one**
+self-contained Python patch script at the end of the sprint covering
+everything in it, rather than one patch per small change. The user
+installs several sprints' patches together.
+
+Continue the established pattern for this project:
+
+- Think and write all code, code comments, commit messages, and
+  documentation in English, regardless of what language the
+  conversation itself is in.
 - Read the actual current file content before editing -- don't assume
-  memory of it is accurate; things have changed across 18 patches.
+  memory of it is accurate; things have changed across 19 patches.
 - Verify uncertain library/API claims against a real source -- ideally
   the actual tagged source via `git clone` (github.com is reachable
   from the sandbox), not just a README or an old sample app, both of
   which have already produced a wrong conclusion once in this project
-  (see patch 14).
+  (see patch 14). For Step 9 specifically: verify Android keystore/
+  signing-config syntax and any GitHub Actions secrets-handling claims
+  against real sources the same way -- this project has not yet done
+  anything with signing, so there's no prior verified assumption to
+  lean on here.
 - Deliver changes as a self-contained Python patch script for GitHub
   Codespaces. Extract the repomix into a local working copy first,
   dry-run the script against it, verify diffs and bracket balance and
   idempotency -- and for any patch chain longer than a couple of
   patches, run the **full chain multiple times from a clean copy**,
   since a later patch can silently break an earlier patch's own
-  idempotency check (see "Key learnings" above, and patch 16's own
-  entry for a fresh example of this exact failure mode recurring).
+  idempotency check (see "Key learnings" above; patches 16, 17, and 18
+  each had to vaccinate their immediate predecessor's ROADMAP.md/
+  HANDOFF.md/CHANGELOG.md checks -- expect this to keep recurring for
+  any patch touching those files again, including this one).
 - When a `ROADMAP.md` item is completed, collapse its checklist to a
   one-line pointer in that file and record what actually changed in
   `CHANGELOG.md` instead (process established patch 16) -- do this in
   the same patch as the code change it corresponds to.
-- Write all code, code comments, commit messages, and documentation in
-  English, regardless of what language the conversation itself is in.
+- Never write a machine-specific path (a Codespace's local filesystem
+  layout, an absolute SDK/JDK location, etc.) into a file that gets
+  `git add`ed -- patch 18 exists because patch 12 did exactly that.
+  Anything derived from the current environment belongs in a
+  user-level/local config location instead.

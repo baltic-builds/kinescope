@@ -12,6 +12,47 @@ Patches are cumulative and applied in order (01, 02, 03, ...). See each
 patch's own `.py` script for the exact, idempotent, exact-match-guarded
 edits it makes.
 
+## Patch 19 — Documentation/handoff update, pivot to Step 9
+
+No app code changes; patch 17/18's own scripts needed a small fix (see
+below).
+
+### Changed
+- `ROADMAP.md` — recorded that patch 18's CI fix is confirmed by a
+  real, successful GitHub Actions run (not just sandbox simulation),
+  and that the user has downloaded a debug build via it. Recorded an
+  explicit decision: Step 9 (signed release) starts next, ahead of
+  Step 5's manual checklist being individually confirmed — updated the
+  execution order, Step 5's closing note, and Step 9's gate language
+  accordingly (the original caution stays as context, not deleted).
+  Step 8 marked done in the execution order (CJM.md, patch 17).
+- `HANDOFF.md` — milestone paragraph, "what's done/not done" section,
+  patch history, and "Immediate next step" all updated for the above;
+  the latter now also states the sprint-based delivery convention
+  (finish a batch of work, then one patch script per sprint rather than
+  per tiny step) and a brief note on APK size (debug builds are
+  expected to be larger; release won't shrink dramatically either,
+  since `isMinifyEnabled = false` is deliberate — see Backlog's
+  `ndk.abiFilters` item if size ever needs addressing).
+- `CLAUDE.md` — instruction log: recorded the Step 9-starts-now
+  decision as a standing directive (don't re-litigate in a new
+  session), and the sprint-based patch-delivery convention.
+- `patch16_ci_workflow_and_changelog.py`,
+  `patch17_customer_journey_map.py`, and
+  `patch18_fix_ci_jdk_pin_leak.py` — the now-familiar pattern, two
+  levels deep this time: `patch_claude_md()` (patch 16),
+  `patch_roadmap()` (patch 17), and `patch_changelog()`/`patch_handoff()`
+  (patch 18) each gained a `superseded_marker` for this patch's direct
+  edits to those files. Then, since patch 17 also patches patch 16's
+  *script file* (`patch_patch16_script()`, added back in patch 17 to
+  fix the ROADMAP.md/HANDOFF.md collision described in that patch's own
+  entry), and this patch's fix to patch 16's script (the
+  `patch_claude_md()` guard above) changes that same script file
+  *again*, patch 17's check on it needed a `superseded_marker` too —
+  caught only on a second full-chain regression run after the first
+  round of fixes above, since the first round's fixes had to actually
+  exist before this second-order collision could even surface.
+
 ## Patch 18 — Fixed the GitHub Actions build failure
 
 ### Fixed

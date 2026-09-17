@@ -5219,7 +5219,8 @@ def patch_handoff(repo_root: Path):
 
 def patch_claude_md(repo_root: Path):
     whole_file_guarded_replace(
-        repo_root / "CLAUDE.md", OLD_CLAUDE_MD, NEW_CLAUDE_MD, "CLAUDE.md"
+        repo_root / "CLAUDE.md", OLD_CLAUDE_MD, NEW_CLAUDE_MD, "CLAUDE.md",
+        superseded_marker="Decision (patch 19):",
     )
 
 

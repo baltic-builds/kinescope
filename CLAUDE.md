@@ -53,3 +53,17 @@ future sessions don't lose them.)
   `ROADMAP.md` (collapse to a one-line pointer) and log what changed in
   `CHANGELOG.md` instead. Deliver a Python patch script per stage, as
   before.
+- **Decision (patch 19): Step 9 (signed release) starts now**, ahead of
+  Step 5's manual on-device checklist being individually gone through
+  and reported back. This is deliberate, not an oversight — a future
+  session should act on it, not re-litigate it or refuse citing
+  `ROADMAP.md`'s original Step 9 gate. That gate's underlying point
+  still holds, though: a signed release is built from the same
+  unverified code as the debug build, so don't assume something Step
+  5's checklist would have caught is actually fine just because Step 9
+  was authorized to start.
+- Work in sprints across conversations: continue autonomously through
+  a batch of `ROADMAP.md` work without stopping between individual
+  steps, then deliver one Python patch script at the end covering the
+  whole sprint (not one patch per tiny change) — the user installs
+  several sprints' patches together.
