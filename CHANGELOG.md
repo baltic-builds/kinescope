@@ -12,6 +12,44 @@ Patches are cumulative and applied in order (01, 02, 03, ...). See each
 patch's own `.py` script for the exact, idempotent, exact-match-guarded
 edits it makes.
 
+## Patch 21 — APK size trim + keystore-password fix
+
+Follow-up from actually running patch 20's CI signing workflow for the
+first time; both findings below came from that real run, not review.
+
+### Changed
+- `app/build.gradle.kts` -- `ndk.abiFilters` trimmed from all four ABIs
+  down to `arm64-v8a` only. `youtubedl-android`'s bundled Python
+  runtime, ffmpeg, ffprobe, and QuickJS native libraries (duplicated
+  per ABI) are what made the first real signed build ~200MB; arm64-v8a
+  covers the overwhelming majority of real phones since ~2019. Add
+  `armeabi-v7a` back if an older 32-bit device needs to install this.
+- `RELEASE.md`'s Step 1 -- keytool command is now non-interactive
+  (`-storepass`/`-keypass` both set from one generated variable)
+  instead of relying on typing the same password twice at separate
+  interactive prompts, and now states plainly that store/key passwords
+  **must** be identical for a PKCS12 keystore, not merely "can be the
+  same."
+
+### Findings (closed)
+- **PKCS12 requires identical store/key passwords.** Java's PKCS12
+  keystore implementation doesn't support a separate per-key password;
+  giving `keytool` two different ones makes it silently keep only the
+  store password for the real encryption. The keystore then fails
+  later with `KeytoolException: ... Given final block not properly
+  padded` when Gradle tries to read the key with the (wrong, ignored)
+  key password -- a decryption-with-the-wrong-password error that
+  gives no hint the actual cause was two mismatched passwords entered
+  at generation time. Cost several regeneration cycles during Step 9
+  setup before the actual cause was found.
+- **The default Codespaces `gh` CLI token can't write repo secrets.**
+  `gh secret set` fails with `HTTP 403: Must have admin rights to
+  Repository` using the ambient auth a Codespace provides by default --
+  a known `gh`/Codespaces limitation, not specific to this project.
+  Needs a separate Personal Access Token (classic, `repo` scope)
+  supplied via `GH_TOKEN=<pat> gh secret set ...` to actually write
+  repository-level Actions secrets from inside a Codespace.
+
 ## Patch 20 — Step 9: CI-based signed release build
 
 ### Added

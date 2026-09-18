@@ -39,11 +39,17 @@ android {
         versionCode = (project.findProperty("appVersionCode") as String?)?.toIntOrNull() ?: 7
         versionName = (project.findProperty("appVersionName") as String?) ?: "1.0.0"
 
-        // youtubedl-android bundles native Python/yt-dlp binaries per
-        // ABI; without this the APK would try to include every ABI
-        // and bloat, or fail to package correctly on some setups.
+        // youtubedl-android bundles a full Python runtime, ffmpeg,
+        // ffprobe, and QuickJS as native libraries -- multiplied per
+        // ABI, this is what made the release APK ~200MB (confirmed by
+        // a real build, patch 21; see CHANGELOG.md). arm64-v8a covers
+        // the overwhelming majority of real Android phones since
+        // ~2019; x86/x86_64 only matter for emulators, and
+        // armeabi-v7a only for older 32-bit devices. Add
+        // "armeabi-v7a" back to this list if you ever need to install
+        // on one of those.
         ndk {
-            abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+            abiFilters += listOf("arm64-v8a")
         }
     }
 

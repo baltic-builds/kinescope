@@ -24,11 +24,15 @@ and downloaded a debug APK. **Per the user's explicit direction (patch
 19), the next step is Step 9 (signed release)** -- ahead of Step 5's
 manual on-device checklist being individually gone through and
 reported back. **Patch 20 delivered Step 9's CI workflow**
-(`.github/workflows/build-release.yml`), per the user's direction to
-build release APKs via GitHub Actions rather than a local Codespace
-build -- but it isn't confirmed working yet: the user still needs to do
-a one-time keystore/secrets setup and trigger a real run. See
-"Immediate next step" below for what that does and doesn't mean.
+(`.github/workflows/build-release.yml`), and **patch 21 confirms it
+actually works**: a real signed release build succeeded via GitHub
+Actions after fixing two real gotchas hit along the way (PKCS12's
+same-password requirement, and the default Codespaces `gh` token
+lacking rights to write repo secrets -- both in `CHANGELOG.md`'s Patch
+21 entry) and trimming the ~200MB APK down via `ndk.abiFilters`. What's
+still open: confirming the signed APK actually installs and opens on a
+real device -- that's the one item left before Step 9 counts as fully
+done. See "Immediate next step" below.
 
 ## How this codebase got here
 
@@ -557,19 +561,19 @@ overridable via `-PappVersionCode`, see patch 16), `versionName`
 
 ## Immediate next step for Claude (in a new conversation)
 
-**Step 9 (signed release)'s CI infrastructure was delivered in patch
-20**: `.github/workflows/build-release.yml`, a signed-build counterpart
-to `build-debug.yml`. Nothing further to *build* here until the user
-does the one-time keystore/secrets setup and reports back the result
-of a real run -- see `ROADMAP.md`'s Step 9 checklist for the exact
-remaining items, all of which need the user's own action (generating a
-keystore, adding repo secrets, triggering the workflow, installing the
-result on a real device). Don't mark Step 9 done based on the workflow
-existing or looking correct on review -- the same as `build-debug.yml`
-wasn't marked confirmed until patch 18's fix was verified by an actual
-successful Actions run, not just code review. If the user reports the
-workflow failed, debug from the actual error output (same discipline as
-patch 18), not by guessing.
+**Step 9's CI workflow is now confirmed working** (patch 21): a real
+signed release build succeeded via GitHub Actions. Getting there
+surfaced two real gotchas, both fixed and documented in
+`CHANGELOG.md`'s Patch 21 entry and `RELEASE.md`: PKCS12 keystores
+require an identical store/key password (mismatched ones fail later
+with an opaque `Given final block not properly padded` error, not an
+obviously-a-password-problem one), and the default `gh` token inside a
+Codespace lacks rights to write repo secrets (needs a separate PAT).
+The ~200MB first build was trimmed via `ndk.abiFilters` (also patch
+21). The one item left before Step 9 counts as fully done: the user
+installing the signed APK on a real device and confirming it opens
+correctly -- don't mark that done without an explicit report, same
+discipline `build-debug.yml` was held to.
 
 In the meantime, or once the user reports Step 9 confirmed working:
 **Step 5's manual on-device checklist** is next in priority (still

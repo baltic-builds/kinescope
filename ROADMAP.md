@@ -239,17 +239,21 @@ still unverified.
       build only and deletes it before the job ends. Full setup
       instructions in `RELEASE.md`'s "CI build (GitHub Actions)"
       section.
-- [ ] One-time: generate the release keystore and add the
+- [x] One-time: generate the release keystore and add the
       `KEYSTORE_BASE64` / `KEYSTORE_PASSWORD` / `KEY_ALIAS` /
-      `KEY_PASSWORD` repo secrets (see `RELEASE.md`) — needs the user,
-      Claude has no access to GitHub repo secrets or a keystore to
-      generate on their behalf.
-- [ ] Trigger the workflow once, download the resulting APK, and
-      confirm it actually installs and opens correctly on a real
-      device. **This is the item that flips Step 9 to done** — same
-      standard `build-debug.yml` was held to (not marked confirmed
-      until patch 18's fix was verified by a real successful Actions
-      run, not just code review).
+      `KEY_PASSWORD` repo secrets — done. Took several attempts; see
+      `CHANGELOG.md`'s Patch 21 entry for the two real gotchas hit
+      along the way (the default Codespaces `gh` token lacking
+      repo-admin rights to write secrets, and PKCS12 keystores
+      requiring an identical store/key password).
+- [x] Trigger the workflow and produce a signed APK — confirmed by a
+      real successful Actions run. The resulting APK was ~200MB;
+      trimmed via the `ndk.abiFilters` Backlog item below (patch 21).
+- [ ] Confirm the signed APK actually installs and opens correctly on
+      a real device. **This is the one remaining item that flips Step
+      9 to fully done** — same standard `build-debug.yml` was held to
+      (not marked confirmed until patch 18's fix was verified by a
+      real successful Actions run, not just code review).
 
 **Update (patch 19): the project owner explicitly directed starting
 this step now**, ahead of Step 5's manual checklist being individually
@@ -273,12 +277,12 @@ rather than assuming it's fine because Step 9 was authorized to start.
 Everything below is opt-in and user-prioritized, explicitly **not** a
 commitment or a new numbered phase:
 
-- [ ] Trim `x86`/`x86_64` from `ndk.abiFilters` in `app/build.gradle.kts`
-      if the target phone is arm64 (the overwhelming majority are) and
-      emulator support isn't needed — shrinks the APK, since
-      `youtubedl-android`'s bundled native binaries dominate its size.
-      Originally Step 1's one optional, non-blocking item; moved here in
-      patch 16 since it was never actually blocking anything.
+- [x] Trim `x86`/`x86_64` (and `armeabi-v7a`) from `ndk.abiFilters` in
+      `app/build.gradle.kts`, down to `arm64-v8a` only — done, patch 21,
+      once the ~200MB real release build made this no longer
+      theoretical. Originally Step 1's one optional, non-blocking item;
+      moved here in patch 16, acted on in patch 21. Add `armeabi-v7a`
+      back if an older 32-bit device ever needs to install this.
 - [ ] Persist download queue state (small local DB or file) so a process
       kill doesn't silently lose in-flight job status with zero UI
       indication — currently accepted debt (`DownloadQueueBus` is a bare

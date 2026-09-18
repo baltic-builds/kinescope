@@ -7,9 +7,12 @@ the keystore is a secret and never gets committed.
 ## 1. Generate a signing key (once)
 
 Run this **inside the Codespace terminal**, not anywhere Claude can
-see the output — `keytool` will prompt for passwords interactively:
+see the output:
 
 ```bash
+PASS="$(openssl rand -base64 24)"
+echo "Keystore password (save this now, it's shown only once): $PASS"
+
 keytool -genkeypair \
   -v \
   -storetype PKCS12 \
@@ -17,12 +20,29 @@ keytool -genkeypair \
   -alias kinescope \
   -keyalg RSA \
   -keysize 2048 \
-  -validity 10000
+  -validity 10000 \
+  -storepass "$PASS" \
+  -keypass "$PASS" \
+  -dname "CN=Kinescope, OU=Personal, O=Personal, L=NA, ST=NA, C=US"
 ```
 
-It'll ask for a store password, a key password (can be the same as
-the store password), and some identity fields (name/org/etc — for a
-personal app these can be anything, they're not verified by anyone).
+**Store password and key password must be identical** for a PKCS12
+keystore (this project's `-storetype`) -- Java's PKCS12
+implementation doesn't actually support a separate per-key password.
+Give `keytool` two different ones (including via the old interactive
+prompts, which used to let you type a different value at the "Enter
+key password" step) and it silently keeps only the store password for
+the real encryption, ignoring what you typed for the key password. The
+keystore then fails to open later with `KeytoolException: ... Given
+final block not properly padded` -- a wrong-password decryption error
+that gives no hint the actual cause was two mismatched passwords. Hit
+this for real during patch 20/21's CI signing setup (see
+`CHANGELOG.md`'s Patch 21 entry). Generating one password up front and
+passing it to both `-storepass` and `-keypass`, as above, avoids the
+trap entirely -- no identity fields to fill in interactively either,
+they're all supplied by `-dname` (edit that string if you want
+different placeholder values; none of it is verified by anyone for a
+personal app).
 
 **Move `kinescope-release.jks` somewhere outside the repo folder**
 (e.g. your Codespace's home directory, `~/keys/`) so there's no risk
@@ -41,9 +61,9 @@ In the **repo root** (this file is gitignored, safe to create here):
 
 ```properties
 storeFile=/home/vscode/keys/kinescope-release.jks
-storePassword=<the store password you set above>
+storePassword=<the password you generated in step 1>
 keyAlias=kinescope
-keyPassword=<the key password you set above>
+keyPassword=<the same password -- must match storePassword, see step 1>
 ```
 
 Use the actual absolute path to wherever you moved the `.jks` file in
