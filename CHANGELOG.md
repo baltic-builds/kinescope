@@ -12,6 +12,39 @@ Patches are cumulative and applied in order (01, 02, 03, ...). See each
 patch's own `.py` script for the exact, idempotent, exact-match-guarded
 edits it makes.
 
+## Patch 20 — Step 9: CI-based signed release build
+
+### Added
+- `.github/workflows/build-release.yml` -- manual-trigger workflow that
+  builds a signed release APK. Assembles `keystore.properties` at
+  runtime from four repo secrets (`KEYSTORE_BASE64` decoded to a
+  runner-local temp file, plus `KEYSTORE_PASSWORD`/`KEY_ALIAS`/
+  `KEY_PASSWORD`), runs `assembleRelease` against the existing signing
+  config in `app/build.gradle.kts` (unchanged by this patch), then
+  deletes both the decoded keystore and `keystore.properties` in an
+  `if: always()` step. Mirrors `build-debug.yml`'s manual
+  `workflow_dispatch` trigger and run-number-derived `versionCode`.
+- `RELEASE.md`'s "CI build (GitHub Actions)" section, documenting the
+  one-time secrets setup and how to trigger the new workflow. Kept the
+  existing local-build path (`assembleRelease` in the Codespace) as
+  Option A alongside it.
+
+### Changed
+- `RELEASE.md` -- renamed leftover `yt-offline` keystore
+  filename/alias and GitHub release title to `kinescope` (flagged as
+  cosmetic debt in patch 19).
+- `README.md` -- build section mentions the new release workflow; the
+  `RELEASE.md` doc-map entry no longer says "not started yet".
+- `ROADMAP.md`, `HANDOFF.md` -- Step 9 status split into what this
+  patch delivered (the CI workflow itself) vs. what still needs the
+  user's own action before Step 9 counts as done: generating a
+  keystore, adding the four repo secrets, and confirming one real
+  signed run actually installs on a device. Not marking this done
+  without that confirmation follows the same discipline
+  `build-debug.yml` was held to (not confirmed until patch 18's real
+  Actions run succeeded).
+- `CLAUDE.md` -- instruction log: recorded the CI-for-release decision.
+
 ## Patch 19 — Documentation/handoff update, pivot to Step 9
 
 No app code changes; patch 17/18's own scripts needed a small fix (see

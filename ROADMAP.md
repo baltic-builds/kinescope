@@ -13,7 +13,13 @@ user has downloaded a debug build via that workflow. **Per the user's
 explicit direction (patch 19), Step 9 (signed release) starts next**,
 ahead of Step 5's manual on-device checklist being individually
 itemized and confirmed back — see the Step 9 section below for what
-that means in practice. A full deep code review of the entire codebase
+that means in practice. **Patch 20** delivered Step 9's CI
+infrastructure (a `build-release.yml` workflow, mirroring
+`build-debug.yml`), per the user's direction to build release APKs via
+GitHub Actions rather than a local Codespace build — but, same as
+`build-debug.yml` before patch 18's fix, this isn't marked done until
+the user has done the one-time keystore/secrets setup and confirmed a
+real signed run actually works. A full deep code review of the entire codebase
 was performed by Claude Fable 5.1 in 4 passes; this document
 consolidated every finding from that review into one ordered
 implementation plan. **As of patch 16, completed Step sections below
@@ -34,9 +40,11 @@ first since Step 7 touches many of the same files:
 2. ~~Step 7 — Kinescope rename~~ ✅ done (patch 06)
 3. ~~Step 8 — Documentation~~ ✅ CJM.md done (patch 17); "keep this
    document current" is ongoing, not a one-time checkbox
-4. **Step 9 — Signed release** ← next, per explicit user direction
-   (patch 19) — see the Step 9 section for what this means for Step
-   5's still-unconfirmed manual checklist
+4. **Step 9 — Signed release** ← CI infrastructure delivered (patch
+   20); awaiting the user's one-time keystore/secrets setup and a
+   confirmed real run before this step counts as done — see the Step 9
+   section for what this means for Step 5's still-unconfirmed manual
+   checklist
 5. Step 5 — First device install + testing: the debug build/CI/download
    pipeline is confirmed working end to end; the manual on-device
    checklist below (share/paste, race-condition stress test, broken-
@@ -220,6 +228,28 @@ Originally: only once **every item in Steps 1–5 is done and confirmed
 on a real device**. Follow `RELEASE.md` in full — do not skip ahead to
 save time; an unverified debug build signed into a release build is
 still unverified.
+
+- [x] Release signing config in `app/build.gradle.kts` — reads
+      `keystore.properties`, falls back to an unsigned build if it's
+      absent. Predates this patch, unchanged by it.
+- [x] CI workflow to build a signed release APK
+      (`.github/workflows/build-release.yml`) — added patch 20. Mirrors
+      `build-debug.yml`'s manual-trigger, hand-versioned design; decodes
+      a base64 keystore secret into a runner-local temp file for the
+      build only and deletes it before the job ends. Full setup
+      instructions in `RELEASE.md`'s "CI build (GitHub Actions)"
+      section.
+- [ ] One-time: generate the release keystore and add the
+      `KEYSTORE_BASE64` / `KEYSTORE_PASSWORD` / `KEY_ALIAS` /
+      `KEY_PASSWORD` repo secrets (see `RELEASE.md`) — needs the user,
+      Claude has no access to GitHub repo secrets or a keystore to
+      generate on their behalf.
+- [ ] Trigger the workflow once, download the resulting APK, and
+      confirm it actually installs and opens correctly on a real
+      device. **This is the item that flips Step 9 to done** — same
+      standard `build-debug.yml` was held to (not marked confirmed
+      until patch 18's fix was verified by a real successful Actions
+      run, not just code review).
 
 **Update (patch 19): the project owner explicitly directed starting
 this step now**, ahead of Step 5's manual checklist being individually

@@ -23,8 +23,12 @@ it, and the user has since confirmed a successful GitHub Actions build
 and downloaded a debug APK. **Per the user's explicit direction (patch
 19), the next step is Step 9 (signed release)** -- ahead of Step 5's
 manual on-device checklist being individually gone through and
-reported back. See "Immediate next step" below for what that does and
-doesn't mean.
+reported back. **Patch 20 delivered Step 9's CI workflow**
+(`.github/workflows/build-release.yml`), per the user's direction to
+build release APKs via GitHub Actions rather than a local Codespace
+build -- but it isn't confirmed working yet: the user still needs to do
+a one-time keystore/secrets setup and trigger a real run. See
+"Immediate next step" below for what that does and doesn't mean.
 
 ## How this codebase got here
 
@@ -260,6 +264,32 @@ before being handed over -- never delivered untested:
   since the collision couldn't happen until they did. This snapshot is
   meant to be pasted into a new conversation next, per the user's own
   request.
+- **Patch 20** -- Step 9: CI-based signed release build. Added
+  `.github/workflows/build-release.yml`, mirroring `build-debug.yml`'s
+  manual-`workflow_dispatch`, hand-versioned design, but running
+  `assembleRelease` against a keystore assembled at runtime from four
+  repo secrets (`KEYSTORE_BASE64`, decoded to a runner-local temp file;
+  `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`), written into a
+  `keystore.properties` the existing signing config in
+  `app/build.gradle.kts` already knows how to read -- that config
+  predates this patch and needed no changes. Both the decoded keystore
+  and the generated `keystore.properties` are deleted in an `if:
+  always()` cleanup step so they don't persist past the build even on
+  failure. This was a direct user request, not an autonomous roadmap
+  step: building signed releases via GitHub Actions instead of a local
+  Codespace `./gradlew assembleRelease`, matching how debug builds
+  already work. `RELEASE.md` renamed its leftover `yt-offline`
+  keystore-filename/alias/release-title naming to `kinescope` (flagged
+  as cosmetic debt back in patch 19) and gained a "CI build (GitHub
+  Actions)" section alongside the existing local-build option, which
+  is kept since it still works and needs no secrets setup. `README.md`
+  and `ROADMAP.md` updated to point at the new workflow. **Not marked
+  as Step 9 done**: same as `build-debug.yml` wasn't marked confirmed
+  until patch 18's real Actions run succeeded, this workflow's own
+  first real run -- which needs the user to generate a keystore and add
+  the four secrets first, since Claude has no access to do either --
+  hasn't happened yet. See `ROADMAP.md`'s Step 9 section for the exact
+  remaining checklist.
 
 **Version-compatibility note worth remembering:** Compose BOM
 2024.11.00 (fixed in patch 01) pulls in Material3 **1.3.1**. Some APIs
@@ -313,23 +343,24 @@ without the user asking.
 **Not done, and the order changed as of patch 19 by explicit user
 decision:**
 
-1. **Step 9 -- Signed release, next.** Per `RELEASE.md`. This starts
-   now even though Step 5's manual checklist (below) hasn't been
-   individually gone through and reported back -- a deliberate call by
-   the project owner, recorded in `CLAUDE.md`'s instruction log. Don't
-   re-litigate this or refuse citing `ROADMAP.md`'s original "only
-   once Step 5 is confirmed" language; that language is still there,
-   with a patch-19 note explaining the override. What it still gets
-   right: a signed release is built from the same code Step 5 would
-   have exercised, so anything that checklist would have caught (the
-   race-condition stress test, `friendlyError()` against real yt-dlp
-   output, airplane-mode behavior) is genuinely still unverified -- it
-   just isn't blocking Step 9 from starting. If something during Step
-   9 depends on one of those actually being true, say so, don't assume
-   it's fine because Step 9 was authorized. Note: `RELEASE.md` still
-   uses the old `yt-offline` name for the keystore filename/alias and
-   the GitHub release title -- cosmetic, worth a quick pass while
-   already in that file for Step 9.
+1. **Step 9 -- Signed release.** CI infrastructure delivered (patch
+   20): `.github/workflows/build-release.yml` builds a signed release
+   APK from four repo secrets, mirroring `build-debug.yml`. What's
+   left is entirely on the user's side and can't be advanced further
+   from here: (a) generate the release keystore and add the
+   `KEYSTORE_BASE64`/`KEYSTORE_PASSWORD`/`KEY_ALIAS`/`KEY_PASSWORD`
+   repo secrets (`RELEASE.md`'s "CI build" section has the exact
+   steps), then (b) trigger the workflow once and confirm the APK it
+   produces actually installs and opens on a real device. Only (b)
+   flips Step 9 to done -- same standard `build-debug.yml` was held to
+   (patch 18). Separately, and still true regardless of CI
+   infrastructure: a signed release is built from the same code Step
+   5 would have exercised, so anything that checklist would have
+   caught (the race-condition stress test, `friendlyError()` against
+   real yt-dlp output, airplane-mode behavior) is genuinely still
+   unverified. `RELEASE.md`'s old `yt-offline` naming (keystore
+   filename/alias, GitHub release title) has been renamed to
+   `kinescope` as part of patch 20.
 2. **Step 5 -- Device install + manual testing.** Not blocking Step 9
    anymore, but still open and still worth doing when there's a chance
    -- `ROADMAP.md`'s Step 5 section has the full checklist, including
@@ -526,26 +557,25 @@ overridable via `-PappVersionCode`, see patch 16), `versionName`
 
 ## Immediate next step for Claude (in a new conversation)
 
-**Step 9 (signed release) is next**, per the user's explicit direction
-recorded in `CLAUDE.md`'s instruction log and `ROADMAP.md`'s Step 9
-section (patch 19) -- ahead of Step 5's manual on-device checklist
-being individually gone through and reported back. This is a
-deliberate call by the project owner, not an oversight or something to
-push back on; act on it. The one thing worth keeping in mind while
-doing so: a signed release is built from the same code Step 5 would
-have exercised, so anything that checklist would have caught is
-genuinely still unverified -- if something during Step 9 turns out to
-depend on one of those things actually working (the race-condition
-fix, `friendlyError()`'s string matching, etc.), say so plainly rather
-than assuming it's fine.
+**Step 9 (signed release)'s CI infrastructure was delivered in patch
+20**: `.github/workflows/build-release.yml`, a signed-build counterpart
+to `build-debug.yml`. Nothing further to *build* here until the user
+does the one-time keystore/secrets setup and reports back the result
+of a real run -- see `ROADMAP.md`'s Step 9 checklist for the exact
+remaining items, all of which need the user's own action (generating a
+keystore, adding repo secrets, triggering the workflow, installing the
+result on a real device). Don't mark Step 9 done based on the workflow
+existing or looking correct on review -- the same as `build-debug.yml`
+wasn't marked confirmed until patch 18's fix was verified by an actual
+successful Actions run, not just code review. If the user reports the
+workflow failed, debug from the actual error output (same discipline as
+patch 18), not by guessing.
 
-Follow `RELEASE.md` in full for Step 9. Note it still uses the old
-`yt-offline` name for the keystore filename/alias and the GitHub
-release title -- worth a quick pass while already in that file. The
-compile itself is confirmed working both locally and via
-`.github/workflows/build-debug.yml` (patch 16, fixed patch 18) with a
-real successful Actions run, so no environment debugging is expected
-going in.
+In the meantime, or once the user reports Step 9 confirmed working:
+**Step 5's manual on-device checklist** is next in priority (still
+open, `ROADMAP.md`'s Step 5 section has the full list), followed by
+`roadmap.md`'s GPT Astra audit once both Step 5 and Step 9 are
+genuinely done.
 
 **Work in sprints, not one patch per tiny step:** continue
 autonomously through a batch of work -- Step 9's steps, and Step 5's

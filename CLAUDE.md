@@ -67,3 +67,8 @@ future sessions don't lose them.)
   steps, then deliver one Python patch script at the end covering the
   whole sprint (not one patch per tiny change) — the user installs
   several sprints' patches together.
+- **Decision (patch 20): release builds (Step 9) are produced via
+  GitHub Actions** (`.github/workflows/build-release.yml`), not a
+  local `./gradlew assembleRelease` run in the Codespace — matches how
+  debug builds already work. The local build path in `RELEASE.md`
+  Option A is kept as a working fallback, not removed.

@@ -1,0 +1,107 @@
+name: Build Signed Release APK
+
+# Manual-only build, mirroring build-debug.yml's design (see ROADMAP.md
+# Step 9 / CHANGELOG.md Patch 20). Produces a release-signed APK using a
+# keystore stored as a base64-encoded GitHub secret -- see RELEASE.md
+# for how to generate the keystore and add the required secrets. No
+# push/PR/schedule trigger by design -- every build is a deliberate,
+# hand-versioned run.
+on:
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: >-
+          App version name to stamp on this build (e.g. "1.1.0").
+          versionCode is derived automatically from this run's number
+          (below), so it always increases even if you reuse a
+          version_name -- avoids INSTALL_FAILED_VERSION_DOWNGRADE when
+          reinstalling over an older build on the same device.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build-release:
+    name: Build signed release APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          # Same reasoning as build-debug.yml: a GitHub Actions runner
+          # is a clean, single-JDK environment (unlike this project's
+          # Codespace -- see HANDOFF.md's "Key learnings"), so no extra
+          # org.gradle.java.home pinning is needed here.
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          # Matches compileSdk/targetSdk 35 and the build-tools version
+          # already confirmed correct (see ROADMAP.md's Appendix).
+          packages: "platform-tools platforms;android-35 build-tools;35.0.0"
+
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      - name: Decode signing keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "KEYSTORE_BASE64 repo secret is not set -- see RELEASE.md's 'CI build (GitHub Actions)' section to generate and add it." >&2
+            exit 1
+          fi
+          echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/kinescope-release.jks"
+
+      - name: Write keystore.properties
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          {
+            echo "storeFile=$RUNNER_TEMP/kinescope-release.jks"
+            echo "storePassword=$KEYSTORE_PASSWORD"
+            echo "keyAlias=$KEY_ALIAS"
+            echo "keyPassword=$KEY_PASSWORD"
+          } > keystore.properties
+          # keystore.properties is read by app/build.gradle.kts's signing
+          # config (rootProject.file("keystore.properties")); it is
+          # gitignored and only ever exists on this ephemeral runner.
+
+      - name: Build signed release APK
+        run: >-
+          ./gradlew --no-daemon assembleRelease
+          -PappVersionName="${{ inputs.version_name }}"
+          -PappVersionCode="${{ github.run_number }}"
+
+      - name: Rename APK with version
+        id: rename_apk
+        run: |
+          src="app/build/outputs/apk/release/app-release.apk"
+          if [ ! -f "$src" ]; then
+            echo "Expected APK not found at $src" >&2
+            exit 1
+          fi
+          dest="app/build/outputs/apk/release/kinescope-${{ inputs.version_name }}-release.apk"
+          mv "$src" "$dest"
+          echo "apk_path=$dest" >> "$GITHUB_OUTPUT"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kinescope-${{ inputs.version_name }}-release
+          path: ${{ steps.rename_apk.outputs.apk_path }}
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Clean up signing material
+        if: always()
+        run: rm -f keystore.properties "$RUNNER_TEMP/kinescope-release.jks"

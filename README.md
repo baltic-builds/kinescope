@@ -57,6 +57,10 @@ it by hand, supply a version name, and download the resulting APK from
 the run's Artifacts. No automatic trigger; each run is a deliberate,
 manually-versioned build.
 
+**Signed release builds** work the same way via the *Build Signed
+Release APK* workflow (`.github/workflows/build-release.yml`) — see
+`RELEASE.md` for the one-time keystore/secrets setup it needs.
+
 ## Documentation map
 
 - **`CLAUDE.md`** -- ground rules for this project (no custom
@@ -76,7 +80,8 @@ manually-versioned build.
   icon), including an explicit section on what it approximates and what
   it deliberately avoids.
 - **`RELEASE.md`** -- signing-key generation and the signed-release
-  process (Step 9 -- not started yet).
+  process (Step 9 -- CI workflow in place; pending the user's one-time
+  keystore/secrets setup and a first confirmed run).
 
 ## Tech stack
 
