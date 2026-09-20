@@ -32,7 +32,10 @@ lacking rights to write repo secrets -- both in `CHANGELOG.md`'s Patch
 21 entry) and trimming the ~200MB APK down via `ndk.abiFilters`. What's
 still open: confirming the signed APK actually installs and opens on a
 real device -- that's the one item left before Step 9 counts as fully
-done. See "Immediate next step" below.
+done. **Patch 22** separately fixed a startup crash hit on the user's
+first real-device launch attempt for Step 5 (unrelated code path, a
+Compose icon-loading bug, not a signing/CI issue) -- see "Immediate
+next step" below.
 
 ## How this codebase got here
 
@@ -294,6 +297,19 @@ before being handed over -- never delivered untested:
   the four secrets first, since Claude has no access to do either --
   hasn't happened yet. See `ROADMAP.md`'s Step 9 section for the exact
   remaining checklist.
+- **Patch 22** -- Fixed a startup crash on the user's first
+  real-device launch attempt (Step 5, Android 13): `EmptyQueueState`
+  loaded `android.R.drawable.stat_sys_download` via
+  `painterResource()`, which only supports a static `VectorDrawable`
+  or a rasterized image -- not the `AnimatedVectorDrawable` that
+  framework resource actually is on real devices (confirmed against
+  `painterResource()`'s own documentation, not assumed). Replaced
+  with a small hand-authored static vector
+  (`res/drawable/ic_download.xml`). `DownloadService`'s use of the
+  same framework resource for `setSmallIcon()` is unaffected --
+  notifications accept any drawable resource id directly, no Compose
+  involved. Unrelated to Step 9 / CI signing; this is purely a Step 5
+  finding.
 
 **Version-compatibility note worth remembering:** Compose BOM
 2024.11.00 (fixed in patch 01) pulls in Material3 **1.3.1**. Some APIs
@@ -372,7 +388,10 @@ decision:**
    from patch 01 (queue several videos in quick succession) and
    checking `friendlyError()`'s string-matching against real current
    yt-dlp error text, which genuinely needs a real device and can't be
-   settled by reading code.
+   settled by reading code. **Patch 22** fixed a startup crash hit on
+   the very first launch attempt (see below) -- the checklist above
+   needs a full re-run from item 1 with the patched build, since
+   nothing on it was actually exercised before the crash.
 3. **`roadmap.md` (lowercase) -- GPT Astra's audit/plan.** A separate,
    newer sprint-based document (S0-S11, findings F01-F42). Explicitly
    queued for **after** Step 9 above is fully done -- don't start it
@@ -574,6 +593,18 @@ The ~200MB first build was trimmed via `ndk.abiFilters` (also patch
 installing the signed APK on a real device and confirming it opens
 correctly -- don't mark that done without an explicit report, same
 discipline `build-debug.yml` was held to.
+
+**Patch 22** fixed a startup crash the user hit on the very first real
+device launch attempt (Android 13): `EmptyQueueState` -- what a fresh
+install shows before any download exists -- called `painterResource()`
+on `android.R.drawable.stat_sys_download`, which is an
+`AnimatedVectorDrawable` on real devices and not loadable that way (see
+`CHANGELOG.md`'s Patch 22 entry). Replaced with a small hand-authored
+static vector (`res/drawable/ic_download.xml`). **None of Step 5's
+checklist items are confirmed yet** -- the crash happened before any of
+them could be exercised -- so the next report back from the user should
+be a full re-run of that checklist from item 1, not just a confirmation
+that this one crash is gone.
 
 In the meantime, or once the user reports Step 9 confirmed working:
 **Step 5's manual on-device checklist** is next in priority (still

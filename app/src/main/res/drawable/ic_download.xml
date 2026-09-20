@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Hand-authored static download glyph (arrow + tray), reusing the same
+  visual motif as ic_launcher_foreground.xml (scaled to a normal 24dp
+  icon viewport) so the app's own icon language stays consistent.
+
+  Added in Patch 22 to replace android.R.drawable.stat_sys_download in
+  EmptyQueueState (MainActivity.kt): that framework resource is an
+  AnimatedVectorDrawable on real devices, and Jetpack Compose's
+  painterResource() only supports a plain static VectorDrawable or a
+  rasterized image (PNG/JPG/WEBP), not an API-driven XML type such as
+  an animated-vector. See CHANGELOG.md's Patch 22 entry.
+
+  fillColor below is irrelevant to the rendered color: Icon() in
+  MainActivity.kt applies its own `tint` as a ColorFilter over
+  whatever this draws, same as every Icons.Default.* icon already used
+  in that file.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Arrow stem -->
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M10.5,3 L13.5,3 L13.5,11 L10.5,11 Z" />
+    <!-- Arrowhead -->
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M8,11 L16,11 L12,16 Z" />
+    <!-- Tray / base line -->
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M8,18 L16,18 L16,20 L8,20 Z" />
+</vector>

@@ -12,6 +12,50 @@ Patches are cumulative and applied in order (01, 02, 03, ...). See each
 patch's own `.py` script for the exact, idempotent, exact-match-guarded
 edits it makes.
 
+## Patch 22 — Fixed a startup crash found on the first real-device launch (Step 5)
+
+The user's first real-device install (Android 13) crashed immediately.
+`EmptyQueueState` is what a fresh install shows first (queue empty, no
+downloads yet) — that's the exact composable that crashed, on its
+`painterResource()` call.
+
+### Changed
+- `app/src/main/java/com/kinescope/app/MainActivity.kt` —
+  `EmptyQueueState`'s icon no longer loads
+  `android.R.drawable.stat_sys_download` via `painterResource()`. That
+  framework resource is an `AnimatedVectorDrawable` on real devices
+  (it's the system's own animated download-in-progress notification
+  glyph); Compose's `painterResource()` only supports a plain static
+  `VectorDrawable` or a rasterized image (PNG/JPG/WEBP), not an
+  API-driven XML type like an animated-vector — confirmed against
+  `painterResource()`'s own documentation, which states this
+  restriction explicitly ("API based xml Drawables are not supported
+  here"). Loading one this way raises `IllegalArgumentException` at
+  runtime, every time — which for this composable means immediately,
+  on a fresh install.
+- Added `app/src/main/res/drawable/ic_download.xml` — a small,
+  hand-authored static vector (arrow + tray), reusing the same visual
+  motif as `ic_launcher_foreground.xml` for consistency. Deliberately
+  not `material-icons-extended` (still avoided for one glyph, per
+  `CLAUDE.md`'s zero-required-cost/no-bloat spirit) and not the
+  framework resource that just crashed.
+
+### Findings (closed)
+- **`android.R.drawable.stat_sys_download` cannot be loaded via
+  Compose's `painterResource()`.** It's an `AnimatedVectorDrawable` on
+  real devices, not a static `VectorDrawable` or a raster image —
+  `painterResource()`'s own documentation explicitly scopes support to
+  those two types only. `DownloadService.buildNotification()`'s
+  `setSmallIcon()` use of the same resource is unaffected and
+  deliberately left as-is: Android notifications accept any drawable
+  resource id directly (no Compose involved), which is exactly what
+  this animated icon is designed for.
+- **`./gradlew assembleDebug` succeeding does not catch this class of
+  bug.** Nothing about this crash shows up at compile time — it's a
+  resource-type mismatch that only manifests when the composable
+  actually runs on a device, which is exactly the gap Step 5's
+  real-device checklist exists to catch.
+
 ## Patch 21 — APK size trim + keystore-password fix
 
 Follow-up from actually running patch 20's CI signing workflow for the

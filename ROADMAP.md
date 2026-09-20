@@ -161,6 +161,15 @@ specifically target the bugs found in Step 3.
       unlikely to matter for typical video lengths, but worth knowing if
       it ever happens.
 
+**Update (patch 22):** the very first real-device launch attempt hit an
+immediate startup crash — `EmptyQueueState` (what a fresh install shows
+before any download exists) called `painterResource()` on a framework
+resource that turns out to be an `AnimatedVectorDrawable`, which Compose
+can't load that way. Fixed — see `CHANGELOG.md`'s Patch 22 entry. None
+of the checkboxes above are confirmed yet; the crash happened before any
+of them could be exercised. **Re-run this checklist from the top** with
+the patched build.
+
 Do not move to Step 9 (signed release) until every item above passes.
 **Update (patch 19): the user has explicitly directed starting Step 9
 now anyway** — see that section for what this means and doesn't mean.

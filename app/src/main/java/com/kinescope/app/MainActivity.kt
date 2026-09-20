@@ -413,15 +413,23 @@ private fun QueueRow(job: DownloadJobStatus) {
 // primaryContainer circle behind a download icon, no button (the
 // composer bar below is already the call to action).
 //
-// Icon choice: reuses the system stat_sys_download glyph already
-// proven to work in this exact codebase (DownloadService's
-// notification icon), rather than pulling in the large
-// material-icons-extended dependency for a single "download arrow"
-// glyph that core doesn't include, or hand-authoring a new vector
-// resource. Worth a look on a real device (see design.md's "compare
-// against a real screen" note) -- system status-bar icons are
-// designed for small sizes, so this may want swapping for a custom
-// vector later if it looks rough scaled up.
+// Icon choice (Patch 22): a small hand-authored static vector
+// (res/drawable/ic_download.xml), not material-icons-extended --
+// still avoided for one glyph, per CLAUDE.md's zero-required-cost/
+// no-bloat spirit -- and not the framework's
+// android.R.drawable.stat_sys_download this used to reference.
+// That framework icon is an AnimatedVectorDrawable on real devices
+// (it's the system's own animated download-in-progress
+// notification glyph -- still used as-is in DownloadService's
+// setSmallIcon(), which is fine, since Android notifications accept
+// any drawable resource id directly, no Compose involved). Jetpack
+// Compose's painterResource() only supports a plain static
+// VectorDrawable or a rasterized image, not an API-driven XML type
+// like an animated-vector -- confirmed against painterResource()'s
+// own documentation. This crashed on the very first real-device
+// launch during the Step 5 checklist (EmptyQueueState is what a
+// fresh install shows first, before any download exists) -- see
+// CHANGELOG.md's Patch 22 entry.
 @Composable
 private fun EmptyQueueState() {
     Column(
@@ -438,7 +446,7 @@ private fun EmptyQueueState() {
             contentAlignment = Alignment.Center
         ) {
             Icon(
-                painter = painterResource(id = android.R.drawable.stat_sys_download),
+                painter = painterResource(id = R.drawable.ic_download),
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onPrimaryContainer,
                 modifier = Modifier.size(36.dp)
