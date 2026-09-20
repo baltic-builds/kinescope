@@ -1,363 +1,135 @@
 # Roadmap
 
-**Status as of this update (after patch 19):** Steps 1-4, Step 6
-(6.1-6.6; 6.7 is optional and still skipped), Step 7 (Kinescope
-rename), Step 8 (CJM.md, patch 17 — the only remaining item is "keep
-this document current," which is ongoing by nature, not a one-time
-task), and the full build-environment/compile-error fix chain (patches
-07-14) are done. **`./gradlew assembleDebug` succeeds** — both locally
-and via `.github/workflows/build-debug.yml`, **confirmed in a real
-GitHub Actions run** after patch 18 fixed a leaked Codespace-only JDK
-path that broke the workflow's first attempt (see `CHANGELOG.md`). The
-user has downloaded a debug build via that workflow. **Per the user's
-explicit direction (patch 19), Step 9 (signed release) starts next**,
-ahead of Step 5's manual on-device checklist being individually
-itemized and confirmed back — see the Step 9 section below for what
-that means in practice. **Patch 20** delivered Step 9's CI
-infrastructure (a `build-release.yml` workflow, mirroring
-`build-debug.yml`), per the user's direction to build release APKs via
-GitHub Actions rather than a local Codespace build — but, same as
-`build-debug.yml` before patch 18's fix, this isn't marked done until
-the user has done the one-time keystore/secrets setup and confirmed a
-real signed run actually works. A full deep code review of the entire codebase
-was performed by Claude Fable 5.1 in 4 passes; this document
-consolidated every finding from that review into one ordered
-implementation plan. **As of patch 16, completed Step sections below
-are collapsed to a one-line pointer instead of repeating their full
-original checklist — see `CHANGELOG.md` for what each patch actually
-did, and `HANDOFF.md` for the patch-by-patch narrative.**
+**Current state (as of patch 23): the original 9-step implementation
+plan is done, or reduced to the specific technical debt below.** Steps
+1–9 — compile fixes, critical runtime fixes, product-quality fixes,
+device install/testing, design system v2, the Kinescope rename,
+documentation, and signed release — are all complete or closed out to
+named items in "Technical debt" below. `./gradlew assembleDebug`
+succeeds locally and via CI; a signed release build succeeds via CI;
+**the app is confirmed working on a real device** (Android 13):
+install, permissions, share/paste a link, queue and complete a
+download, play it back, background persistence. For the full
+step-by-step history of how it got here — including two dead ends
+that turned out to matter (a fabricated Compose BOM version, a
+plausible-but-wrong `UpdateChannel` location) — see `CHANGELOG.md`
+(one entry per patch) and `HANDOFF.md` (the fuller narrative + key
+learnings). **This file now tracks only what's left open, not what
+already shipped.**
 
-**Decided:** the Kinescope rename (Step 7) uses `applicationId` /
-`namespace` **`com.kinescope.app`**.
-
-**Execution order from here — this deliberately does NOT match the Step
-numbers below**, because Step 7 must happen before Step 5's first device
-install (changing `applicationId` after that is effectively irreversible —
-Android treats it as a different app), and Step 6 needed to be finished
-first since Step 7 touches many of the same files:
-
-1. ~~Step 6 — Design system v2~~ ✅ done (6.1-6.6; 6.7 optional, skipped)
-2. ~~Step 7 — Kinescope rename~~ ✅ done (patch 06)
-3. ~~Step 8 — Documentation~~ ✅ CJM.md done (patch 17); "keep this
-   document current" is ongoing, not a one-time checkbox
-4. **Step 9 — Signed release** ← CI infrastructure delivered (patch
-   20); awaiting the user's one-time keystore/secrets setup and a
-   confirmed real run before this step counts as done — see the Step 9
-   section for what this means for Step 5's still-unconfirmed manual
-   checklist
-5. Step 5 — First device install + testing: the debug build/CI/download
-   pipeline is confirmed working end to end; the manual on-device
-   checklist below (share/paste, race-condition stress test, broken-
-   video error text, airplane mode, large-download resilience) hasn't
-   been individually gone through and reported back yet
-
-**After Step 9 is done, and only then:** this repo also has a `roadmap.md` (lowercase) — a separate, newer sprint-based audit/plan (S0-S11, findings F01-F42) from GPT Astra, added by the user and not yet started. Do not merge it into this document or start it early — finish everything above (through Step 9) first. Once both this `ROADMAP.md` and `roadmap.md` are fully executed, both files get deleted.
-
-Steps 1-4 (compile blockers, then critical/product-quality fixes) are done
-and came first, as they had to — nothing else matters until the app
-actually compiles.
-
-**There is no Phase 8.** The sections below are **verification and fix
-steps**, not new numbered feature phases — this document extends the
-`Step 1-5` verification plan Fable proposed, it doesn't replace it with new
-"Phases." See `HANDOFF.md` and `CLAUDE.md` for why that distinction matters.
-
-**How to use this document:** the numbered Step sections below keep their
-original order (matching the initial review) for reference — follow the
-**execution order above**, not the numbering, for what to actually do
-next. Completed Steps are collapsed to a pointer at `CHANGELOG.md`
-rather than repeating their checklist. The Appendix at the end now only
-lists findings that are still open or informational — closed findings
-moved to `CHANGELOG.md` too.
+**Decided, unchanged:** `applicationId`/`namespace` is
+`com.kinescope.app`. No Google Play distribution — sideload only. No
+custom YouTube extraction — everything goes through `yt-dlp` via
+`youtubedl-android`. See `CLAUDE.md` for the full ground rules.
 
 ---
 
-## Step 1 — Fix known compile-time blockers, before first sync
+## Technical debt
 
-✅ **Done.** Compose BOM version fixed, dead `requestLegacyExternalStorage`
-removed. See `CHANGELOG.md`'s Patch 01 entry for detail. (The optional,
-never-done `ndk.abiFilters` trim moved to the Backlog section below —
-it was never blocking anything.)
+Nothing below blocks normal use of the app. Roughly ordered by how
+much it'd actually matter if it bit you.
 
----
+### Not yet individually confirmed on a real device
 
-## Step 2 — First headless compile
+Basic functionality is confirmed working (see above), but these more
+adversarial checks from the original Step 5 checklist haven't been
+individually gone through and reported back yet. "The app works"
+means the core loop works, not that these specific edge cases have
+been exercised:
 
-✅ **Done.** `./gradlew assembleDebug` succeeds (first achieved after
-patch 14). Progress-callback arity confirmed 3-parameter,
-`updateYoutubeDL()`'s `UpdateChannel` argument added, import paths
-confirmed against the library's real tagged source. See `CHANGELOG.md`'s
-Patch 01, 07, and 14 entries.
+- [ ] **Race-condition stress test:** queue 3–4 videos in quick
+      succession (within a couple seconds of each other, the realistic
+      "prepping for a trip" pattern) and confirm every single one
+      actually starts and completes. This is the exact scenario
+      `DownloadService`'s worker-restart fix (patch 01) was written
+      for.
+- [ ] **`friendlyError()` against a real broken video:** try an
+      age-restricted or private video and confirm the error-text
+      matching (e.g. "Sign in to confirm you're not a bot" for
+      bot-detection) still matches current yt-dlp output. Flagged
+      since the original review as "needs a real device to settle,"
+      and still does.
+- [ ] **Airplane mode at queue time:** confirm the app degrades
+      gracefully rather than crashing (doubles as a regression check
+      for the Step 3 catch-all exception handler).
+- [ ] **A very large/slow download:** confirm it doesn't get killed
+      mid-transfer. If it ever does on Android 14+ specifically, note
+      that `dataSync`-type foreground services have a rolling
+      execution-time budget (hours/day, not indefinite) —
+      informational, unlikely to matter for typical video lengths.
 
----
+### Signed release
 
-## Step 3 — Critical runtime fixes, before first device install
+- [ ] Confirm the **signed** release APK (not just the debug build)
+      actually installs and opens on a real device. CI produces it
+      successfully (`.github/workflows/build-release.yml`, confirmed
+      patch 21); this is the one step that needs a device, not just a
+      green Actions run.
 
-✅ **Done.** The `DownloadService.ensureWorkerRunning()` race condition
-(jobs silently stranded at "Queued") fixed with a blocking consumer loop
-and lock-guarded state transitions; a catch-all exception handler added
-so one bad download can't crash the whole app. See `CHANGELOG.md`'s
-Patch 01 entry — and the doc comment above `startWorkerLocked()` in
-`DownloadService.kt` for why this fix is tighter than the sample fix
-originally sketched here.
+### Optional backlog (unscheduled, user-prioritized)
 
----
-
-## Step 4 — Product-quality fixes, cheap wins before device testing
-
-✅ **Done.** Filenames humanized via yt-dlp's own title template,
-job-id-tag output-file scanning, the `RELATIVE_PATH` trailing-slash
-mismatch fixed, `DownloadQueueBus` updates made atomic, subfolder-name
-sanitization, YouTube-host validation on shared/pasted URLs, an
-`ActivityNotFoundException` guard on video playback, and a dead branch
-removed. See `CHANGELOG.md`'s Patch 02 entry.
-
----
-
-## Step 5 — Install and run on a real device
-
-No emulator exists in this environment — this step is manual, on your own
-phone. Beyond Fable's original test sequence, a few additions below
-specifically target the bugs found in Step 3.
-
-**Build environment (patches 07-14):** the environment needed five fixes before the first compile could even be attempted — a `pipefail` bug in `setup.sh` (07), two re-run/idempotency bugs in `setup.sh` (10), and a JDK/Gradle mismatch where this Codespace's actual default JDK (25.0.2) is too new for Gradle 8.10.2 (ceiling: Java 23, per Gradle's own 8.10 release notes), fixed by pinning Gradle to an already-installed JDK 21 instead (11-12). Two real compile errors followed: an invalid `--` inside an XML comment (13), and `UpdateChannel` actually being a nested class of `YoutubeDL` rather than top-level, i.e. Appendix #11 (14). Full story in `HANDOFF.md`'s patch history and "Key learnings" — kept brief here since it's now resolved history, not an open risk. **`./gradlew assembleDebug` succeeds.**
-
-**CI build pipeline (patch 16, fixed patch 18):** `.github/workflows/build-debug.yml` builds and uploads a versioned debug APK on manual trigger — **confirmed by a real, successful GitHub Actions run**, after patch 18 fixed a Codespace-only JDK path that had leaked into the committed `gradle.properties` and broke the workflow's first attempt. The user has downloaded a debug build via this path. This closes the "how do I even get a build onto the phone without adb" question; it is not the same thing as having gone through the manual checklist below.
-
-- [ ] Install the debug APK (`adb install`, or transfer + tap).
-- [ ] Grant any runtime permissions prompted (notifications, etc.).
-- [ ] Share a real YouTube link into the app via the Android share sheet;
-      separately, paste one directly.
-- [ ] Queue a short video at a low quality preset first (fastest full
-      round-trip).
-- [ ] Confirm: it downloads, appears in Library **with a real title**
-      (not a UUID, if Step 4's filename fix is in), plays via the system
-      player, and is visible in a file manager under
-      `Downloads/<subfolder>`.
-- [ ] Background the app mid-download; confirm the notification persists
-      and the download completes.
-- [ ] **Specifically stress-test the Step 3 race condition**: queue 3–4
-      videos in quick succession (within a couple seconds of each other,
-      simulating the realistic "prepping for a trip" pattern from the
-      CJM) and confirm every single one actually starts and completes —
-      this is the exact scenario that used to be able to strand a job
-      silently at "Queued."
-- [ ] Try one deliberately broken case (an age-restricted or private
-      video) to see the actual error text yt-dlp returns, and confirm
-      `friendlyError()`'s string-matching against real current yt-dlp
-      output (e.g. "Sign in to confirm you're not a bot" for
-      bot-detection) still works — this was flagged as "partially
-      confirmed, partially outdated" and genuinely needs a real device to
-      resolve, no amount of code reading settles it.
-- [ ] Try airplane mode / no connectivity at queue time, confirm the app
-      degrades gracefully rather than crashing (this is also where the
-      Step 3 catch-all fix should prevent any exception type from taking
-      down the whole app, so this doubles as a regression check for that
-      fix).
-- [ ] Confirm the app doesn't crash on a very large/slow download; if it
-      ever does get killed mid-transfer on Android 14+ specifically, note
-      that `dataSync`-type foreground services have a rolling execution
-      time budget (hours/day, not indefinite) — informational only,
-      unlikely to matter for typical video lengths, but worth knowing if
-      it ever happens.
-
-**Update (patch 22):** the very first real-device launch attempt hit an
-immediate startup crash — `EmptyQueueState` (what a fresh install shows
-before any download exists) called `painterResource()` on a framework
-resource that turns out to be an `AnimatedVectorDrawable`, which Compose
-can't load that way. Fixed — see `CHANGELOG.md`'s Patch 22 entry. None
-of the checkboxes above are confirmed yet; the crash happened before any
-of them could be exercised. **Re-run this checklist from the top** with
-the patched build.
-
-Do not move to Step 9 (signed release) until every item above passes.
-**Update (patch 19): the user has explicitly directed starting Step 9
-now anyway** — see that section for what this means and doesn't mean.
-
----
-
-## Step 6 — Design system v2
-
-✅ **Done** (6.1-6.6: light/dark color tokens, a completed typography
-scale, per-screen component patterns, adaptive-icon safe-zone fix). **No
-"Claude"/Anthropic name, logo, or licensed fonts anywhere — this
-constraint is unchanged and non-negotiable**, and nothing in patches
-03-04 violated it. See `CHANGELOG.md`'s Patch 03 and 04 entries for
-detail. 6.7 below is the one item still open.
-
-### 6.7 Optional, not required for v2
-
+- [ ] Persist download queue state (small local DB or file) so a
+      process kill doesn't silently lose in-flight job status with
+      zero UI indication — `DownloadQueueBus` is a bare in-memory
+      `StateFlow` today; reasonable for v1, worth revisiting.
+- [ ] Orphaned temp-file cleanup on `DownloadService` startup, in case
+      an aggressive OEM battery manager (Xiaomi/Huawei/Samsung-class
+      skins do this even to foreground services) OOM-kills the process
+      mid-download.
 - [ ] Add a `<monochrome>` adaptive icon layer for Android 13+ themed
-      icons (Material You tinting support) — cosmetic only, currently the
-      icon just won't participate in themed-icon tinting.
-
----
-
-## Step 7 — Branding: rename to Kinescope
-
-✅ **Done.** `namespace`/`applicationId`/`rootProject.name` →
-`com.kinescope.app` / `kinescope`, done before Step 5's first device
-install while `applicationId` was still a safe, reversible change; every
-user-visible "YT Offline" string → "Kinescope". Internal-only Kotlin
-identifiers (`YtOfflineTheme`, `YtOfflineApp`, etc.) deliberately left
-unchanged — not user-visible, not in scope. See `CHANGELOG.md`'s Patch
-06 entry.
-
----
-
-## Step 8 — Documentation
-
-- [x] Replace `README.md` with a real one (Fixed — patch 15; written
-      fresh rather than pasting an old drafted version, which could no
-      longer be located in the repo by that session — covers what it
-      is, who it's for, build instructions, status, documentation map,
-      and explicit limitations). This checkbox itself was accidentally
-      left unflipped until patch 16 caught it.
-- [x] Add a `CJM.md` (or fold into `design.md`) capturing the Customer
-      Journey Map produced during the review — five stages (prep at home
-      → queue & download → departure/loses access → watch offline in-
-      region → return & refresh library), with the explicit finding that
-      the single highest-risk moment is the silent-failure window at
-      home the night before a trip. This is the "why" behind Steps 3–4's
-      priority ordering and is worth keeping as a living reference, not
-      just a one-time review artifact. (Fixed — patch 17: written as a
-      standalone `CJM.md` rather than folded into `design.md`, since the
-      two documents serve different audiences — one visual, one
-      product/prioritization.)
-- [ ] Keep this `ROADMAP.md` itself as the living source of truth for
-      "what's actually been verified vs. still assumed" — update the
-      checkboxes above as each item is actually done, don't let it drift
-      back into "written but unverified" the way the original 7 phases did.
-
----
-
-## Step 9 — Signed release
-
-Originally: only once **every item in Steps 1–5 is done and confirmed
-on a real device**. Follow `RELEASE.md` in full — do not skip ahead to
-save time; an unverified debug build signed into a release build is
-still unverified.
-
-- [x] Release signing config in `app/build.gradle.kts` — reads
-      `keystore.properties`, falls back to an unsigned build if it's
-      absent. Predates this patch, unchanged by it.
-- [x] CI workflow to build a signed release APK
-      (`.github/workflows/build-release.yml`) — added patch 20. Mirrors
-      `build-debug.yml`'s manual-trigger, hand-versioned design; decodes
-      a base64 keystore secret into a runner-local temp file for the
-      build only and deletes it before the job ends. Full setup
-      instructions in `RELEASE.md`'s "CI build (GitHub Actions)"
-      section.
-- [x] One-time: generate the release keystore and add the
-      `KEYSTORE_BASE64` / `KEYSTORE_PASSWORD` / `KEY_ALIAS` /
-      `KEY_PASSWORD` repo secrets — done. Took several attempts; see
-      `CHANGELOG.md`'s Patch 21 entry for the two real gotchas hit
-      along the way (the default Codespaces `gh` token lacking
-      repo-admin rights to write secrets, and PKCS12 keystores
-      requiring an identical store/key password).
-- [x] Trigger the workflow and produce a signed APK — confirmed by a
-      real successful Actions run. The resulting APK was ~200MB;
-      trimmed via the `ndk.abiFilters` Backlog item below (patch 21).
-- [ ] Confirm the signed APK actually installs and opens correctly on
-      a real device. **This is the one remaining item that flips Step
-      9 to fully done** — same standard `build-debug.yml` was held to
-      (not marked confirmed until patch 18's fix was verified by a
-      real successful Actions run, not just code review).
-
-**Update (patch 19): the project owner explicitly directed starting
-this step now**, ahead of Step 5's manual checklist being individually
-gone through and reported back — not an oversight, a deliberate call.
-This is recorded as a standing decision in `CLAUDE.md`'s instruction
-log; a future session should act on it, not re-litigate it or refuse
-citing the paragraph above. What the original caution above still gets
-right, though, and what remains genuinely true regardless of this
-decision: a signed release is still built from the same code as the
-unverified debug build, so anything Step 5's checklist would have
-caught (the race-condition stress test, `friendlyError()` against real
-yt-dlp output, airplane-mode behavior) is still unverified — it just
-isn't blocking Step 9 from starting. If anything comes up during Step
-9 itself that depends on one of those being true, say so plainly
-rather than assuming it's fine because Step 9 was authorized to start.
-
----
-
-## Backlog — optional, unscheduled, not required
-
-Everything below is opt-in and user-prioritized, explicitly **not** a
-commitment or a new numbered phase:
-
-- [x] Trim `x86`/`x86_64` (and `armeabi-v7a`) from `ndk.abiFilters` in
-      `app/build.gradle.kts`, down to `arm64-v8a` only — done, patch 21,
-      once the ~200MB real release build made this no longer
-      theoretical. Originally Step 1's one optional, non-blocking item;
-      moved here in patch 16, acted on in patch 21. Add `armeabi-v7a`
-      back if an older 32-bit device ever needs to install this.
-- [ ] Persist download queue state (small local DB or file) so a process
-      kill doesn't silently lose in-flight job status with zero UI
-      indication — currently accepted debt (`DownloadQueueBus` is a bare
-      in-memory `StateFlow`), reasonable for v1 but worth revisiting.
-- [ ] Orphaned temp-file cleanup on `DownloadService` startup, in case the
-      process was OOM-killed mid-download by an aggressive OEM battery
-      manager (Xiaomi/Huawei/Samsung-class skins do this even to
-      foreground services) — scan for leftover temp files from a
-      previous run on service start, resume or clean them up.
-- [x] In-app delete for library entries (vs. relying on an external file
-      manager) — done as of patch 04: the Step 6.5 overflow menu's
-      Delete action calls `MediaStorage.delete()`
-      (`ContentResolver.delete()` on the app's own `MediaStore` row),
-      not just the UI affordance.
+      icons (Material You tinting support) — purely cosmetic; the icon
+      just won't participate in themed-icon tinting without it.
 - [ ] Migrate `collectAsState()` to `collectAsStateWithLifecycle()` in
-      `MainActivity.kt` — fine as-is for a single-screen app, revisit only
-      if a second screen (e.g. a dedicated Library screen) is added.
+      `MainActivity.kt` — fine as-is for a single-screen app, revisit
+      only if a second screen (e.g. a dedicated Library screen) is
+      added.
 - [ ] Migrate remaining raw `Thread`/`Handler(Looper.getMainLooper())`
       usage (`YtOfflineApp.kt`, `MainActivity.kt`'s `runUpdate()`) to
       `rememberCoroutineScope()` + `withContext(Dispatchers.IO)`, for
       consistency with the coroutines-based fix already applied to
       `DownloadService` in Step 3.
 - [ ] Externalize remaining hardcoded UI strings ("Queue", "Library",
-      `friendlyError()` messages, Settings labels) into `strings.xml` —
-      zero functional impact for a personal single-language app, purely a
-      "nice to have if you're already touching that code."
-- [ ] Batch-queue a full playlist by URL, if that becomes a real use case.
+      `friendlyError()` messages, Settings labels) into `strings.xml`
+      — zero functional impact for a personal single-language app,
+      purely a "nice to have if you're already touching that code."
+- [ ] Batch-queue a full playlist by URL, if that becomes a real use
+      case.
 - [ ] Self-hosted backend for cross-device queue sync — explicitly
       optional per `CLAUDE.md`'s zero-required-cost rule, never a
       requirement.
-- [ ] Note for future Codespace rebuilds: `.devcontainer/setup.sh` scrapes
-      the Android cmdline-tools download URL from a live webpage rather
-      than a pinned version, which fails safely (loud error with
-      instructions) but means a rebuilt Codespace could silently pick up
-      a newer cmdline-tools version than your first successful build did.
-      If a *rebuilt* Codespace ever behaves differently than the original
-      for no apparent code reason, check this script's output first.
+- [ ] Note for future Codespace rebuilds: `.devcontainer/setup.sh`
+      scrapes the Android cmdline-tools download URL from a live
+      webpage rather than a pinned version — fails safely (a loud
+      error with instructions) but means a rebuilt Codespace could
+      silently pick up a newer cmdline-tools version than the original
+      build did. If a *rebuilt* Codespace ever behaves differently
+      than the original for no apparent code reason, check this
+      script's output first.
+
+In-app delete for library entries is fully done (patch 04) — not
+debt, just noted here since it used to live in this list.
 
 ---
 
-## Process note for future sessions
+## After this file: `roadmap.md` (lowercase)
 
-The original build-verify-after-every-phase discipline in `CLAUDE.md` was
-intentionally overridden by explicit user instruction during initial
-development ("keep going, we'll test everything at the end"). That was a
-valid call for a solo prototyping burst, but it's also *exactly* why this
-document exists — nearly every Critical/High finding above is a direct
-consequence of code that was never compiled, let alone run. Going forward,
-once Step 2 succeeds for the first time: **prefer compiling after each
-meaningful change**, not just at the end of a long unattended session.
+A separate, newer sprint-based audit/plan (S0–S11, findings F01–F42)
+from GPT Astra, added by the user. Deliberately queued for **after**
+every item above is closed — do not merge it into this document or
+start it early. Once both this `ROADMAP.md` and `roadmap.md` are fully
+executed, both files get deleted.
 
 ---
 
-## Appendix — Open findings only
+## Process note (still true)
 
-Originally a full traceability table for every finding from the 4-part
-review (35 rows). As of patch 16, closed findings (everything that was
-✅ Fixed/Confirmed — originally rows 1-15, 18, 21-32, 34-35) have moved
-to `CHANGELOG.md`'s per-patch entries, keeping this table to what's
-still actually open or informational. Original row numbers preserved
-below for cross-reference with `CHANGELOG.md` and old session history.
-
-| # | Priority | Finding | Location | Status |
-|---|---|---|---|---|
-| 16 | Low | Inconsistent Thread/Handler vs. coroutines style | `YtOfflineApp.kt`, `MainActivity.kt` | Open — Step 3 (partial), Backlog (rest) |
-| 17 | Low | Only `app_name` externalized to `strings.xml` | `strings.xml` | Backlog |
-| 19 | Info | No monochrome adaptive-icon layer (Android 13+ themed icons) | resources | Backlog (Step 6.7) |
-| 20 | Info | `dataSync` foreground service execution time budget on API 34+ | `DownloadService.kt` | Informational only |
-| 33 | — | `friendlyError()` string matching against real yt-dlp output | `DownloadService.kt` | Needs device verification — Step 5 |
+The original build-verify-after-every-phase discipline in `CLAUDE.md`
+was intentionally overridden by explicit user instruction during
+initial development ("keep going, test everything at the end"). That
+was a valid call for a solo prototyping burst, but it's also *why*
+this document's now-closed Steps 1–4 existed at all — nearly every
+Critical/High finding in this project's early history was a direct
+consequence of code that was never compiled, let alone run. Going
+forward: **prefer compiling (and, where practical, running) after
+each meaningful change**, not just at the end of a long unattended
+session. See `AGENTS.md` for the fuller process this project follows.

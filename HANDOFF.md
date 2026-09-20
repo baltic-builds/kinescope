@@ -3,8 +3,8 @@
 Paste this file's contents at the start of a new conversation to
 resume work with minimal re-explaining. If the new conversation
 doesn't already have repo access, also attach a fresh repomix export
-(or paste `CLAUDE.md`, `ROADMAP.md`, `CHANGELOG.md`, `CJM.md`,
-`roadmap.md`, `design.md`, and `RELEASE.md` directly).
+(or paste `CLAUDE.md`, `AGENTS.md`, `ROADMAP.md`, `CHANGELOG.md`,
+`CJM.md`, `roadmap.md`, `design.md`, and `RELEASE.md` directly).
 
 ## Project identity
 
@@ -20,22 +20,25 @@ project's history was achieved via patches 01-14.** The
 `.github/workflows/build-debug.yml` CI path (patch 16) failed on its
 first real run due to a leaked Codespace-only JDK path; patch 18 fixed
 it, and the user has since confirmed a successful GitHub Actions build
-and downloaded a debug APK. **Per the user's explicit direction (patch
-19), the next step is Step 9 (signed release)** -- ahead of Step 5's
-manual on-device checklist being individually gone through and
-reported back. **Patch 20 delivered Step 9's CI workflow**
-(`.github/workflows/build-release.yml`), and **patch 21 confirms it
+and downloaded a debug APK. **Patch 20 delivered Step 9's CI workflow**
+(`.github/workflows/build-release.yml`), and **patch 21 confirmed it
 actually works**: a real signed release build succeeded via GitHub
 Actions after fixing two real gotchas hit along the way (PKCS12's
 same-password requirement, and the default Codespaces `gh` token
 lacking rights to write repo secrets -- both in `CHANGELOG.md`'s Patch
-21 entry) and trimming the ~200MB APK down via `ndk.abiFilters`. What's
-still open: confirming the signed APK actually installs and opens on a
-real device -- that's the one item left before Step 9 counts as fully
-done. **Patch 22** separately fixed a startup crash hit on the user's
-first real-device launch attempt for Step 5 (unrelated code path, a
-Compose icon-loading bug, not a signing/CI issue) -- see "Immediate
-next step" below.
+21 entry) and trimming the ~200MB APK down via `ndk.abiFilters`. **Patch
+22** fixed a startup crash hit on the user's first real-device launch
+attempt (a Compose icon-loading bug in `EmptyQueueState`, unrelated to
+signing/CI), and **patch 23 (this one) confirms the fix**: the user
+reports the app now runs correctly end to end on a real device (Android
+13) -- install, share/paste a link, queue and complete a download, play
+it back, background persistence. **The original 9-step plan is now done
+or reduced to specific, named technical debt** -- see `ROADMAP.md`'s
+"Technical debt" section for the current, complete list (the signed-APK
+device-confirm is the one Step 9 item still open; a handful of more
+adversarial Step 5 checks -- the race-condition stress test,
+`friendlyError()` against a real broken video, airplane mode, a very
+large download -- haven't been individually gone through yet either).
 
 ## How this codebase got here
 
@@ -310,6 +313,18 @@ before being handed over -- never delivered untested:
   notifications accept any drawable resource id directly, no Compose
   involved. Unrelated to Step 9 / CI signing; this is purely a Step 5
   finding.
+- **Patch 23** -- Documentation-only: the user confirmed patch 22's fix
+  works (the app runs correctly end to end on a real device).
+  Folded that confirmation into every project doc, consolidated
+  `ROADMAP.md`'s original 9-step plan (now functionally complete) into
+  a single "Technical debt" section, rewrote `README.md` as a proper
+  GitHub-facing README with CI status badges, and added `AGENTS.md` --
+  a process/workflow file for AI coding agents, complementing
+  `CLAUDE.md`'s ground rules. Also found and fixed a real, if currently
+  harmless, security gap: `kinescope-release.jks.b64` (an empty
+  placeholder) is git-tracked and wasn't covered by `.gitignore`'s
+  existing `*.jks`/`*.keystore` rules -- fixed by adding
+  `*.jks.b64`/`*.jks.base64.txt`.
 
 **Version-compatibility note worth remembering:** Compose BOM
 2024.11.00 (fixed in patch 01) pulls in Material3 **1.3.1**. Some APIs
@@ -326,86 +341,63 @@ actually pulls in.**
 
 ## What's actually done vs. still open
 
-Read `ROADMAP.md`'s top section first -- it has the authoritative,
-up-to-date status summary and the correct execution order (which does
-**not** match the document's own Step numbering). As of this snapshot:
+Read `ROADMAP.md`'s top section first -- as of patch 23 it's a short
+"current state" summary plus a single, consolidated "Technical debt"
+list (the original 9-step plan's checklists don't live there
+separately anymore; `CHANGELOG.md` has the full step-by-step history
+instead). As of this snapshot:
 
-**Done:** Steps 1, 2 (including Appendix finding #11, now fully
-confirmed by the actual successful compile -- not just pre-verified),
-3, 4, 6 (6.1-6.6; 6.7 -- an optional monochrome adaptive-icon layer for
-Android 13+ themed icons -- is still skipped, opt-in only, not
-required), 7 (Kinescope rename), 8 (`CJM.md`, patch 17 -- the one
-remaining item, "keep this document current," is ongoing by nature,
-not a one-time task), and the environment/build-setup work that had to
-happen before Step 5 could even start (patches 07-14: a working,
-re-runnable `setup.sh`, a Gradle/JDK pin that actually works in this
-Codespace, and every compile error fixed). **`./gradlew assembleDebug`
-now succeeds**, both locally and via the `.github/workflows/build-debug.yml`
-GitHub Actions workflow (patch 16) -- **confirmed by a real,
-successful Actions run** after patch 18 fixed a Codespace-only JDK path
-that had leaked into the committed `gradle.properties` and broke the
-workflow's first attempt. The user has downloaded a debug build via
-that path.
+**Done:** Steps 1-4, 6 (6.1-6.6; 6.7 -- an optional monochrome
+adaptive-icon layer -- moved to Technical debt, opt-in only, not
+required), 7 (Kinescope rename), 8 (`CJM.md`, patch 17 -- "keep this
+document current" is ongoing by nature, not a one-time task), and the
+environment/build-setup work that had to happen before Step 5 could
+even start (patches 07-14). **`./gradlew assembleDebug` succeeds**,
+both locally and via `.github/workflows/build-debug.yml` --
+**confirmed by a real, successful Actions run** (patch 18). **Step 9's
+CI infrastructure is confirmed working too**: a real signed release
+build succeeded via `.github/workflows/build-release.yml` (patch 21).
+**Step 5's core functionality is now confirmed on a real device**
+(Android 13, patch 22's crash-fix + the user's patch-23 confirmation):
+install, permissions, share/paste a link, queue and complete a
+download, play it back via the system player, background persistence.
 
-**A note on APK size, since the user mentioned the debug build feels
-"heavy":** expected, not a bug -- debug builds include debug symbols
-and skip any size optimization. A release build (Step 9) won't
-necessarily be dramatically smaller either, though: `isMinifyEnabled =
-false` on the release build type was a deliberate Step 1 decision
-(avoids R8 breaking reflection-heavy coroutine/yt-dlp-wrapper code),
-and `youtubedl-android`'s bundled native binaries (not app code) likely
-dominate APK size regardless. `ROADMAP.md`'s Backlog has an
-never-done, optional `ndk.abiFilters` trim (drop `x86`/`x86_64` if the
-target phone is arm64) as the one concrete lever if size becomes an
-actual problem worth spending time on -- don't assume it's needed
-without the user asking.
+**A note on APK size, since the user mentioned an early debug build
+felt "heavy":** expected for a debug build (debug symbols, no size
+optimization), not a bug. The signed release build was trimmed from
+~200MB to something much smaller by restricting `ndk.abiFilters` to
+`arm64-v8a` only (patch 21) -- `youtubedl-android`'s bundled
+Python/ffmpeg/ffprobe/QuickJS native libraries, multiplied per ABI,
+dominate APK size regardless of app code; `isMinifyEnabled = false`
+on the release build type is a deliberate, unrelated Step 1 decision
+(avoids R8 breaking reflection-heavy coroutine/yt-dlp-wrapper code).
 
-**Not done, and the order changed as of patch 19 by explicit user
-decision:**
+**Still open -- see `ROADMAP.md`'s "Technical debt" section for the
+authoritative, current list, not this summary:**
 
-1. **Step 9 -- Signed release.** CI infrastructure delivered (patch
-   20): `.github/workflows/build-release.yml` builds a signed release
-   APK from four repo secrets, mirroring `build-debug.yml`. What's
-   left is entirely on the user's side and can't be advanced further
-   from here: (a) generate the release keystore and add the
-   `KEYSTORE_BASE64`/`KEYSTORE_PASSWORD`/`KEY_ALIAS`/`KEY_PASSWORD`
-   repo secrets (`RELEASE.md`'s "CI build" section has the exact
-   steps), then (b) trigger the workflow once and confirm the APK it
-   produces actually installs and opens on a real device. Only (b)
-   flips Step 9 to done -- same standard `build-debug.yml` was held to
-   (patch 18). Separately, and still true regardless of CI
-   infrastructure: a signed release is built from the same code Step
-   5 would have exercised, so anything that checklist would have
-   caught (the race-condition stress test, `friendlyError()` against
-   real yt-dlp output, airplane-mode behavior) is genuinely still
-   unverified. `RELEASE.md`'s old `yt-offline` naming (keystore
-   filename/alias, GitHub release title) has been renamed to
-   `kinescope` as part of patch 20.
-2. **Step 5 -- Device install + manual testing.** Not blocking Step 9
-   anymore, but still open and still worth doing when there's a chance
-   -- `ROADMAP.md`'s Step 5 section has the full checklist, including
-   explicitly stress-testing the `DownloadService` race-condition fix
-   from patch 01 (queue several videos in quick succession) and
-   checking `friendlyError()`'s string-matching against real current
-   yt-dlp error text, which genuinely needs a real device and can't be
-   settled by reading code. **Patch 22** fixed a startup crash hit on
-   the very first launch attempt (see below) -- the checklist above
-   needs a full re-run from item 1 with the patched build, since
-   nothing on it was actually exercised before the crash.
-3. **`roadmap.md` (lowercase) -- GPT Astra's audit/plan.** A separate,
-   newer sprint-based document (S0-S11, findings F01-F42). Explicitly
-   queued for **after** Step 9 above is fully done -- don't start it
-   early or merge it into this `ROADMAP.md`. Once both roadmaps are
-   fully executed, delete both files.
-
-**Backlog (optional, unscheduled -- see `ROADMAP.md`'s Backlog section
-for the full list with reasoning):** persisting queue state across a
-process kill, orphaned-temp-file cleanup on service start, migrating
-remaining `Thread`/`Handler` usage to coroutines for consistency with
-`DownloadService`'s own fix, externalizing hardcoded UI strings to
-`strings.xml`, `collectAsState()` -> `collectAsStateWithLifecycle()`,
-playlist batch-queueing, a self-hosted sync backend (explicitly never
-required, per `CLAUDE.md`). In-app delete is fully done as of patch 04.
+1. **Confirm the signed release APK** (not just the debug build)
+   installs and opens on a real device -- the one Step 9 item CI
+   success alone doesn't cover.
+2. **A handful of more adversarial Step 5 checks**, not individually
+   confirmed even though basic functionality now is: the
+   race-condition stress test (3-4 videos queued in quick
+   succession), `friendlyError()`'s string-matching against a real
+   broken/age-restricted/private video, airplane-mode behavior at
+   queue time, and a very large/slow download. None of these are
+   assumed to pass just because the app runs now -- say so plainly if
+   anything here turns out to matter.
+3. **`roadmap.md` (lowercase) -- GPT Astra's audit/plan.** Still
+   queued for **after** everything above is closed. Don't start it
+   early or merge it into `ROADMAP.md`. Once both roadmaps are fully
+   executed, delete both files.
+4. **The optional backlog** (queue-state persistence across a process
+   kill, orphaned temp-file cleanup, `Thread`/`Handler` ->
+   coroutines migration, `strings.xml` externalization,
+   `collectAsState()` -> `collectAsStateWithLifecycle()`, playlist
+   batch-queueing, a self-hosted sync backend -- never required, per
+   `CLAUDE.md`) -- unscheduled, user-prioritized, see `ROADMAP.md` for
+   the full list with reasoning. In-app delete is fully done (patch
+   04).
 
 ## File map (current, post-Kinescope-rename -- package `com.kinescope.app`)
 
@@ -453,16 +445,21 @@ All files below live under
   `mipmap-anydpi-v26/ic_launcher*.xml` -- adaptive icon, safe-zone
   fixed in patch 03; an invalid `--` inside a comment fixed in patch
   13.
-- `RELEASE.md` -- signing key generation, signed build, install
-  instructions; still uses the old `yt-offline` name in places
-  (Step 9 scope, not touched by patch 06). `design.md` -- the visual
-  design system, with a section on what it approximates and what it
-  deliberately avoids (Anthropic's actual fonts/logo/name); its "YT
-  Offline" mentions are now "Kinescope". `CLAUDE.md` -- project ground
-  rules. `ROADMAP.md` -- the living, checkbox-tracked implementation
-  plan (read its top section first; as of patch 16 it only carries
-  detail for what's still open -- completed Steps point to
-  `CHANGELOG.md`). `CHANGELOG.md` -- terse per-patch "what shipped"
+- `res/drawable/ic_download.xml` -- small hand-authored static vector
+  (arrow + tray) used by `EmptyQueueState`'s icon; added in patch 22
+  to replace a framework `AnimatedVectorDrawable` that Compose's
+  `painterResource()` can't load.
+- `RELEASE.md` -- signing key generation, signed build (local or CI),
+  install instructions; renamed from the old `yt-offline` naming to
+  `kinescope` in patch 20. `design.md` -- the visual design system,
+  with a section on what it approximates and what it deliberately
+  avoids (Anthropic's actual fonts/logo/name); its "YT Offline"
+  mentions are now "Kinescope". `CLAUDE.md` -- project ground rules.
+  `AGENTS.md` -- process/workflow conventions for an AI coding agent
+  working on this repo (added patch 23). `ROADMAP.md` -- current
+  status and open technical debt (restructured patch 23; the
+  step-by-step history of completed work lives in `CHANGELOG.md`/this
+  file instead). `CHANGELOG.md` -- terse per-patch "what shipped"
   record, newest first (patch 17). `CJM.md` -- the five-stage Customer
   Journey Map behind Steps 1/3/4's priority ordering (patch 17).
   `roadmap.md` -- GPT Astra's sprint-based plan, queued for after
@@ -580,78 +577,26 @@ overridable via `-PappVersionCode`, see patch 16), `versionName`
 
 ## Immediate next step for Claude (in a new conversation)
 
-**Step 9's CI workflow is now confirmed working** (patch 21): a real
-signed release build succeeded via GitHub Actions. Getting there
-surfaced two real gotchas, both fixed and documented in
-`CHANGELOG.md`'s Patch 21 entry and `RELEASE.md`: PKCS12 keystores
-require an identical store/key password (mismatched ones fail later
-with an opaque `Given final block not properly padded` error, not an
-obviously-a-password-problem one), and the default `gh` token inside a
-Codespace lacks rights to write repo secrets (needs a separate PAT).
-The ~200MB first build was trimmed via `ndk.abiFilters` (also patch
-21). The one item left before Step 9 counts as fully done: the user
-installing the signed APK on a real device and confirming it opens
-correctly -- don't mark that done without an explicit report, same
-discipline `build-debug.yml` was held to.
+**The project is in steady state, not active roadmap execution.**
+Steps 1-9 are done or reduced to specific technical debt (see
+`ROADMAP.md`). There's no default next task -- work from whatever the
+user actually asks for. If they haven't asked for anything specific,
+the highest-value unprompted next step is picking one item off
+`ROADMAP.md`'s "Technical debt" list and asking which they'd like
+tackled first, rather than assuming.
 
-**Patch 22** fixed a startup crash the user hit on the very first real
-device launch attempt (Android 13): `EmptyQueueState` -- what a fresh
-install shows before any download exists -- called `painterResource()`
-on `android.R.drawable.stat_sys_download`, which is an
-`AnimatedVectorDrawable` on real devices and not loadable that way (see
-`CHANGELOG.md`'s Patch 22 entry). Replaced with a small hand-authored
-static vector (`res/drawable/ic_download.xml`). **None of Step 5's
-checklist items are confirmed yet** -- the crash happened before any of
-them could be exercised -- so the next report back from the user should
-be a full re-run of that checklist from item 1, not just a confirmation
-that this one crash is gone.
+**What's confirmed as of patch 23:** the app runs correctly end to end
+on a real device (Android 13) -- install, share/paste a link, queue
+and complete a download, play it back, background persistence. Signed
+release builds succeed via CI. **What's still open:** installing that
+signed build on a device (Step 9's last item), and a handful of more
+adversarial Step 5 checks (race-condition stress test,
+`friendlyError()` against a real broken video, airplane mode, a very
+large download) that haven't been individually confirmed -- don't
+assume they pass just because the app runs now.
 
-In the meantime, or once the user reports Step 9 confirmed working:
-**Step 5's manual on-device checklist** is next in priority (still
-open, `ROADMAP.md`'s Step 5 section has the full list), followed by
-`roadmap.md`'s GPT Astra audit once both Step 5 and Step 9 are
-genuinely done.
-
-**Work in sprints, not one patch per tiny step:** continue
-autonomously through a batch of work -- Step 9's steps, and Step 5's
-still-open manual checklist if/when the user reports back on it --
-without stopping between individual items, then deliver **one**
-self-contained Python patch script at the end of the sprint covering
-everything in it, rather than one patch per small change. The user
-installs several sprints' patches together.
-
-Continue the established pattern for this project:
-
-- Think and write all code, code comments, commit messages, and
-  documentation in English, regardless of what language the
-  conversation itself is in.
-- Read the actual current file content before editing -- don't assume
-  memory of it is accurate; things have changed across 19 patches.
-- Verify uncertain library/API claims against a real source -- ideally
-  the actual tagged source via `git clone` (github.com is reachable
-  from the sandbox), not just a README or an old sample app, both of
-  which have already produced a wrong conclusion once in this project
-  (see patch 14). For Step 9 specifically: verify Android keystore/
-  signing-config syntax and any GitHub Actions secrets-handling claims
-  against real sources the same way -- this project has not yet done
-  anything with signing, so there's no prior verified assumption to
-  lean on here.
-- Deliver changes as a self-contained Python patch script for GitHub
-  Codespaces. Extract the repomix into a local working copy first,
-  dry-run the script against it, verify diffs and bracket balance and
-  idempotency -- and for any patch chain longer than a couple of
-  patches, run the **full chain multiple times from a clean copy**,
-  since a later patch can silently break an earlier patch's own
-  idempotency check (see "Key learnings" above; patches 16, 17, and 18
-  each had to vaccinate their immediate predecessor's ROADMAP.md/
-  HANDOFF.md/CHANGELOG.md checks -- expect this to keep recurring for
-  any patch touching those files again, including this one).
-- When a `ROADMAP.md` item is completed, collapse its checklist to a
-  one-line pointer in that file and record what actually changed in
-  `CHANGELOG.md` instead (process established patch 16) -- do this in
-  the same patch as the code change it corresponds to.
-- Never write a machine-specific path (a Codespace's local filesystem
-  layout, an absolute SDK/JDK location, etc.) into a file that gets
-  `git add`ed -- patch 18 exists because patch 12 did exactly that.
-  Anything derived from the current environment belongs in a
-  user-level/local config location instead.
+For how to work in this repo generally (source-of-truth files,
+verification discipline, patch-script delivery and testing
+conventions, scope discipline) see **`AGENTS.md`** -- that content used
+to live in this section and has moved there so it isn't duplicated
+across two files.

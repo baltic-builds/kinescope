@@ -12,6 +12,72 @@ Patches are cumulative and applied in order (01, 02, 03, ...). See each
 patch's own `.py` script for the exact, idempotent, exact-match-guarded
 edits it makes.
 
+## Patch 23 — Documentation overhaul: Step 5 confirmed working, project reaches steady state
+
+The user confirmed patch 22's fix: the app now runs correctly end to
+end on a real device (Android 13) — the startup crash is gone, and
+the core install/share-or-paste/queue/download/play loop works. This
+patch is documentation only (no app code changes).
+
+### Changed
+- `README.md` — fully rewritten: build-status badges for both GitHub
+  Actions workflows, an accurate tech-stack table (Kotlin 2.1.0,
+  Compose BOM `2024.11.00`/Material3 1.3.1, `youtubedl-android`
+  0.18.1, Gradle 8.10.2/AGP 8.7.2, `minSdk` 29/`compileSdk`/`targetSdk`
+  35, `arm64-v8a`-only), and a "Status" section reflecting the app's
+  actual working state instead of the pre-first-build snapshot patch
+  15 originally wrote.
+- `ROADMAP.md` — consolidated. The original 9-step plan is done or
+  reduced to specific, named technical debt; collapsed from a 363-line
+  step-by-step checklist to a short "Current state" summary plus a
+  single "Technical debt" section (the one remaining Step 9
+  device-confirm item, Step 5's not-yet-individually-confirmed
+  adversarial checks, the Backlog items, and the still-queued
+  `roadmap.md` lowercase audit). Full step-by-step history stays in
+  `CHANGELOG.md`/`HANDOFF.md`, which this file now points to rather
+  than duplicating.
+- `HANDOFF.md` — "Project identity", "What's actually done vs. still
+  open", and "Immediate next step" rewritten for the new steady state:
+  Step 5's crash-fix is confirmed by the user; basic on-device
+  functionality (install, permissions, share/paste, download, play,
+  background persistence) is confirmed working; the adversarial edge
+  cases (race-condition stress test, `friendlyError()` against a real
+  broken video, airplane mode, a very large download) remain open,
+  unconfirmed technical debt, not assumed to have passed just because
+  the app runs now. The generic "how to work in this repo" checklist
+  that used to live in "Immediate next step" has moved to the new
+  `AGENTS.md` instead of staying duplicated across two files. Also
+  fixed two stale lines caught while reviewing this file: the file map
+  still described `RELEASE.md` as using old `yt-offline` naming
+  (patch 20 already renamed it) and described `ROADMAP.md` as a
+  "checkbox-tracked implementation plan" (no longer accurate after
+  this patch). Patch-by-patch narrative (patches 01–22) is unchanged.
+- `.gitignore` — added `*.jks.b64` and `*.jks.base64.txt`. Found while
+  reviewing the repo for this patch: `kinescope-release.jks.b64` (an
+  empty, 0-byte placeholder, currently harmless) is tracked in git and
+  wasn't covered by the existing `*.jks`/`*.keystore` rules — if that
+  filename were ever reused to actually hold a base64-encoded
+  keystore (e.g. following `RELEASE.md`'s manual base64 steps but
+  writing the output inside the repo folder by habit), it would
+  commit the signing key straight into git history. Not a live leak
+  today, but a real landmine for next time.
+
+### Added
+- `AGENTS.md` — a process/workflow file for AI coding agents working
+  on this repo (source-of-truth reading order, verification
+  discipline, patch-script delivery/testing conventions, scope
+  discipline), following the emerging AGENTS.md convention. Complements
+  rather than duplicates `CLAUDE.md` (project ground rules/constraints)
+  and `HANDOFF.md` (state snapshot).
+
+### Findings (closed)
+- **`kinescope-release.jks.b64` is git-tracked and not gitignored.**
+  Currently empty and harmless, but the filename invites exactly the
+  kind of accidental-secret-commit `RELEASE.md`'s own base64 step
+  warns about. Fixed via `.gitignore` (see above). Recommended,
+  not automated by this patch: `git rm --cached kinescope-release.jks.b64`
+  to stop tracking the empty file too (see delivery commands).
+
 ## Patch 22 — Fixed a startup crash found on the first real-device launch (Step 5)
 
 The user's first real-device install (Android 13) crashed immediately.
