@@ -1,26 +1,11 @@
 package com.kinescope.app
 
 import android.app.Application
-import android.util.Log
 import com.yausername.ffmpeg.FFmpeg
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLException
 
-/**
- * Unpacks and initializes the bundled yt-dlp + ffmpeg binaries once,
- * off the main thread, before any screen tries to use them.
- *
- * NOTE for whoever continues this: the exact package for
- * YoutubeDL / YoutubeDLException / YoutubeDLRequest is this Claude's
- * best-effort recollection of the yausername/youtubedl-android
- * library (`com.yausername.youtubedl_android`, `com.yausername.ffmpeg`).
- * It was not verified against a real Gradle sync (no Android SDK in
- * the sandbox this was written in). If the import doesn't resolve in
- * the Codespace, check the actual class names inside the downloaded
- * AAR (Gradle caches it under ~/.gradle/caches, or unzip it directly)
- * and fix the import — the call pattern below should otherwise match
- * the library's README.
- */
+/** Initializes bundled yt-dlp + ffmpeg once, off the main thread. */
 class YtOfflineApp : Application() {
 
     @Volatile
@@ -29,25 +14,24 @@ class YtOfflineApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        AppLog.init(this)
+        val previousCrashHandler = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            AppLog.e("Crash", "Uncaught exception on thread ${thread.name}", throwable)
+            previousCrashHandler?.uncaughtException(thread, throwable)
+        }
+        AppLog.i("App", "Kinescope process started")
         Thread {
             try {
                 YoutubeDL.getInstance().init(this)
                 FFmpeg.getInstance().init(this)
                 isReady = true
-                Log.i(TAG, "yt-dlp + ffmpeg initialized")
-
-                // Phase 5: keep the extractor current without needing
-                // an app rebuild. Non-fatal if this fails (e.g. no
-                // network yet at startup) — the bundled version still
-                // works either way.
-                YtDlpUpdater.updateBlocking(this)
+                AppLog.i("App", "yt-dlp + ffmpeg initialized")
             } catch (e: YoutubeDLException) {
-                Log.e(TAG, "Failed to initialize yt-dlp/ffmpeg", e)
+                AppLog.e("App", "Failed to initialize yt-dlp/ffmpeg", e)
+            } catch (e: Exception) {
+                AppLog.e("App", "Unexpected initialization failure", e)
             }
         }.start()
-    }
-
-    companion object {
-        private const val TAG = "YtOfflineApp"
     }
 }

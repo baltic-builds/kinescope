@@ -1,12 +1,12 @@
 # Roadmap
 
-**Current state (as of patch 23): the original 9-step implementation
+**Current state (as of patch 24): the original 9-step implementation
 plan is done, or reduced to the specific technical debt below.** Steps
 1–9 — compile fixes, critical runtime fixes, product-quality fixes,
 device install/testing, design system v2, the Kinescope rename,
 documentation, and signed release — are all complete or closed out to
 named items in "Technical debt" below. `./gradlew assembleDebug`
-succeeds locally and via CI; a signed release build succeeds via CI;
+succeeds locally; signed release builds have succeeded via CI;
 **the app is confirmed working on a real device** (Android 13):
 install, permissions, share/paste a link, queue and complete a
 download, play it back, background persistence. For the full
@@ -14,8 +14,7 @@ step-by-step history of how it got here — including two dead ends
 that turned out to matter (a fabricated Compose BOM version, a
 plausible-but-wrong `UpdateChannel` location) — see `CHANGELOG.md`
 (one entry per patch) and `HANDOFF.md` (the fuller narrative + key
-learnings). **This file now tracks only what's left open, not what
-already shipped.**
+learnings). **Patch 24 implements the first post-roadmap feature sprint; its code is applied but the new device-dependent behavior is not yet confirmed. This file tracks only what remains open or needs verification.**
 
 **Decided, unchanged:** `applicationId`/`namespace` is
 `com.kinescope.app`. No Google Play distribution — sideload only. No
@@ -26,8 +25,17 @@ custom YouTube extraction — everything goes through `yt-dlp` via
 
 ## Technical debt
 
-Nothing below blocks normal use of the app. Roughly ordered by how
-much it'd actually matter if it bit you.
+### Sprint 1 — implementation done, verification still open
+
+- [ ] On a real device, exercise repeated YouTube downloads that previously produced the intermittent "Sign in to confirm you’re not a bot" failure. Confirm the bounded recovery chain succeeds when YouTube permits the current IP/session, and that exhaustion parks the job in resumable Pause (not terminal Failed) with a clear sign-in/retry path rather than looping forever.
+- [ ] Test optional YouTube sign-in/session capture. Google explicitly may reject embedded WebView sign-in on some devices; if it does, record that as a platform limitation rather than weakening the no-custom-bot-bypass rule.
+- [ ] Verify Pause -> Resume continues a partial download, Stop removes it, and rapid queue/control actions do not strand later jobs.
+- [ ] Verify Russian-device UI selects `values-ru` and a non-Russian device stays English.
+- [ ] Verify bottom navigation, center quick-add clipboard prefill, Settings -> Back -> Home, and five rapid Settings taps -> Logs.
+- [ ] Run the revised release workflow with a fresh version. Confirm signature verification passes, a GitHub Release is created with APK + `.sha256`, and that APK installs over the previous signed build.
+- [ ] Inspect the new launcher icon on the actual launcher (including Android 13+ themed-icon mode) for safe-zone clipping and visual balance.
+
+Nothing below blocks normal use of the pre-sprint core flow. Roughly ordered by how much it would matter if it bit you.
 
 ### Not yet individually confirmed on a real device
 
@@ -76,9 +84,6 @@ been exercised:
       an aggressive OEM battery manager (Xiaomi/Huawei/Samsung-class
       skins do this even to foreground services) OOM-kills the process
       mid-download.
-- [ ] Add a `<monochrome>` adaptive icon layer for Android 13+ themed
-      icons (Material You tinting support) — purely cosmetic; the icon
-      just won't participate in themed-icon tinting without it.
 - [ ] Migrate `collectAsState()` to `collectAsStateWithLifecycle()` in
       `MainActivity.kt` — fine as-is for a single-screen app, revisit
       only if a second screen (e.g. a dedicated Library screen) is
@@ -88,10 +93,6 @@ been exercised:
       `rememberCoroutineScope()` + `withContext(Dispatchers.IO)`, for
       consistency with the coroutines-based fix already applied to
       `DownloadService` in Step 3.
-- [ ] Externalize remaining hardcoded UI strings ("Queue", "Library",
-      `friendlyError()` messages, Settings labels) into `strings.xml`
-      — zero functional impact for a personal single-language app,
-      purely a "nice to have if you're already touching that code."
 - [ ] Batch-queue a full playlist by URL, if that becomes a real use
       case.
 - [ ] Self-hosted backend for cross-device queue sync — explicitly

@@ -1,0 +1,111 @@
+<resources>
+    <string name="app_name">Kinescope</string>
+
+    <string name="queue_title">Очередь</string>
+    <string name="library_title">Библиотека</string>
+    <string name="settings_title">Настройки</string>
+    <string name="quick_add_title">Добавить видео</string>
+    <string name="logs_title">Журнал</string>
+    <string name="youtube_login_title">Вход в YouTube</string>
+
+    <string name="quality_1080p">1080p</string>
+    <string name="quality_720p">720p</string>
+    <string name="quality_480p">480p</string>
+    <string name="quality_audio_mp3">Только аудио (MP3)</string>
+
+    <string name="status_queued">В очереди</string>
+    <string name="status_starting">Запуск…</string>
+    <string name="status_pausing">Приостанавливаем…</string>
+    <string name="status_paused">На паузе</string>
+    <string name="status_stopping">Останавливаем…</string>
+    <string name="status_stopped">Остановлено</string>
+    <string name="status_recovering_update">Обновляем модуль YouTube…</string>
+    <string name="status_recovering_retry">Попытка восстановления %1$d из %2$d…</string>
+    <string name="status_saved_to">Сохранено в Downloads/%1$s</string>
+    <string name="progress_percent_eta">%1$.0f%% (осталось около %2$d с)</string>
+
+    <string name="job_state_queued">В очереди</string>
+    <string name="job_state_running">Загрузка</string>
+    <string name="job_state_paused">Пауза</string>
+    <string name="job_state_done">Готово</string>
+    <string name="job_state_failed">Ошибка</string>
+    <string name="job_state_stopped">Остановлено</string>
+    <string name="job_status_line">%1$s: %2$s</string>
+
+    <string name="notification_channel_downloads">Загрузки</string>
+    <string name="notification_starting">Запускаем загрузки…</string>
+    <string name="notification_downloading">Идёт загрузка…</string>
+    <string name="notification_progress">Загрузка: %1$d%%</string>
+
+    <string name="error_no_internet">Нет подключения к интернету</string>
+    <string name="error_youtube_verification">YouTube запросил дополнительную проверку. Kinescope уже обновил yt-dlp и попробовал резервные режимы. Войдите в YouTube в настройках или повторите позже через домашнее подключение.</string>
+    <string name="error_private_video">Это приватное видео.</string>
+    <string name="error_age_restricted">Для этого видео требуется подтверждение возраста. Войдите в YouTube в настройках и повторите попытку.</string>
+    <string name="error_video_unavailable">Видео недоступно: оно могло быть удалено, заблокировано в регионе или ссылка неверна.</string>
+    <string name="error_unknown">Неизвестная ошибка загрузки.</string>
+    <string name="error_download_generic">Ошибка загрузки: %1$s</string>
+    <string name="error_output_not_found">Не удалось найти загруженный файл.</string>
+    <string name="error_failed_to_save">Не удалось сохранить загруженный файл.</string>
+    <string name="error_cancelled">Загрузка отменена.</string>
+    <string name="error_only_youtube">Поддерживаются только ссылки youtube.com и youtu.be.</string>
+
+    <string name="banner_no_internet">Нет подключения к интернету — некоторые загрузки не удалось запустить.</string>
+    <string name="banner_youtube_verification">YouTube запрашивает дополнительную проверку. Kinescope уже выполнил автоматическое восстановление; вход в аккаунт может сделать сессию более доверенной.</string>
+
+    <string name="empty_queue">Очередь пуста. Нажмите центральную кнопку ниже или поделитесь ссылкой YouTube с Kinescope.</string>
+    <string name="quick_add_hint">Вставьте ссылку YouTube. Если подходящая ссылка уже скопирована, Kinescope автоматически подставит её при открытии этого раздела.</string>
+    <string name="youtube_link_placeholder">Вставьте ссылку YouTube…</string>
+    <string name="start_download">Начать загрузку</string>
+
+    <string name="refresh">Обновить</string>
+    <string name="share">Поделиться</string>
+    <string name="delete">Удалить</string>
+    <string name="save">Сохранить</string>
+    <string name="saved">Сохранено</string>
+    <string name="cancel">Отмена</string>
+    <string name="delete_failed">Не удалось удалить файл</string>
+    <string name="no_player">Не найдено приложение для воспроизведения</string>
+    <string name="no_share_app">Не найдено приложение для отправки файла</string>
+    <string name="share_file">Поделиться: %1$s</string>
+
+    <string name="settings_default_quality">Качество по умолчанию</string>
+    <string name="settings_storage">Хранилище</string>
+    <string name="settings_extractor">Модуль загрузки</string>
+    <string name="settings_youtube_account">Аккаунт YouTube</string>
+    <string name="downloads_subfolder">Папка внутри Downloads</string>
+    <string name="storage_hint">Новые файлы сохраняются в Downloads/%1$s. Уже загруженные файлы при смене папки не перемещаются.</string>
+    <string name="extractor_hint">Все загрузки выполняет yt-dlp. Kinescope использует канал nightly, чтобы быстрее получать исправления после изменений на стороне YouTube.</string>
+    <string name="last_updated_never">Последнее обновление: никогда</string>
+    <string name="last_updated">Последнее обновление: %1$s</string>
+    <string name="check_for_update">Проверить обновление yt-dlp</string>
+    <string name="update_checking">Проверяем…</string>
+    <string name="update_done">yt-dlp обновлён.</string>
+    <string name="update_current">Установлена актуальная версия yt-dlp.</string>
+    <string name="update_failed">Не удалось проверить обновление: %1$s</string>
+
+    <string name="youtube_session_saved">Сессия YouTube сохранена на этом устройстве.</string>
+    <string name="youtube_session_not_saved">Сессия YouTube не сохранена.</string>
+    <string name="youtube_login_warning">Необязательно. Авторизованная сессия может помочь при проверках и ограничениях по возрасту, но YouTube всё равно может ограничить IP или сбросить cookies. Google иногда запрещает вход во встроенных браузерах. Не используйте основной аккаунт для массовых автоматических загрузок.</string>
+    <string name="youtube_sign_in_action">Войти в YouTube</string>
+    <string name="youtube_refresh_session">Обновить сессию</string>
+    <string name="youtube_sign_out">Выйти</string>
+    <string name="youtube_login_instructions">Войдите на настоящей странице YouTube ниже, затем нажмите «Использовать эту сессию». Cookies хранятся только во внутреннем хранилище Kinescope и передаются yt-dlp только при загрузках с YouTube.</string>
+    <string name="youtube_use_session">Использовать эту сессию</string>
+    <string name="youtube_session_captured">Сессия YouTube сохранена.</string>
+    <string name="youtube_session_capture_uncertain">Kinescope не обнаружил авторизованную сессию. Завершите вход в YouTube и повторите попытку.</string>
+
+    <string name="clear_logs">Очистить</string>
+    <string name="share_logs">Поделиться журналом</string>
+    <string name="logs_empty">В журнале пока нет записей.</string>
+
+    <string name="cd_back">Назад</string>
+    <string name="cd_home">Главная</string>
+    <string name="cd_quick_add">Добавить видео</string>
+    <string name="cd_settings">Настройки</string>
+    <string name="cd_pause">Поставить загрузку на паузу</string>
+    <string name="cd_resume">Продолжить загрузку</string>
+    <string name="cd_stop">Остановить загрузку</string>
+    <string name="cd_play">Воспроизвести</string>
+    <string name="cd_more_options">Дополнительные действия</string>
+    <string name="cd_dismiss">Закрыть</string>
+</resources>

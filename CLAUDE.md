@@ -44,10 +44,7 @@ future sessions don't lose them.)
   after each one — the user will build and test everything together
   once, later. Still flag unverified/risky assumptions in code
   comments and ROADMAP.md as they come up; just don't stop and wait.
-- Build the APK via GitHub Actions (`.github/workflows/build-debug.yml`,
-  manual `workflow_dispatch` trigger only, version assigned by hand on
-  each run) instead of a local Codespace `./gradlew` build + manual
-  download — added patch 16.
+- Historical decision (patch 16, **superseded by patch 24**): debug APKs were built via `.github/workflows/build-debug.yml`. That workflow no longer exists; release-only CI is the current rule below.
 - Process, starting patch 16: work through `ROADMAP.md` in order. When
   an item is completed, remove its detailed checklist text from
   `ROADMAP.md` (collapse to a one-line pointer) and log what changed in
@@ -69,6 +66,9 @@ future sessions don't lose them.)
   several sprints' patches together.
 - **Decision (patch 20): release builds (Step 9) are produced via
   GitHub Actions** (`.github/workflows/build-release.yml`), not a
-  local `./gradlew assembleRelease` run in the Codespace — matches how
-  debug builds already work. The local build path in `RELEASE.md`
+  local `./gradlew assembleRelease` run in the Codespace. The local build path in `RELEASE.md`
   Option A is kept as a working fallback, not removed.
+- **Decision (patch 24): the debug GitHub Actions workflow is removed.** CI distribution is release-only through `.github/workflows/build-release.yml`, which publishes the signed APK and checksum to GitHub Releases. `./gradlew assembleDebug` remains the local Codespace sanity build required by `AGENTS.md`.
+- **Decision (patch 24): UI localization is English + Russian.** Keep English as the default resource set; `values-ru` is used automatically for Russian locale. New user-visible strings must be added to both locales.
+- **Decision (patch 24): YouTube recovery remains yt-dlp-only.** Nightly updates, cookies, retries and yt-dlp player-client fallbacks are allowed; custom BotGuard/PO-token generation, signature deciphering, or anti-bot bypass code remains forbidden.
+- **Decision (patch 24): first-sprint navigation is Home / Add / Settings.** Five rapid taps on Settings opens the diagnostic log journal. Android Back from Settings/Add returns Home.

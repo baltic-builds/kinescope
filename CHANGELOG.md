@@ -12,6 +12,29 @@ Patches are cumulative and applied in order (01, 02, 03, ...). See each
 patch's own `.py` script for the exact, idempotent, exact-match-guarded
 edits it makes.
 
+## Patch 24 — Sprint 1: resilient downloads, account session, localization, navigation and release publishing
+
+First feature sprint after the original roadmap reached steady state. The implementation is complete in code but remains **pending real-device / real-GitHub verification**; per `AGENTS.md`, none of the device-dependent behavior below is considered confirmed until the user reports it working.
+
+### Download reliability and control
+- Switched yt-dlp self-update from `STABLE` to `NIGHTLY`. This follows current upstream guidance: stable can lag behind site changes, while nightly is the recommended channel for regular users.
+- Added a bounded self-healing chain for YouTube verification / 403 / 429 failures: normal request (with saved YouTube cookies when available) -> refresh yt-dlp nightly -> `web_safari` + IPv4 fallback -> logged-out `android_vr` fallback. Each attempt retains yt-dlp's own extractor and uses modest retries / randomized delay rather than adding custom extraction or bot-bypass logic. If YouTube still refuses the request, the job is parked as resumable `PAUSED` rather than terminal `FAILED`; a successfully captured account session automatically resumes those verification-paused jobs.
+- Added optional YouTube WebView session capture. Authenticated YouTube cookies are written in Netscape format to app-private storage and passed to yt-dlp together with the captured WebView User-Agent. No OAuth token/backend is introduced. Google may still reject embedded sign-in on some devices, and an authenticated session cannot guarantee recovery from an IP-level YouTube block.
+- Added Pause / Resume / Stop controls. Running jobs are cancelled through youtubedl-android's `destroyProcessById(processId)` API; Pause retains temp fragments and Resume requeues the same job with `--continue`; Stop removes temp fragments.
+- Added an extractor-readiness check in `DownloadService`, closing the old race where a very fast first download could theoretically beat `Application`'s background yt-dlp initialization.
+
+### UI, localization and diagnostics
+- Externalized the application UI into resources and added `values-ru/strings.xml`. Android automatically uses Russian when the device/application locale is Russian and the existing English resources otherwise.
+- Replaced the old settings toggle / bottom composer with a three-action bottom navigation surface: Home, prominent center Add, Settings. The treatment is a translucent, elevated, softly bordered glass-style surface built from the existing design tokens.
+- Android Back from Settings / Add now returns Home; the YouTube browser and hidden log journal return to Settings.
+- Added a private rotating application log (state transitions and errors; no cookie values). Five quick taps on the Settings navbar icon open an in-app log journal with refresh, clear and explicit share actions.
+
+### Build and visual identity
+- Removed `.github/workflows/build-debug.yml`. The release workflow now validates inputs/secrets, uses Gradle caching, performs a clean signed build, verifies the APK with `apksigner`, writes a SHA-256 checksum, keeps a workflow artifact backup and publishes both files into a versioned GitHub Release.
+- Reworked the launcher icon into an original retro-TV motif using Kinescope's cream / terracotta / warm-dark palette, with layered glass-like highlights. Added an Android 13+ monochrome layer for themed icons.
+- Updated `README.md`, `ROADMAP.md`, `HANDOFF.md`, `CLAUDE.md`, `AGENTS.md`, `RELEASE.md`, and `design.md` to describe the new behavior and the still-required verification pass.
+- Sprint delivery remains a single exact-match/hash-guarded Python patch. It runs static checks plus `./gradlew --no-daemon assembleDebug`; only after that build succeeds does the patch script delete itself from the repo.
+
 ## Patch 23 — Documentation overhaul: Step 5 confirmed working, project reaches steady state
 
 The user confirmed patch 22's fix: the app now runs correctly end to

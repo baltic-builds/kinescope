@@ -20,13 +20,16 @@ object Settings {
 
     fun setDefaultQualityIndex(context: Context, index: Int) {
         prefs(context).edit().putInt(KEY_DEFAULT_QUALITY, index).apply()
+        AppLog.i("Settings", "Default quality index changed to $index")
     }
 
     fun getDownloadSubfolder(context: Context): String =
         sanitizeSubfolder(prefs(context).getString(KEY_DOWNLOAD_SUBFOLDER, DEFAULT_SUBFOLDER) ?: DEFAULT_SUBFOLDER)
 
     fun setDownloadSubfolder(context: Context, name: String) {
-        prefs(context).edit().putString(KEY_DOWNLOAD_SUBFOLDER, sanitizeSubfolder(name)).apply()
+        val sanitized = sanitizeSubfolder(name)
+        prefs(context).edit().putString(KEY_DOWNLOAD_SUBFOLDER, sanitized).apply()
+        AppLog.i("Settings", "Download subfolder changed to $sanitized")
     }
 
     /**

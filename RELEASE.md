@@ -71,10 +71,7 @@ step 1.
 
 ## 3. Build the signed release APK
 
-Two ways to get a signed APK. Local build needs no extra setup beyond
-step 2 above; CI build needs a one-time repo-secrets setup but doesn't
-require downloading the keystore into every Codespace, and matches how
-debug builds already work (`.github/workflows/build-debug.yml`).
+Two ways to get a signed APK. Local build remains a fallback. The normal path is the release-only GitHub Actions workflow, which needs a one-time repo-secrets setup and now publishes the verified APK directly to GitHub Releases.
 
 ### Option A: Local build in Codespace
 
@@ -118,18 +115,11 @@ then delete the `.txt` file locally -- it's no longer needed once it's
 in GitHub's secret store, and it's an unencrypted copy of your signing
 key while it exists.
 
-Then, under this repo's **Actions** tab, run the *Build Signed Release
-APK* workflow (`.github/workflows/build-release.yml`) by hand, supply a
-version name, and download the signed APK from the run's Artifacts --
-same manual-trigger, hand-versioned design as the debug build workflow.
-The workflow decodes the keystore into a runner-local temp file for the
-build only and deletes it (along with the generated
-`keystore.properties`) before the job ends; the keystore itself never
-touches the repository.
+Then, under this repo's **Actions** tab, run *Build and Publish Signed Release* (`.github/workflows/build-release.yml`) by hand and supply a version name such as `1.2.0`. The workflow validates all four secrets, builds with a monotonic CI versionCode, verifies the APK signature with `apksigner`, creates a SHA-256 checksum, uploads both as a 30-day workflow artifact, and creates a GitHub Release tagged `v<version>` containing the same two files. Optional release notes can be entered at dispatch time; otherwise GitHub generates them. Signing material is deleted in an `if: always()` cleanup step.
 
 ## 4. Publish it somewhere you can reach from your phone
 
-Simplest: a **private GitHub Release** on this repo.
+**CI already does this automatically.** A successful release workflow creates the versioned GitHub Release. The command below is only a local-build fallback if you intentionally used Option A:
 
 ```bash
 gh release create v1.0.0 \
@@ -164,7 +154,5 @@ to "update" an installed app with a build that has the same or lower
 step 1, installing a new version over the old one keeps your settings
 and doesn't require uninstalling first.
 
-If you're building via Option B (CI), `versionCode` is derived
-automatically from the workflow run number, so you don't need to bump
-it by hand -- just supply a new `versionName` each run. The manual bump
+If you're building via Option B (CI), `versionCode` is derived automatically as `10000 + GITHUB_RUN_NUMBER`, so you don't need to bump it by hand -- just supply a new `versionName` each run. The manual bump
 above only matters for local (Option A) builds.

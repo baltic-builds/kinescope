@@ -1,7 +1,9 @@
 package com.kinescope.app
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.ActivityNotFoundException
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -9,15 +11,25 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
+import android.webkit.CookieManager
+import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -28,17 +40,19 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
@@ -61,6 +75,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -75,36 +90,21 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.unit.dp
-import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
+import java.text.DateFormat
+import java.util.Date
 
-/**
- * "Maximally similar to the Claude app" pass, extended in ROADMAP.md
- * Step 6.5 with the actual component patterns design.md called for:
- * queue-row thumbnails and a real progress bar, an empty-queue
- * illustration, a Library overflow menu with working delete/share, a
- * sectioned Settings screen, and a dismissible connectivity-loss
- * banner. Colors/type/shape still come from YtOfflineTheme
- * (Theme.kt) — see design.md for what this is and isn't (an
- * approximation, not Anthropic's real spec; no Anthropic fonts, name,
- * or logo used).
- *
- * Still doesn't run downloads directly — enqueues into
- * DownloadService (a foreground service, so downloads survive
- * leaving the app) and displays live status from DownloadQueueBus.
- */
 class MainActivity : ComponentActivity() {
 
-    /** Holds the most recently shared URL so Compose can react to it. */
     private val sharedUrl = mutableStateOf("")
 
     private val notificationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) {
-            // Ignored: downloads still work without this permission,
-            // the user just won't see a progress notification.
+            // Downloads still work without notifications permission.
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -117,7 +117,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             YtOfflineTheme {
-                DownloadScreen(prefillUrl = sharedUrl.value)
+                KinescopeApp(prefillUrl = sharedUrl.value)
             }
         }
     }
@@ -131,18 +131,16 @@ class MainActivity : ComponentActivity() {
     private fun handleIncomingIntent(intent: Intent?) {
         if (intent?.action == Intent.ACTION_SEND && intent.type == "text/plain") {
             val sharedText = intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty()
-            extractUrl(sharedText)?.let { sharedUrl.value = it }
+            extractUrl(sharedText)?.let {
+                sharedUrl.value = it
+                AppLog.i("MainActivity", "Received shared YouTube URL")
+            }
         }
     }
 }
 
-// ROADMAP.md Step 4 [MEDIUM, fixed]: restrict to YouTube hosts, both
-// for shared text (below) and for whatever's typed/pasted directly
-// into the composer field (see DownloadScreen's onSend) -- yt-dlp
-// supports 1000+ sites, but this app's whole stated purpose is
-// YouTube-only offline downloads (see CLAUDE.md), so anything else is
-// scope creep worth rejecting at the UI layer rather than silently
-// attempting it.
+private enum class AppSection { HOME, QUICK_ADD, SETTINGS, LOGS, YOUTUBE_AUTH }
+
 private val YOUTUBE_HOSTS = setOf(
     "youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be", "www.youtu.be"
 )
@@ -150,70 +148,52 @@ private val YOUTUBE_HOSTS = setOf(
 private fun isYouTubeUrl(url: String): Boolean =
     runCatching { Uri.parse(url).host?.lowercase() }.getOrNull() in YOUTUBE_HOSTS
 
-/** Pulls the first YouTube URL out of arbitrary shared text. */
 private fun extractUrl(text: String): String? =
     Regex("""https?://\S+""").findAll(text).map { it.value }.firstOrNull { isYouTubeUrl(it) }
 
-/** "Never" for a never-updated timestamp, otherwise a short local date/time. */
 private fun formatTimestamp(millis: Long): String {
-    if (millis == 0L) return "Never"
-    val formatter = DateTimeFormatter.ofPattern("MMM d, yyyy 'at' h:mm a").withZone(ZoneId.systemDefault())
-    return formatter.format(Instant.ofEpochMilli(millis))
+    if (millis == 0L) return ""
+    return DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(millis))
+}
+
+private fun clipboardYouTubeUrl(context: Context): String? {
+    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return null
+    val text = clipboard.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty()
+    return extractUrl(text)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun DownloadScreen(prefillUrl: String) {
+private fun KinescopeApp(prefillUrl: String) {
     val context = LocalContext.current
+    val jobs by DownloadQueueBus.jobs.collectAsState()
 
+    var section by remember { mutableStateOf(AppSection.HOME) }
     var url by remember { mutableStateOf("") }
     var urlError by remember { mutableStateOf<String?>(null) }
     var selectedQuality by remember { mutableIntStateOf(Settings.getDefaultQualityIndex(context)) }
     var library by remember { mutableStateOf(MediaStorage.listPublished(context)) }
-    var showSettings by remember { mutableStateOf(false) }
-    val jobs by DownloadQueueBus.jobs.collectAsState()
-
-    // ROADMAP.md Step 6.5: lifted up from the old per-screen-only
-    // version so the top-bar shortcut and Settings' own "Check for
-    // update" button (added below) share one source of truth instead
-    // of each running an independent, out-of-sync copy of this state.
     var updateStatus by remember { mutableStateOf("") }
     var isUpdating by remember { mutableStateOf(false) }
     var lastUpdateTimestamp by remember { mutableLongStateOf(Settings.getLastUpdateTimestamp(context)) }
-
-    // ROADMAP.md Step 6.5: dismissible connectivity-loss banner.
-    // bannerDismissed resets whenever a *new* no-network failure
-    // shows up (tracked via count), so dismissing doesn't
-    // permanently silence a genuinely new failure later.
-    var bannerDismissed by remember { mutableStateOf(false) }
-    var lastSeenNetworkFailureCount by remember { mutableIntStateOf(0) }
-    val networkFailureCount = jobs.count {
-        it.state == JobState.FAILED && it.progressText == DownloadQueueBus.NO_INTERNET_MESSAGE
-    }
+    var settingsTapCount by remember { mutableIntStateOf(0) }
+    var lastSettingsTapAt by remember { mutableLongStateOf(0L) }
 
     LaunchedEffect(prefillUrl) {
         if (prefillUrl.isNotBlank()) {
             url = prefillUrl
+            urlError = null
+            section = AppSection.QUICK_ADD
         }
     }
 
-    // Cheap for a personal-use library size: just re-query whenever
-    // any job's status changes, rather than trying to know exactly
-    // which change means "a file was published".
     LaunchedEffect(jobs) {
         library = MediaStorage.listPublished(context)
     }
 
-    LaunchedEffect(networkFailureCount) {
-        if (networkFailureCount > lastSeenNetworkFailureCount) {
-            bannerDismissed = false
-        }
-        lastSeenNetworkFailureCount = networkFailureCount
-    }
-
     fun runUpdate() {
         isUpdating = true
-        updateStatus = "Checking\u2026"
+        updateStatus = context.getString(R.string.update_checking)
         Thread {
             val result = YtDlpUpdater.updateBlocking(context)
             Handler(Looper.getMainLooper()).post {
@@ -224,17 +204,62 @@ private fun DownloadScreen(prefillUrl: String) {
         }.start()
     }
 
+    fun openQuickAdd() {
+        clipboardYouTubeUrl(context)?.let {
+            url = it
+            urlError = null
+        }
+        section = AppSection.QUICK_ADD
+    }
+
+    fun openSettingsWithSecretTap() {
+        val now = SystemClock.elapsedRealtime()
+        val count = if (now - lastSettingsTapAt <= 650L) settingsTapCount + 1 else 1
+        lastSettingsTapAt = now
+        settingsTapCount = count
+        if (count >= 5) {
+            settingsTapCount = 0
+            section = AppSection.LOGS
+            AppLog.i("MainActivity", "Hidden log journal opened")
+        } else {
+            section = AppSection.SETTINGS
+        }
+    }
+
+    BackHandler(enabled = section != AppSection.HOME) {
+        section = when (section) {
+            AppSection.LOGS, AppSection.YOUTUBE_AUTH -> AppSection.SETTINGS
+            else -> AppSection.HOME
+        }
+    }
+
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text("Kinescope", style = MaterialTheme.typography.headlineSmall) },
-                actions = {
-                    IconButton(enabled = !isUpdating, onClick = { runUpdate() }) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Check for yt-dlp update")
-                    }
-                    IconButton(onClick = { showSettings = !showSettings }) {
-                        Icon(Icons.Default.Settings, contentDescription = "Settings")
+                title = {
+                    Text(
+                        text = when (section) {
+                            AppSection.HOME -> stringResource(R.string.app_name)
+                            AppSection.QUICK_ADD -> stringResource(R.string.quick_add_title)
+                            AppSection.SETTINGS -> stringResource(R.string.settings_title)
+                            AppSection.LOGS -> stringResource(R.string.logs_title)
+                            AppSection.YOUTUBE_AUTH -> stringResource(R.string.youtube_login_title)
+                        },
+                        style = MaterialTheme.typography.headlineSmall
+                    )
+                },
+                navigationIcon = {
+                    if (section != AppSection.HOME) {
+                        IconButton(onClick = {
+                            section = if (section == AppSection.LOGS || section == AppSection.YOUTUBE_AUTH) {
+                                AppSection.SETTINGS
+                            } else {
+                                AppSection.HOME
+                            }
+                        }) {
+                            Icon(Icons.Default.ArrowBack, contentDescription = stringResource(R.string.cd_back))
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -243,109 +268,264 @@ private fun DownloadScreen(prefillUrl: String) {
             )
         },
         bottomBar = {
-            if (!showSettings) {
-                ComposerBar(
-                    url = url,
-                    onUrlChange = { url = it; urlError = null },
-                    onSend = {
-                        val trimmed = url.trim()
-                        if (isYouTubeUrl(trimmed)) {
-                            DownloadService.enqueue(context, trimmed, selectedQuality)
-                            url = ""
-                            urlError = null
-                        } else {
-                            urlError = "Only youtube.com / youtu.be links are supported"
-                        }
-                    },
-                    selectedQuality = selectedQuality,
-                    onQualitySelected = { selectedQuality = it },
-                    errorText = urlError
+            if (section != AppSection.YOUTUBE_AUTH) {
+                GlassBottomBar(
+                    section = section,
+                    onHome = { section = AppSection.HOME },
+                    onQuickAdd = { openQuickAdd() },
+                    onSettings = { openSettingsWithSecretTap() }
                 )
             }
         }
     ) { innerPadding ->
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
                 .padding(horizontal = 20.dp)
         ) {
-            if (showSettings) {
-                SettingsPanel(
-                    onClose = { showSettings = false },
+            when (section) {
+                AppSection.HOME -> HomeScreen(
+                    jobs = jobs,
+                    library = library,
+                    onRefreshLibrary = { library = MediaStorage.listPublished(context) },
+                    onPlay = { playItem(context, it) },
+                    onShare = { shareItem(context, it) },
+                    onDelete = { item ->
+                        if (MediaStorage.delete(context, item)) {
+                            AppLog.i("Library", "Deleted ${item.displayName}")
+                            library = MediaStorage.listPublished(context)
+                        } else {
+                            Toast.makeText(context, R.string.delete_failed, Toast.LENGTH_SHORT).show()
+                            AppLog.w("Library", "Delete failed for ${item.displayName}")
+                        }
+                    },
+                    onPause = { DownloadService.pause(context, it) },
+                    onResume = { DownloadService.resume(context, it) },
+                    onStop = { DownloadService.stop(context, it) },
+                    onSignIn = { section = AppSection.YOUTUBE_AUTH }
+                )
+                AppSection.QUICK_ADD -> QuickAddScreen(
+                    url = url,
+                    onUrlChange = { url = it; urlError = null },
+                    selectedQuality = selectedQuality,
+                    onQualitySelected = { selectedQuality = it },
+                    errorText = urlError,
+                    onDownload = {
+                        val trimmed = url.trim()
+                        if (isYouTubeUrl(trimmed)) {
+                            DownloadService.enqueue(context, trimmed, selectedQuality)
+                            url = ""
+                            urlError = null
+                            section = AppSection.HOME
+                        } else {
+                            urlError = context.getString(R.string.error_only_youtube)
+                        }
+                    }
+                )
+                AppSection.SETTINGS -> SettingsScreen(
                     onDefaultQualityChanged = { selectedQuality = it },
                     updateStatus = updateStatus,
                     isUpdating = isUpdating,
                     lastUpdateTimestamp = lastUpdateTimestamp,
-                    onCheckForUpdate = { runUpdate() }
+                    onCheckForUpdate = { runUpdate() },
+                    onOpenYouTubeLogin = { section = AppSection.YOUTUBE_AUTH }
                 )
-            } else {
-                if (networkFailureCount > 0 && !bannerDismissed) {
-                    ConnectivityBanner(onDismiss = { bannerDismissed = true })
-                    Spacer(modifier = Modifier.height(12.dp))
-                }
-
-                Text(text = "Queue", style = MaterialTheme.typography.titleMedium)
-                Spacer(modifier = Modifier.height(4.dp))
-
-                if (jobs.isEmpty()) {
-                    EmptyQueueState()
-                } else {
-                    LazyColumn(modifier = Modifier.fillMaxWidth()) {
-                        items(jobs, key = { it.id }) { job ->
-                            QueueRow(job)
+                AppSection.LOGS -> LogsScreen()
+                AppSection.YOUTUBE_AUTH -> YouTubeLoginScreen(
+                    onBack = { section = AppSection.SETTINGS },
+                    onSaved = {
+                        val verificationJobs = jobs.filter {
+                            it.state == JobState.PAUSED &&
+                                it.failureKind == FailureKind.YOUTUBE_VERIFICATION
                         }
+                        verificationJobs.forEach { DownloadService.resume(context, it.id) }
+                        section = if (verificationJobs.isNotEmpty()) AppSection.HOME else AppSection.SETTINGS
                     }
-                }
+                )
+            }
+        }
+    }
+}
 
-                Spacer(modifier = Modifier.height(20.dp))
-                HorizontalDivider()
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
+@Composable
+private fun GlassBottomBar(
+    section: AppSection,
+    onHome: () -> Unit,
+    onQuickAdd: () -> Unit,
+    onSettings: () -> Unit
+) {
+    Surface(color = Color.Transparent) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 10.dp)
+                .border(
+                    width = 1.dp,
+                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.55f),
+                    shape = MaterialTheme.shapes.extraLarge
+                ),
+            shape = MaterialTheme.shapes.extraLarge,
+            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+            tonalElevation = 8.dp,
+            shadowElevation = 12.dp
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 18.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                GlassNavIcon(
+                    selected = section == AppSection.HOME,
+                    onClick = onHome
                 ) {
-                    Text(text = "Library", style = MaterialTheme.typography.titleMedium)
-                    TextButton(onClick = { library = MediaStorage.listPublished(context) }) {
-                        Text("Refresh")
-                    }
+                    Icon(Icons.Default.Home, contentDescription = stringResource(R.string.cd_home))
                 }
 
-                LazyColumn(modifier = Modifier.fillMaxWidth()) {
-                    items(library, key = { it.uri.toString() }) { item ->
-                        LibraryRow(
-                            item = item,
-                            onPlay = { playItem(context, item) },
-                            onShare = { shareItem(context, item) },
-                            onDelete = {
-                                if (MediaStorage.delete(context, item)) {
-                                    library = MediaStorage.listPublished(context)
-                                } else {
-                                    Toast.makeText(context, "Couldn't delete file", Toast.LENGTH_SHORT).show()
-                                }
-                            }
+                Surface(
+                    modifier = Modifier
+                        .size(56.dp)
+                        .clickable(onClick = onQuickAdd),
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.94f),
+                    tonalElevation = 6.dp,
+                    shadowElevation = 8.dp
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            Icons.Default.Add,
+                            contentDescription = stringResource(R.string.cd_quick_add),
+                            tint = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.size(28.dp)
                         )
                     }
+                }
+
+                GlassNavIcon(
+                    selected = section == AppSection.SETTINGS || section == AppSection.LOGS,
+                    onClick = onSettings
+                ) {
+                    Icon(Icons.Default.Settings, contentDescription = stringResource(R.string.cd_settings))
                 }
             }
         }
     }
 }
 
-// ROADMAP.md Step 6.5 [Download queue (active)]: medium-shape surface
-// on surfaceVariant, solid primaryContainer thumbnail placeholder
-// with a play glyph (no network thumbnail fetch -- keeps cost/scope
-// at zero, per CLAUDE.md), status line colored per state, and a
-// LinearProgressIndicator in primary only while actively downloading.
-//
-// Note: `warning` (Theme.kt, patch 03) has no state to map to here --
-// ROADMAP.md's "warning retrying" describes a retry mechanism that
-// doesn't exist in JobState (QUEUED/RUNNING/DONE/FAILED only). The
-// token stays defined and ready for whenever retry logic exists;
-// nothing here forces a fake state onto it.
 @Composable
-private fun QueueRow(job: DownloadJobStatus) {
+private fun GlassNavIcon(
+    selected: Boolean,
+    onClick: () -> Unit,
+    icon: @Composable () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .size(48.dp)
+            .clip(CircleShape)
+            .background(
+                if (selected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.78f)
+                else Color.Transparent
+            )
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Box(modifier = Modifier.size(24.dp), contentAlignment = Alignment.Center) {
+            icon()
+        }
+    }
+}
+
+@Composable
+private fun HomeScreen(
+    jobs: List<DownloadJobStatus>,
+    library: List<LibraryItem>,
+    onRefreshLibrary: () -> Unit,
+    onPlay: (LibraryItem) -> Unit,
+    onShare: (LibraryItem) -> Unit,
+    onDelete: (LibraryItem) -> Unit,
+    onPause: (String) -> Unit,
+    onResume: (String) -> Unit,
+    onStop: (String) -> Unit,
+    onSignIn: () -> Unit
+) {
+    val networkFailure = jobs.any { it.state == JobState.FAILED && it.failureKind == FailureKind.NO_INTERNET }
+    val verificationFailure = jobs.any {
+        it.failureKind == FailureKind.YOUTUBE_VERIFICATION &&
+            (it.state == JobState.PAUSED || it.state == JobState.FAILED)
+    }
+    var networkBannerDismissed by remember { mutableStateOf(false) }
+    var verificationBannerDismissed by remember { mutableStateOf(false) }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(bottom = 16.dp)
+    ) {
+        if (networkFailure && !networkBannerDismissed) {
+            item {
+                ErrorBanner(
+                    text = stringResource(R.string.banner_no_internet),
+                    onDismiss = { networkBannerDismissed = true }
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+        }
+        if (verificationFailure && !verificationBannerDismissed) {
+            item {
+                VerificationBanner(
+                    onDismiss = { verificationBannerDismissed = true },
+                    onSignIn = onSignIn
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+        }
+
+        item {
+            Text(text = stringResource(R.string.queue_title), style = MaterialTheme.typography.titleMedium)
+            Spacer(modifier = Modifier.height(4.dp))
+        }
+
+        if (jobs.isEmpty()) {
+            item { EmptyQueueState() }
+        } else {
+            items(jobs, key = { it.id }) { job ->
+                QueueRow(job, onPause, onResume, onStop)
+            }
+        }
+
+        item {
+            Spacer(modifier = Modifier.height(20.dp))
+            HorizontalDivider()
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(text = stringResource(R.string.library_title), style = MaterialTheme.typography.titleMedium)
+                TextButton(onClick = onRefreshLibrary) { Text(stringResource(R.string.refresh)) }
+            }
+        }
+
+        items(library, key = { it.uri.toString() }) { item ->
+            LibraryRow(
+                item = item,
+                onPlay = { onPlay(item) },
+                onShare = { onShare(item) },
+                onDelete = { onDelete(item) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun QueueRow(
+    job: DownloadJobStatus,
+    onPause: (String) -> Unit,
+    onResume: (String) -> Unit,
+    onStop: (String) -> Unit
+) {
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -373,30 +553,29 @@ private fun QueueRow(job: DownloadJobStatus) {
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "${job.qualityLabel} \u2014 ${job.url}",
+                    text = "${job.qualityLabel} — ${job.url}",
                     style = MaterialTheme.typography.titleSmall,
-                    maxLines = 1
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
                 val statusColor = when (job.state) {
-                    JobState.QUEUED -> MaterialTheme.colorScheme.onSurfaceVariant
+                    JobState.QUEUED, JobState.STOPPED -> MaterialTheme.colorScheme.onSurfaceVariant
                     JobState.RUNNING -> MaterialTheme.colorScheme.primary
+                    JobState.PAUSED -> YtOfflineExtras.colors.warning
                     JobState.DONE -> YtOfflineExtras.colors.success
                     JobState.FAILED -> MaterialTheme.colorScheme.error
                 }
                 Text(
-                    text = "${job.state}: ${job.progressText}",
+                    text = stringResource(
+                        R.string.job_status_line,
+                        jobStateLabel(job.state),
+                        job.progressText
+                    ),
                     style = MaterialTheme.typography.bodyMedium,
                     color = statusColor
                 )
                 if (job.state == JobState.RUNNING) {
                     Spacer(modifier = Modifier.height(4.dp))
-                    // Version note: Compose BOM 2024.11.00 pulls in
-                    // Material3 1.3.1, which only has the plain-Float
-                    // `progress` overload -- the lambda-based
-                    // `progress: () -> Float` overload wasn't added
-                    // until 1.5.0-alpha17. Using the newer form here
-                    // would not compile against this project's actual
-                    // dependency versions.
                     LinearProgressIndicator(
                         progress = job.progressFraction ?: 0f,
                         modifier = Modifier.fillMaxWidth(),
@@ -405,31 +584,46 @@ private fun QueueRow(job: DownloadJobStatus) {
                     )
                 }
             }
+            when (job.state) {
+                JobState.RUNNING -> {
+                    IconButton(onClick = { onPause(job.id) }) {
+                        Icon(painterResource(R.drawable.ic_pause), contentDescription = stringResource(R.string.cd_pause))
+                    }
+                    IconButton(onClick = { onStop(job.id) }) {
+                        Icon(painterResource(R.drawable.ic_stop), contentDescription = stringResource(R.string.cd_stop))
+                    }
+                }
+                JobState.PAUSED -> {
+                    IconButton(onClick = { onResume(job.id) }) {
+                        Icon(Icons.Default.PlayArrow, contentDescription = stringResource(R.string.cd_resume))
+                    }
+                    IconButton(onClick = { onStop(job.id) }) {
+                        Icon(painterResource(R.drawable.ic_stop), contentDescription = stringResource(R.string.cd_stop))
+                    }
+                }
+                JobState.QUEUED -> {
+                    IconButton(onClick = { onStop(job.id) }) {
+                        Icon(painterResource(R.drawable.ic_stop), contentDescription = stringResource(R.string.cd_stop))
+                    }
+                }
+                else -> Unit
+            }
         }
     }
 }
 
-// ROADMAP.md Step 6.5 [Download queue (empty)]: centered
-// primaryContainer circle behind a download icon, no button (the
-// composer bar below is already the call to action).
-//
-// Icon choice (Patch 22): a small hand-authored static vector
-// (res/drawable/ic_download.xml), not material-icons-extended --
-// still avoided for one glyph, per CLAUDE.md's zero-required-cost/
-// no-bloat spirit -- and not the framework's
-// android.R.drawable.stat_sys_download this used to reference.
-// That framework icon is an AnimatedVectorDrawable on real devices
-// (it's the system's own animated download-in-progress
-// notification glyph -- still used as-is in DownloadService's
-// setSmallIcon(), which is fine, since Android notifications accept
-// any drawable resource id directly, no Compose involved). Jetpack
-// Compose's painterResource() only supports a plain static
-// VectorDrawable or a rasterized image, not an API-driven XML type
-// like an animated-vector -- confirmed against painterResource()'s
-// own documentation. This crashed on the very first real-device
-// launch during the Step 5 checklist (EmptyQueueState is what a
-// fresh install shows first, before any download exists) -- see
-// CHANGELOG.md's Patch 22 entry.
+@Composable
+private fun jobStateLabel(state: JobState): String = stringResource(
+    when (state) {
+        JobState.QUEUED -> R.string.job_state_queued
+        JobState.RUNNING -> R.string.job_state_running
+        JobState.PAUSED -> R.string.job_state_paused
+        JobState.DONE -> R.string.job_state_done
+        JobState.FAILED -> R.string.job_state_failed
+        JobState.STOPPED -> R.string.job_state_stopped
+    }
+)
+
 @Composable
 private fun EmptyQueueState() {
     Column(
@@ -454,20 +648,15 @@ private fun EmptyQueueState() {
         }
         Spacer(modifier = Modifier.height(12.dp))
         Text(
-            text = "Nothing queued. Paste a link below, or share one into this app.",
+            text = stringResource(R.string.empty_queue),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
 }
 
-// ROADMAP.md Step 6.5 [Error states]: dismissible banner
-// (errorContainer background, onErrorContainer text) specifically for
-// connectivity-loss-at-queue-time -- a systemic state that deserves
-// different visual treatment than a single video's own inline
-// error (which keeps its existing per-row `error` color, unchanged).
 @Composable
-private fun ConnectivityBanner(onDismiss: () -> Unit) {
+private fun ErrorBanner(text: String, onDismiss: () -> Unit) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
@@ -477,30 +666,45 @@ private fun ConnectivityBanner(onDismiss: () -> Unit) {
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+            verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "No internet connection \u2014 some downloads couldn't start.",
+                text = text,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onErrorContainer,
                 modifier = Modifier.weight(1f)
             )
             IconButton(onClick = onDismiss) {
-                Icon(
-                    Icons.Default.Close,
-                    contentDescription = "Dismiss",
-                    tint = MaterialTheme.colorScheme.onErrorContainer
-                )
+                Icon(Icons.Default.Close, contentDescription = stringResource(R.string.cd_dismiss))
             }
         }
     }
 }
 
-// ROADMAP.md Step 6.5 [Library]: same row pattern as the queue,
-// filled icon-only Play button in primary, secondary overflow icon
-// (⋮) for delete/share -- this is also the fix for the "no in-app
-// delete" backlog gap.
+@Composable
+private fun VerificationBanner(onDismiss: () -> Unit, onSignIn: () -> Unit) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.primaryContainer
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = stringResource(R.string.banner_youtube_verification),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.weight(1f)
+                )
+                IconButton(onClick = onDismiss) {
+                    Icon(Icons.Default.Close, contentDescription = stringResource(R.string.cd_dismiss))
+                }
+            }
+            TextButton(onClick = onSignIn) { Text(stringResource(R.string.youtube_sign_in_action)) }
+        }
+    }
+}
+
 @Composable
 private fun LibraryRow(
     item: LibraryItem,
@@ -509,7 +713,6 @@ private fun LibraryRow(
     onDelete: () -> Unit
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
-
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -521,38 +724,32 @@ private fun LibraryRow(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+            verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
                 text = item.displayName,
                 style = MaterialTheme.typography.titleSmall,
                 modifier = Modifier.weight(1f),
-                maxLines = 1
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
             IconButton(onClick = onPlay) {
-                Icon(Icons.Default.PlayArrow, contentDescription = "Play", tint = MaterialTheme.colorScheme.primary)
+                Icon(Icons.Default.PlayArrow, contentDescription = stringResource(R.string.cd_play), tint = MaterialTheme.colorScheme.primary)
             }
             Box {
                 IconButton(onClick = { menuExpanded = true }) {
-                    Icon(Icons.Default.MoreVert, contentDescription = "More options")
+                    Icon(Icons.Default.MoreVert, contentDescription = stringResource(R.string.cd_more_options))
                 }
                 DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                     DropdownMenuItem(
-                        text = { Text("Share") },
+                        text = { Text(stringResource(R.string.share)) },
                         leadingIcon = { Icon(Icons.Default.Share, contentDescription = null) },
-                        onClick = {
-                            menuExpanded = false
-                            onShare()
-                        }
+                        onClick = { menuExpanded = false; onShare() }
                     )
                     DropdownMenuItem(
-                        text = { Text("Delete") },
+                        text = { Text(stringResource(R.string.delete)) },
                         leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) },
-                        onClick = {
-                            menuExpanded = false
-                            onDelete()
-                        }
+                        onClick = { menuExpanded = false; onDelete() }
                     )
                 }
             }
@@ -561,105 +758,60 @@ private fun LibraryRow(
 }
 
 @Composable
-private fun ComposerBar(
+private fun QuickAddScreen(
     url: String,
     onUrlChange: (String) -> Unit,
-    onSend: () -> Unit,
     selectedQuality: Int,
     onQualitySelected: (Int) -> Unit,
-    errorText: String? = null
+    errorText: String?,
+    onDownload: () -> Unit
 ) {
-    Surface(color = MaterialTheme.colorScheme.background) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 12.dp)
-        ) {
-            Row(
-                modifier = Modifier.horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                qualityPresets.forEachIndexed { index, preset ->
-                    FilterChip(
-                        selected = index == selectedQuality,
-                        onClick = { onQualitySelected(index) },
-                        label = { Text(preset.label) }
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            OutlinedTextField(
-                value = url,
-                onValueChange = onUrlChange,
-                modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("Paste a YouTube link\u2026") },
-                singleLine = true,
-                isError = errorText != null,
-                supportingText = errorText?.let { { Text(it) } },
-                shape = MaterialTheme.shapes.extraLarge,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                trailingIcon = {
-                    IconButton(onClick = onSend, enabled = url.isNotBlank()) {
-                        Icon(
-                            imageVector = Icons.Default.Send,
-                            contentDescription = "Add to download queue",
-                            tint = if (url.isNotBlank()) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            }
-                        )
-                    }
-                },
-                colors = OutlinedTextFieldDefaults.colors(
-                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    unfocusedBorderColor = Color.Transparent,
-                    // ROADMAP.md Step 6.5 [Composer bar, fixed]: was
-                    // Color.Transparent even when focused, so the
-                    // field relied on fill alone for focus
-                    // affordance. A subtle outline-colored border now
-                    // shows on focus only -- the unfocused pill look
-                    // is unchanged.
-                    focusedBorderColor = MaterialTheme.colorScheme.outline
-                )
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(top = 12.dp)
+    ) {
+        Text(stringResource(R.string.quick_add_hint), style = MaterialTheme.typography.bodyMedium)
+        Spacer(modifier = Modifier.height(16.dp))
+        OutlinedTextField(
+            value = url,
+            onValueChange = onUrlChange,
+            modifier = Modifier.fillMaxWidth(),
+            placeholder = { Text(stringResource(R.string.youtube_link_placeholder)) },
+            singleLine = true,
+            isError = errorText != null,
+            supportingText = errorText?.let { { Text(it) } },
+            shape = MaterialTheme.shapes.extraLarge,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+            colors = OutlinedTextFieldDefaults.colors(
+                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                unfocusedBorderColor = Color.Transparent,
+                focusedBorderColor = MaterialTheme.colorScheme.outline
             )
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+        Row(
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            qualityPresets.forEachIndexed { index, preset ->
+                FilterChip(
+                    selected = index == selectedQuality,
+                    onClick = { onQualitySelected(index) },
+                    label = { Text(stringResource(preset.labelRes)) }
+                )
+            }
         }
-    }
-}
-
-private fun playItem(context: Context, item: LibraryItem) {
-    val intent = Intent(Intent.ACTION_VIEW).apply {
-        setDataAndType(item.uri, item.mimeType)
-        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    }
-    // ROADMAP.md Step 4 [LOW, fixed]: guard against no video player
-    // being installed at all -- unlikely on a real phone, but cheap
-    // insurance against a crash for a one-line try/catch.
-    try {
-        context.startActivity(intent)
-    } catch (e: ActivityNotFoundException) {
-        Toast.makeText(context, "No app found to play this file", Toast.LENGTH_SHORT).show()
-    }
-}
-
-// ROADMAP.md Step 6.5 [Library]: backs the overflow menu's Share
-// action. MediaStore content Uris are already provider-backed and
-// shareable via a plain grant-uri-permission flag -- no FileProvider
-// setup needed, unlike sharing a raw file:// path would require.
-private fun shareItem(context: Context, item: LibraryItem) {
-    val intent = Intent(Intent.ACTION_SEND).apply {
-        type = item.mimeType
-        putExtra(Intent.EXTRA_STREAM, item.uri)
-        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-    }
-    try {
-        context.startActivity(Intent.createChooser(intent, "Share ${item.displayName}"))
-    } catch (e: ActivityNotFoundException) {
-        Toast.makeText(context, "No app found to share this file", Toast.LENGTH_SHORT).show()
+        Spacer(modifier = Modifier.height(20.dp))
+        Button(
+            onClick = onDownload,
+            enabled = url.isNotBlank(),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(stringResource(R.string.start_download))
+        }
     }
 }
 
@@ -669,34 +821,27 @@ private fun SettingsSectionHeader(text: String) {
     Spacer(modifier = Modifier.height(12.dp))
 }
 
-// ROADMAP.md Step 6.5 [Settings]: grouped into labeled sections
-// (titleMedium headers, outline-divided rows) instead of a flat list:
-// Default Quality, Storage, Extractor (yt-dlp version + manual update
-// button + last-updated timestamp). Update state/callback are passed
-// in from DownloadScreen rather than duplicated locally, so this
-// panel's "Check for update" button and the top-bar shortcut share
-// one source of truth.
 @Composable
-private fun SettingsPanel(
-    onClose: () -> Unit,
+private fun SettingsScreen(
     onDefaultQualityChanged: (Int) -> Unit,
     updateStatus: String,
     isUpdating: Boolean,
     lastUpdateTimestamp: Long,
-    onCheckForUpdate: () -> Unit
+    onCheckForUpdate: () -> Unit,
+    onOpenYouTubeLogin: () -> Unit
 ) {
     val context = LocalContext.current
     var defaultQuality by remember { mutableIntStateOf(Settings.getDefaultQualityIndex(context)) }
     var subfolder by remember { mutableStateOf(Settings.getDownloadSubfolder(context)) }
+    var hasSession by remember { mutableStateOf(YouTubeAuth.hasSavedSession(context)) }
 
-    // ROADMAP.md Step 6.5: this panel's content grew past what
-    // reliably fits on one screen once it has three sections instead
-    // of a flat list -- the old version had no scroll modifier at
-    // all, so content could silently run off the bottom of the
-    // screen with no way to reach it. Found while implementing the
-    // sectioned layout below.
-    Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-        SettingsSectionHeader("Default Quality")
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(bottom = 16.dp)
+    ) {
+        SettingsSectionHeader(stringResource(R.string.settings_default_quality))
         Row(
             modifier = Modifier.horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -709,17 +854,14 @@ private fun SettingsPanel(
                         Settings.setDefaultQualityIndex(context, index)
                         onDefaultQualityChanged(index)
                     },
-                    label = { Text(preset.label) }
+                    label = { Text(stringResource(preset.labelRes)) }
                 )
             }
         }
 
-        Spacer(modifier = Modifier.height(20.dp))
-        HorizontalDivider(color = MaterialTheme.colorScheme.outline)
-        Spacer(modifier = Modifier.height(20.dp))
-
-        SettingsSectionHeader("Storage")
-        Text(text = "Downloads subfolder name", style = MaterialTheme.typography.bodyMedium)
+        SettingsDivider()
+        SettingsSectionHeader(stringResource(R.string.settings_storage))
+        Text(stringResource(R.string.downloads_subfolder), style = MaterialTheme.typography.bodyMedium)
         Spacer(modifier = Modifier.height(8.dp))
         OutlinedTextField(
             value = subfolder,
@@ -729,54 +871,235 @@ private fun SettingsPanel(
             modifier = Modifier.fillMaxWidth()
         )
         Text(
-            text = "Saved under Downloads/$subfolder. Changing this only " +
-                "affects new downloads \u2014 it won't move files already " +
-                "saved under the old name.",
+            text = stringResource(R.string.storage_hint, subfolder),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+        Spacer(modifier = Modifier.height(8.dp))
+        Button(onClick = {
+            Settings.setDownloadSubfolder(context, subfolder)
+            subfolder = Settings.getDownloadSubfolder(context)
+            Toast.makeText(context, R.string.saved, Toast.LENGTH_SHORT).show()
+        }) {
+            Text(stringResource(R.string.save))
+        }
 
-        Spacer(modifier = Modifier.height(20.dp))
-        HorizontalDivider(color = MaterialTheme.colorScheme.outline)
-        Spacer(modifier = Modifier.height(20.dp))
-
-        SettingsSectionHeader("Extractor")
+        SettingsDivider()
+        SettingsSectionHeader(stringResource(R.string.settings_extractor))
         Text(
-            text = "yt-dlp powers every download (see CLAUDE.md \u2014 this app never " +
-                "implements its own extraction).",
+            text = stringResource(R.string.extractor_hint),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Spacer(modifier = Modifier.height(4.dp))
         Text(
-            text = "Last updated: ${formatTimestamp(lastUpdateTimestamp)}",
+            text = if (lastUpdateTimestamp == 0L) {
+                stringResource(R.string.last_updated_never)
+            } else {
+                stringResource(R.string.last_updated, formatTimestamp(lastUpdateTimestamp))
+            },
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         if (updateStatus.isNotBlank()) {
-            Text(
-                text = updateStatus,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Text(updateStatus, style = MaterialTheme.typography.bodySmall)
         }
         Spacer(modifier = Modifier.height(8.dp))
         OutlinedButton(enabled = !isUpdating, onClick = onCheckForUpdate) {
-            Text(if (isUpdating) "Checking\u2026" else "Check for yt-dlp update")
+            Text(if (isUpdating) stringResource(R.string.update_checking) else stringResource(R.string.check_for_update))
         }
 
+        SettingsDivider()
+        SettingsSectionHeader(stringResource(R.string.settings_youtube_account))
+        Text(
+            text = if (hasSession) stringResource(R.string.youtube_session_saved) else stringResource(R.string.youtube_session_not_saved),
+            style = MaterialTheme.typography.bodyMedium
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = stringResource(R.string.youtube_login_warning),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(modifier = Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = onOpenYouTubeLogin) {
+                Text(stringResource(if (hasSession) R.string.youtube_refresh_session else R.string.youtube_sign_in_action))
+            }
+            if (hasSession) {
+                OutlinedButton(onClick = {
+                    YouTubeAuth.clearSession(context) {
+                        Handler(Looper.getMainLooper()).post { hasSession = false }
+                    }
+                }) {
+                    Text(stringResource(R.string.youtube_sign_out))
+                }
+            }
+        }
         Spacer(modifier = Modifier.height(24.dp))
+    }
+}
 
+@Composable
+private fun SettingsDivider() {
+    Spacer(modifier = Modifier.height(20.dp))
+    HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+    Spacer(modifier = Modifier.height(20.dp))
+}
+
+@SuppressLint("SetJavaScriptEnabled")
+@Composable
+private fun YouTubeLoginScreen(onBack: () -> Unit, onSaved: () -> Unit) {
+    val context = LocalContext.current
+    var webViewRef by remember { mutableStateOf<WebView?>(null) }
+    var status by remember { mutableStateOf("") }
+
+    BackHandler(enabled = true) {
+        val webView = webViewRef
+        if (webView != null && webView.canGoBack()) webView.goBack() else onBack()
+    }
+
+    DisposableEffect(Unit) {
+        onDispose { webViewRef?.destroy() }
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        Text(
+            text = stringResource(R.string.youtube_login_instructions),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(modifier = Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = {
-                Settings.setDownloadSubfolder(context, subfolder)
-                onClose()
+                val result = YouTubeAuth.captureCurrentSession(
+                    context = context,
+                    userAgent = webViewRef?.settings?.userAgentString
+                )
+                status = if (result.looksSignedIn) {
+                    context.getString(R.string.youtube_session_captured)
+                } else {
+                    context.getString(R.string.youtube_session_capture_uncertain)
+                }
+                if (result.looksSignedIn) onSaved()
             }) {
-                Text("Save")
+                Text(stringResource(R.string.youtube_use_session))
             }
-            OutlinedButton(onClick = onClose) {
-                Text("Cancel")
+            OutlinedButton(onClick = onBack) { Text(stringResource(R.string.cancel)) }
+        }
+        if (status.isNotBlank()) {
+            Text(status, style = MaterialTheme.typography.bodySmall)
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        AndroidView(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
+            factory = { webContext ->
+                WebView(webContext).apply {
+                    settings.javaScriptEnabled = true
+                    settings.domStorageEnabled = true
+                    settings.safeBrowsingEnabled = true
+                    CookieManager.getInstance().setAcceptCookie(true)
+                    CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+                    webChromeClient = WebChromeClient()
+                    webViewClient = object : WebViewClient() {
+                        override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                            val uri = request?.url ?: return false
+                            if (uri.scheme == "http" || uri.scheme == "https") return false
+                            runCatching {
+                                context.startActivity(Intent(Intent.ACTION_VIEW, uri))
+                            }
+                            return true
+                        }
+                    }
+                    loadUrl("https://www.youtube.com/")
+                    webViewRef = this
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun LogsScreen() {
+    val context = LocalContext.current
+    var lines by remember { mutableStateOf(AppLog.readLines()) }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            OutlinedButton(onClick = { lines = AppLog.readLines() }) {
+                Text(stringResource(R.string.refresh))
+            }
+            OutlinedButton(onClick = {
+                AppLog.clear()
+                lines = emptyList()
+            }) {
+                Text(stringResource(R.string.clear_logs))
+            }
+            Button(onClick = { shareLogs(context, lines) }, enabled = lines.isNotEmpty()) {
+                Text(stringResource(R.string.share_logs))
+            }
+        }
+        Spacer(modifier = Modifier.height(10.dp))
+        if (lines.isEmpty()) {
+            Text(stringResource(R.string.logs_empty), color = MaterialTheme.colorScheme.onSurfaceVariant)
+        } else {
+            LazyColumn(modifier = Modifier.fillMaxSize()) {
+                itemsIndexed(lines) { _, line ->
+                    Text(
+                        text = line,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 3.dp)
+                    )
+                }
             }
         }
     }
+}
+
+private fun playItem(context: Context, item: LibraryItem) {
+    val intent = Intent(Intent.ACTION_VIEW).apply {
+        setDataAndType(item.uri, item.mimeType)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    try {
+        context.startActivity(intent)
+        AppLog.i("Library", "Opened ${item.displayName}")
+    } catch (e: ActivityNotFoundException) {
+        Toast.makeText(context, R.string.no_player, Toast.LENGTH_SHORT).show()
+        AppLog.e("Library", "No player for ${item.displayName}", e)
+    }
+}
+
+private fun shareItem(context: Context, item: LibraryItem) {
+    val intent = Intent(Intent.ACTION_SEND).apply {
+        type = item.mimeType
+        putExtra(Intent.EXTRA_STREAM, item.uri)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    try {
+        context.startActivity(Intent.createChooser(intent, context.getString(R.string.share_file, item.displayName)))
+    } catch (e: ActivityNotFoundException) {
+        Toast.makeText(context, R.string.no_share_app, Toast.LENGTH_SHORT).show()
+        AppLog.e("Library", "No share target for ${item.displayName}", e)
+    }
+}
+
+private fun shareLogs(context: Context, lines: List<String>) {
+    val payload = lines.joinToString("\n")
+    val intent = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_TEXT, payload)
+        putExtra(Intent.EXTRA_TITLE, context.getString(R.string.logs_title))
+    }
+    runCatching {
+        context.startActivity(Intent.createChooser(intent, context.getString(R.string.share_logs)))
+    }.onFailure { AppLog.e("Logs", "Could not open share sheet", it) }
 }

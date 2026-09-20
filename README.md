@@ -1,7 +1,6 @@
 # Kinescope
 
-[![Build Debug APK](https://github.com/baltic-builds/kinescope/actions/workflows/build-debug.yml/badge.svg)](https://github.com/baltic-builds/kinescope/actions/workflows/build-debug.yml)
-[![Build Signed Release APK](https://github.com/baltic-builds/kinescope/actions/workflows/build-release.yml/badge.svg)](https://github.com/baltic-builds/kinescope/actions/workflows/build-release.yml)
+[![Build and Publish Signed Release](https://github.com/baltic-builds/kinescope/actions/workflows/build-release.yml/badge.svg)](https://github.com/baltic-builds/kinescope/actions/workflows/build-release.yml)
 ![Platform](https://img.shields.io/badge/platform-Android-3DDC84?logo=android&logoColor=white)
 ![Kotlin](https://img.shields.io/badge/Kotlin-2.1.0-7F52FF?logo=kotlin&logoColor=white)
 ![Jetpack Compose](https://img.shields.io/badge/Jetpack%20Compose-Material3-4285F4?logo=jetpackcompose&logoColor=white)
@@ -13,17 +12,11 @@ A personal Android app for downloading YouTube videos at home, for
 offline viewing during work trips to a network-restricted region.
 Sideload-only — no Google Play, no backend, no required cost.
 
-**Status: working.** Confirmed on a real device (Android 13): install,
-share/paste a link, queue a download, play it back offline, and
-background persistence all work. Signed release builds succeed via
-CI; installing that signed build on a device is the one remaining
-open item — see [Technical debt](#technical-debt).
+**Status:** the pre-sprint core flow is confirmed working on a real Android 13 device. Patch 24 adds resilient YouTube recovery, optional YouTube session cookies, pause/resume/stop, Russian localization, new navigation/logging, release publishing and a new icon; those new behaviors are implemented but still await the real-device/Actions verification listed in `ROADMAP.md`.
 
 ## What this is
 
-Share a YouTube link into the app (or paste one directly), pick a
-quality preset, and it downloads in the background via a foreground
-service. The finished file lands in the device's Downloads folder,
+Share a YouTube link into the app (or use the center Add button), pick a quality preset, and it downloads in the background via a foreground service. Home contains the queue and offline library; Settings contains storage, extractor and optional YouTube-session controls. Russian devices use the Russian resource set; all other locales fall back to English. The finished file lands in the device's Downloads folder,
 ready for offline playback in any video player — no connectivity
 needed once it's downloaded.
 
@@ -31,7 +24,7 @@ needed once it's downloaded.
 
 - Not distributed via Google Play — **sideload only** (install the
   debug or signed APK directly).
-- No backend, no account system, no cross-device sync.
+- No backend, no Kinescope account system, no cross-device sync. Optional YouTube sign-in only stores a web session locally for yt-dlp.
 - No custom YouTube extraction logic. All extraction goes through
   [yt-dlp](https://github.com/yt-dlp/yt-dlp), via the
   [youtubedl-android](https://github.com/yausername/youtubedl-android)
@@ -49,7 +42,7 @@ needed once it's downloaded.
 | Build | Gradle `8.10.2`, AGP `8.7.2`, JDK 21 |
 | `minSdk` / `compileSdk` / `targetSdk` | 29 / 35 / 35 |
 | ABI | `arm64-v8a` only (kept the debug/release APK small — see [Technical debt](#technical-debt) if you need another) |
-| Distribution | Sideloaded APK (debug or signed release), built locally or via GitHub Actions |
+| Distribution | Sideloaded APK; local debug sanity builds, signed releases published by GitHub Actions |
 
 ## Building
 
@@ -73,19 +66,7 @@ succeed headlessly.
    app/build/outputs/apk/debug/app-debug.apk`, or transfer the file and
    tap it).
 
-**Alternative: build via GitHub Actions.** If adb isn't available, or
-downloading the APK through the Codespace browser UI is inconvenient,
-use the *Build Debug APK* workflow under this repo's Actions tab
-(`.github/workflows/build-debug.yml`) instead of steps 3–4 above — run
-it by hand, supply a version name, and download the resulting APK from
-the run's Artifacts. No automatic trigger; each run is a deliberate,
-manually-versioned build.
-
-**Signed release builds** work the same way via the *Build Signed
-Release APK* workflow (`.github/workflows/build-release.yml`), backed
-by four repo secrets (a base64-encoded keystore plus its
-passwords/alias) — see `RELEASE.md` for the one-time setup, and for
-the local-build alternative (`./gradlew assembleRelease`).
+**Release via GitHub Actions.** The only CI workflow is *Build and Publish Signed Release* (`.github/workflows/build-release.yml`). Run it manually, supply a semantic `version_name`, and it builds/signs the arm64 APK, verifies the signature, generates SHA-256, keeps a workflow artifact backup, and creates a GitHub Release containing the APK + checksum. See `RELEASE.md` for one-time signing-secret setup.
 
 ## Documentation map
 
@@ -117,12 +98,7 @@ the local-build alternative (`./gradlew assembleRelease`).
 
 ## Technical debt
 
-See `ROADMAP.md` for the full, current list: confirming the signed
-release build on a real device, a handful of adversarial Step 5 checks
-not yet individually run (race-condition stress test, error-text
-matching against a real broken video, airplane mode, a very large
-download), and an optional, unscheduled backlog. Nothing here blocks
-normal use of the app.
+See `ROADMAP.md` for the full current list. Patch 24 specifically still needs real-device verification of YouTube recovery/session capture, pause/resume/stop, Russian resources, navigation/logs, the new icon, and the revised release-to-GitHub-Releases pipeline; older adversarial checks remain open as well.
 
 ## License
 

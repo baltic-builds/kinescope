@@ -31,11 +31,10 @@ android {
         // not worth a legacy fallback path for pre-2019 phones.
         minSdk = 29
         targetSdk = 35
-        // Patch 16: overridable via `-PappVersionCode=<n> -PappVersionName=<name>`
-        // so .github/workflows/build-debug.yml can stamp a manually-chosen
-        // version per run without editing this file. Falls back to these
-        // hardcoded defaults for local Codespace builds that don't pass
-        // the properties (e.g. plain `./gradlew assembleDebug`).
+        // Patch 16, retained after patch 24: overridable via
+        // `-PappVersionCode=<n> -PappVersionName=<name>` so the release
+        // workflow can stamp each signed build without editing this file.
+        // Local Codespace builds still fall back to the defaults below.
         versionCode = (project.findProperty("appVersionCode") as String?)?.toIntOrNull() ?: 7
         versionName = (project.findProperty("appVersionName") as String?) ?: "1.0.0"
 

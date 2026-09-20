@@ -37,8 +37,7 @@ before editing anything.
   `keystore.properties` is present — see `RELEASE.md`).
 - If `gradlew` is missing or the devcontainer's `postCreateCommand`
   didn't finish, run `bash .devcontainer/setup.sh` manually.
-- CI: `.github/workflows/build-debug.yml` and `build-release.yml`,
-  both manual (`workflow_dispatch`) triggers, hand-versioned per run.
+- CI: `.github/workflows/build-release.yml` only, manually triggered (`workflow_dispatch`) and hand-versioned per run. It publishes the signed APK + checksum to GitHub Releases. Debug CI was deliberately removed in patch 24; `./gradlew assembleDebug` remains the local sanity check.
 - Real-device testing is manual, on the user's own phone, and always
   needs an explicit report back — see "What 'done' means" below.
 

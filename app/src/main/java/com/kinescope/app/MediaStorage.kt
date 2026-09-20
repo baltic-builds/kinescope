@@ -50,7 +50,10 @@ object MediaStorage {
         }
 
         val itemUri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
-            ?: return null
+        if (itemUri == null) {
+            AppLog.e("MediaStorage", "MediaStore insert returned null for $displayName")
+            return null
+        }
 
         return try {
             val opened = resolver.openOutputStream(itemUri)?.use { out ->
@@ -58,6 +61,7 @@ object MediaStorage {
             }
             if (opened == null) {
                 resolver.delete(itemUri, null, null)
+                AppLog.e("MediaStorage", "Could not open MediaStore output stream for $displayName")
                 return null
             }
 
@@ -66,9 +70,11 @@ object MediaStorage {
             resolver.update(itemUri, values, null, null)
 
             tempFile.delete()
+            AppLog.i("MediaStorage", "Published $displayName to Downloads/$subfolder")
             itemUri
         } catch (e: Exception) {
             resolver.delete(itemUri, null, null)
+            AppLog.e("MediaStorage", "Failed to publish $displayName", e)
             null
         }
     }
@@ -124,8 +130,11 @@ object MediaStorage {
      */
     fun delete(context: Context, item: LibraryItem): Boolean {
         return try {
-            context.contentResolver.delete(item.uri, null, null) > 0
+            val deleted = context.contentResolver.delete(item.uri, null, null) > 0
+            if (!deleted) AppLog.w("MediaStorage", "Delete returned 0 rows for ${item.displayName}")
+            deleted
         } catch (e: SecurityException) {
+            AppLog.e("MediaStorage", "Delete denied for ${item.displayName}", e)
             false
         }
     }

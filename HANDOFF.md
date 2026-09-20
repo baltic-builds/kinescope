@@ -15,6 +15,14 @@ cost. The rename to **Kinescope** is done: the codebase and package
 are `com.kinescope.app` / "Kinescope" (previously
 `com.baltic.ytoffline` / "YT Offline").
 
+### Patch 24 / Sprint 1 status
+
+The first post-roadmap feature sprint is now implemented in code and documentation, but is **not yet device-confirmed**. It adds bounded YouTube failure recovery (nightly yt-dlp refresh + client fallbacks, with exhausted verification jobs parked as resumable Pause rather than terminal Failed), optional app-private YouTube WebView cookies, pause/resume/stop, Russian resources with English fallback, a Home/Add/Settings glass-style bottom nav, correct Settings back navigation, a persistent hidden log journal (five rapid Settings taps), release-only GitHub Actions that publishes GitHub Releases, and a new retro-TV launcher icon.
+
+Important limitation: this is self-healing, not a promise that YouTube can never refuse a request. Current yt-dlp documentation says YouTube is actively enforcing PO tokens for some clients and can block an IP/session; the repo rule still forbids implementing a custom BotGuard/PO-token bypass. The fallback chain stays entirely within supported yt-dlp behavior. The WebView account session is optional because Google may reject embedded-browser sign-in on some devices.
+
+**Next required action is verification, not more feature work:** build patch 24, run the release workflow, and execute the Sprint 1 checklist at the top of `ROADMAP.md`. Do not mark any of those items done without the user's explicit real-device/Actions confirmation.
+
 **Milestone: the first successful `./gradlew assembleDebug` in this
 project's history was achieved via patches 01-14.** The
 `.github/workflows/build-debug.yml` CI path (patch 16) failed on its
@@ -325,6 +333,17 @@ before being handed over -- never delivered untested:
   placeholder) is git-tracked and wasn't covered by `.gitignore`'s
   existing `*.jks`/`*.keystore` rules -- fixed by adding
   `*.jks.b64`/`*.jks.base64.txt`.
+- **Patch 24** -- First post-roadmap feature sprint. Added bounded
+  yt-dlp-only YouTube recovery with nightly refresh and client fallbacks;
+  exhausted verification blocks now pause the job for later resume instead
+  of terminating it. Added optional app-private YouTube WebView session
+  cookies, automatic resume after a successful session capture, Pause /
+  Resume / Stop, EN/RU resources, Home/Add/Settings bottom navigation,
+  correct back navigation, persistent hidden diagnostics, a new retro-TV
+  adaptive icon, and a release-only CI workflow that verifies and publishes
+  signed APKs to GitHub Releases. The implementation is intentionally still
+  marked unconfirmed until the Sprint 1 device/Actions checklist in
+  `ROADMAP.md` is reported back by the user.
 
 **Version-compatibility note worth remembering:** Compose BOM
 2024.11.00 (fixed in patch 01) pulls in Material3 **1.3.1**. Some APIs
@@ -341,20 +360,15 @@ actually pulls in.**
 
 ## What's actually done vs. still open
 
-Read `ROADMAP.md`'s top section first -- as of patch 23 it's a short
+Read `ROADMAP.md`'s top section first -- as of patch 24 it's a short
 "current state" summary plus a single, consolidated "Technical debt"
 list (the original 9-step plan's checklists don't live there
 separately anymore; `CHANGELOG.md` has the full step-by-step history
 instead). As of this snapshot:
 
-**Done:** Steps 1-4, 6 (6.1-6.6; 6.7 -- an optional monochrome
-adaptive-icon layer -- moved to Technical debt, opt-in only, not
-required), 7 (Kinescope rename), 8 (`CJM.md`, patch 17 -- "keep this
-document current" is ongoing by nature, not a one-time task), and the
+**Done before Sprint 1:** Steps 1-4, 6, 7 (Kinescope rename), 8 (`CJM.md`, patch 17 -- "keep this document current" is ongoing by nature, not a one-time task), and the
 environment/build-setup work that had to happen before Step 5 could
-even start (patches 07-14). **`./gradlew assembleDebug` succeeds**,
-both locally and via `.github/workflows/build-debug.yml` --
-**confirmed by a real, successful Actions run** (patch 18). **Step 9's
+even start (patches 07-14). **`./gradlew assembleDebug` succeeds locally**. The former debug CI workflow was confirmed in patch 18 but intentionally removed in patch 24; CI is release-only now. **Step 9's
 CI infrastructure is confirmed working too**: a real signed release
 build succeeded via `.github/workflows/build-release.yml` (patch 21).
 **Step 5's core functionality is now confirmed on a real device**
@@ -432,7 +446,7 @@ All files below live under
 - `YtDlpUpdater.kt` -- wraps the library's self-update call, records
   the last-update timestamp on success. `UpdateChannel` import fixed
   in patch 14 (nested class of `YoutubeDL`).
-- `YtOfflineApp.kt` -- yt-dlp/ffmpeg init + startup update check.
+- `YtOfflineApp.kt` -- background yt-dlp/ffmpeg initialization. Patch 24 moved automatic updating out of startup; recovery/manual checks use the nightly channel through `YtDlpUpdater`.
   Class name kept as `YtOfflineApp` (internal identifier, not
   user-visible, not part of the Step 7 rename scope) despite living in
   `com.kinescope.app` now.
@@ -441,10 +455,7 @@ All files below live under
   colors), the full typography scale, downloadable Google Fonts
   (Inter/Lora) via `font_certs.xml`. Same note on identifier names as
   above.
-- `ic_launcher_foreground.xml` / `ic_launcher_background.xml` /
-  `mipmap-anydpi-v26/ic_launcher*.xml` -- adaptive icon, safe-zone
-  fixed in patch 03; an invalid `--` inside a comment fixed in patch
-  13.
+- `ic_launcher_foreground.xml` / `ic_launcher_background.xml` / `ic_launcher_monochrome.xml` + adaptive-icon XML -- patch 24 retro-TV identity using the existing palette, including Android 13+ themed-icon support; earlier safe-zone/XML fixes still apply.
 - `res/drawable/ic_download.xml` -- small hand-authored static vector
   (arrow + tray) used by `EmptyQueueState`'s icon; added in patch 22
   to replace a framework `AnimatedVectorDrawable` that Compose's
@@ -462,10 +473,7 @@ All files below live under
   file instead). `CHANGELOG.md` -- terse per-patch "what shipped"
   record, newest first (patch 17). `CJM.md` -- the five-stage Customer
   Journey Map behind Steps 1/3/4's priority ordering (patch 17).
-  `roadmap.md` -- GPT Astra's sprint-based plan, queued for after
-  `ROADMAP.md`. `.github/workflows/build-debug.yml` -- manual GitHub
-  Actions workflow that builds and uploads a versioned debug APK
-  (patch 16).
+  `roadmap.md` -- GPT Astra's sprint-based plan, queued for after `ROADMAP.md`. `.github/workflows/build-release.yml` -- the only CI workflow after patch 24; it builds, verifies and publishes the signed APK + SHA-256 to GitHub Releases. The old debug workflow was removed.
 
 `minSdk` 29, `compileSdk`/`targetSdk` 35, `versionCode` 7 (default;
 overridable via `-PappVersionCode`, see patch 16), `versionName`
@@ -557,9 +565,7 @@ overridable via `-PappVersionCode`, see patch 16), `versionName`
   Codespace.** The JDK-pinning workaround from patches 11-12 exists
   because *this specific Codespace* has a competing ambient JDK 25 on
   `PATH` ahead of the one actually wanted. A GitHub Actions runner
-  (`.github/workflows/build-debug.yml`, patch 16) is a clean, single-JDK
-  environment where `actions/setup-java` is the only JDK present -- so
-  the workflow doesn't need (and doesn't include) that same pin. Don't
+  (now `.github/workflows/build-release.yml`; the earlier debug workflow was removed in patch 24) is a clean, single-JDK environment where `actions/setup-java` is the only JDK present -- so the workflow doesn't need (and doesn't include) that same pin. Don't
   assume every environment inherits every fix a previous environment
   needed; re-derive from first principles per environment.
 
@@ -577,13 +583,9 @@ overridable via `-PappVersionCode`, see patch 16), `versionName`
 
 ## Immediate next step for Claude (in a new conversation)
 
-**The project is in steady state, not active roadmap execution.**
+**Patch 24 / Sprint 1 is implemented and awaiting verification.**
 Steps 1-9 are done or reduced to specific technical debt (see
-`ROADMAP.md`). There's no default next task -- work from whatever the
-user actually asks for. If they haven't asked for anything specific,
-the highest-value unprompted next step is picking one item off
-`ROADMAP.md`'s "Technical debt" list and asking which they'd like
-tackled first, rather than assuming.
+`ROADMAP.md`). The next task is the Sprint 1 verification checklist now at the top of `ROADMAP.md`; do not extend the sprint or mark it confirmed until the user reports the real build/device results.
 
 **What's confirmed as of patch 23:** the app runs correctly end to end
 on a real device (Android 13) -- install, share/paste a link, queue

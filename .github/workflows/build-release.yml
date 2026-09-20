@@ -1,107 +1,150 @@
-name: Build Signed Release APK
+name: Build and Publish Signed Release
 
-# Manual-only build, mirroring build-debug.yml's design (see ROADMAP.md
-# Step 9 / CHANGELOG.md Patch 20). Produces a release-signed APK using a
-# keystore stored as a base64-encoded GitHub secret -- see RELEASE.md
-# for how to generate the keystore and add the required secrets. No
-# push/PR/schedule trigger by design -- every build is a deliberate,
-# hand-versioned run.
+# Manual-only release pipeline. It builds one arm64-v8a signed APK,
+# verifies its signature, keeps a workflow artifact as backup, and
+# publishes the same APK + SHA-256 file to GitHub Releases.
 on:
   workflow_dispatch:
     inputs:
       version_name:
-        description: >-
-          App version name to stamp on this build (e.g. "1.1.0").
-          versionCode is derived automatically from this run's number
-          (below), so it always increases even if you reuse a
-          version_name -- avoids INSTALL_FAILED_VERSION_DOWNGRADE when
-          reinstalling over an older build on the same device.
+        description: 'Version name, for example 1.2.0'
         required: true
+        type: string
+      release_notes:
+        description: 'Optional release notes. Leave empty to auto-generate.'
+        required: false
         type: string
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-release:
-    name: Build signed release APK
+    name: Build, verify and publish release
     runs-on: ubuntu-latest
+    timeout-minutes: 45
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up JDK 21 (Temurin)
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "21"
-          # Same reasoning as build-debug.yml: a GitHub Actions runner
-          # is a clean, single-JDK environment (unlike this project's
-          # Codespace -- see HANDOFF.md's "Key learnings"), so no extra
-          # org.gradle.java.home pinning is needed here.
+          java-version: '21'
+          cache: gradle
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
         with:
-          # Matches compileSdk/targetSdk 35 and the build-tools version
-          # already confirmed correct (see ROADMAP.md's Appendix).
-          packages: "platform-tools platforms;android-35 build-tools;35.0.0"
+          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
 
-      - name: Make gradlew executable
-        run: chmod +x ./gradlew
-
-      - name: Decode signing keystore
+      - name: Validate release inputs and signing secrets
         env:
+          VERSION_NAME: ${{ inputs.version_name }}
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
-        run: |
-          if [ -z "$KEYSTORE_BASE64" ]; then
-            echo "KEYSTORE_BASE64 repo secret is not set -- see RELEASE.md's 'CI build (GitHub Actions)' section to generate and add it." >&2
-            exit 1
-          fi
-          echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/kinescope-release.jks"
-
-      - name: Write keystore.properties
-        env:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
+          set -euo pipefail
+          if ! [[ "$VERSION_NAME" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "version_name must look like 1.2.0 or 1.2.0-beta.1" >&2
+            exit 1
+          fi
+          for name in KEYSTORE_BASE64 KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
+            if [ -z "${!name:-}" ]; then
+              echo "$name repository secret is not set; see RELEASE.md" >&2
+              exit 1
+            fi
+          done
+
+      - name: Prepare Gradle and signing material
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          chmod +x ./gradlew
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/kinescope-release.jks"
           {
             echo "storeFile=$RUNNER_TEMP/kinescope-release.jks"
             echo "storePassword=$KEYSTORE_PASSWORD"
             echo "keyAlias=$KEY_ALIAS"
             echo "keyPassword=$KEY_PASSWORD"
           } > keystore.properties
-          # keystore.properties is read by app/build.gradle.kts's signing
-          # config (rootProject.file("keystore.properties")); it is
-          # gitignored and only ever exists on this ephemeral runner.
 
       - name: Build signed release APK
-        run: >-
-          ./gradlew --no-daemon assembleRelease
-          -PappVersionName="${{ inputs.version_name }}"
-          -PappVersionCode="${{ github.run_number }}"
-
-      - name: Rename APK with version
-        id: rename_apk
+        env:
+          VERSION_NAME: ${{ inputs.version_name }}
         run: |
-          src="app/build/outputs/apk/release/app-release.apk"
-          if [ ! -f "$src" ]; then
-            echo "Expected APK not found at $src" >&2
-            exit 1
-          fi
-          dest="app/build/outputs/apk/release/kinescope-${{ inputs.version_name }}-release.apk"
-          mv "$src" "$dest"
-          echo "apk_path=$dest" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          version_code=$((10000 + GITHUB_RUN_NUMBER))
+          ./gradlew --no-daemon clean assembleRelease \
+            -PappVersionName="$VERSION_NAME" \
+            -PappVersionCode="$version_code"
 
-      - name: Upload APK artifact
+      - name: Verify, rename and checksum APK
+        id: package
+        env:
+          VERSION_NAME: ${{ inputs.version_name }}
+        run: |
+          set -euo pipefail
+          src="app/build/outputs/apk/release/app-release.apk"
+          [ -f "$src" ] || { echo "Expected APK not found at $src" >&2; exit 1; }
+
+          apk="app/build/outputs/apk/release/kinescope-v${VERSION_NAME}-arm64-v8a.apk"
+          mv "$src" "$apk"
+
+          apksigner="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          [ -x "$apksigner" ] || { echo "apksigner not found" >&2; exit 1; }
+          "$apksigner" verify --verbose --print-certs "$apk"
+
+          sha="${apk}.sha256"
+          sha256sum "$apk" > "$sha"
+          echo "apk_path=$apk" >> "$GITHUB_OUTPUT"
+          echo "sha_path=$sha" >> "$GITHUB_OUTPUT"
+          echo "tag=v${VERSION_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload workflow artifact backup
         uses: actions/upload-artifact@v4
         with:
-          name: kinescope-${{ inputs.version_name }}-release
-          path: ${{ steps.rename_apk.outputs.apk_path }}
+          name: kinescope-v${{ inputs.version_name }}-release
+          path: |
+            ${{ steps.package.outputs.apk_path }}
+            ${{ steps.package.outputs.sha_path }}
           if-no-files-found: error
           retention-days: 30
 
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.package.outputs.tag }}
+          APK_PATH: ${{ steps.package.outputs.apk_path }}
+          SHA_PATH: ${{ steps.package.outputs.sha_path }}
+          RELEASE_NOTES: ${{ inputs.release_notes }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists. Use a new version_name." >&2
+            exit 1
+          fi
+
+          args=(release create "$TAG" "$APK_PATH" "$SHA_PATH" --target "$GITHUB_SHA" --title "Kinescope $TAG")
+          if [ -n "$RELEASE_NOTES" ]; then
+            notes_file="$RUNNER_TEMP/release-notes.md"
+            printf '%s\n' "$RELEASE_NOTES" > "$notes_file"
+            args+=(--notes-file "$notes_file")
+          else
+            args+=(--generate-notes)
+          fi
+          gh "${args[@]}"
+
       - name: Clean up signing material
         if: always()
-        run: rm -f keystore.properties "$RUNNER_TEMP/kinescope-release.jks"
+        run: rm -f keystore.properties "$RUNNER_TEMP/kinescope-release.jks" "$RUNNER_TEMP/release-notes.md"

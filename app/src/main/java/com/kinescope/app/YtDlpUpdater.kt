@@ -1,45 +1,38 @@
 package com.kinescope.app
 
 import android.content.Context
-import android.util.Log
-import com.yausername.youtubedl_android.YoutubeDL.UpdateChannel
 import com.yausername.youtubedl_android.YoutubeDL
+import com.yausername.youtubedl_android.YoutubeDL.UpdateChannel
 
-/**
- * Wraps the youtubedl-android library's self-update mechanism, so the
- * bundled yt-dlp (and therefore the extractor) can be refreshed
- * without an app rebuild. See ROADMAP.md Phase 5 and the "no custom
- * extractor" ground rule in CLAUDE.md — this update mechanism is the
- * intended way to keep extraction working as YouTube changes things
- * over time, instead of us reverse-engineering anything ourselves.
- *
- * ROADMAP.md Step 2 [fixed]: the library's current README (matching
- * the 0.18.1 version pinned in app/build.gradle.kts) documents
- * `updateYoutubeDL(context, updateChannel)` — a required UpdateChannel
- * argument — not the single-argument call this file used to have.
- * STABLE is used here since this app never wants nightly/pre-release
- * yt-dlp builds on a personal device. The try/catch stays
- * deliberately broad, and the result is immediately turned into a
- * String via `.toString()`, so a wrong assumption about the *exact*
- * return type (enum vs. String) still fails soft rather than crashing
- * app startup.
- *
- * ROADMAP.md Step 6.5: records a last-updated timestamp on success
- * only (not on failure), for Settings' Extractor section.
- */
+/** Keeps yt-dlp current without an app rebuild. */
 object YtDlpUpdater {
-    private const val TAG = "YtDlpUpdater"
+    private val updateLock = Any()
 
-    /** Blocking — call this from a background thread, not the main thread. */
-    fun updateBlocking(context: Context): String {
-        return try {
-            val status = YoutubeDL.getInstance().updateYoutubeDL(context, UpdateChannel.STABLE)
-            Log.i(TAG, "yt-dlp update result: $status")
+    /**
+     * Blocking; call from a background thread. Nightly is deliberate:
+     * upstream yt-dlp recommends nightly for regular users because the
+     * stable channel can lag behind site-side changes.
+     */
+    fun updateBlocking(
+        context: Context,
+        channel: UpdateChannel = UpdateChannel.NIGHTLY
+    ): String = synchronized(updateLock) {
+        try {
+            // Safe and idempotent. This also closes the small race where
+            // the user taps Update before Application's background init
+            // has finished unpacking yt-dlp.
+            YoutubeDL.getInstance().init(context.applicationContext)
+            val status = YoutubeDL.getInstance().updateYoutubeDL(context, channel)
             Settings.setLastUpdateTimestamp(context, System.currentTimeMillis())
-            status.toString()
+            val message = when (status) {
+                YoutubeDL.UpdateStatus.DONE -> context.getString(R.string.update_done)
+                YoutubeDL.UpdateStatus.ALREADY_UP_TO_DATE, null -> context.getString(R.string.update_current)
+            }
+            AppLog.i("YtDlpUpdater", "yt-dlp update result=$status channel=${channel.javaClass.simpleName}")
+            message
         } catch (e: Exception) {
-            Log.w(TAG, "yt-dlp update failed", e)
-            "Update check failed: ${e.message}"
+            AppLog.e("YtDlpUpdater", "yt-dlp update failed", e)
+            context.getString(R.string.update_failed, e.message ?: e.javaClass.simpleName)
         }
     }
 }

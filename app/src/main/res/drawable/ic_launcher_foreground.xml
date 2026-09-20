@@ -3,21 +3,24 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Arrow stem -->
-    <path
-        android:fillColor="#FAF9F5"
-        android:pathData="M48,21 L60,21 L60,49 L48,49 Z" />
-    <!-- Arrowhead -->
-    <path
-        android:fillColor="#FAF9F5"
-        android:pathData="M38,49 L70,49 L54,71 Z" />
-    <!-- Tray / base line -->
-    <!-- ROADMAP.md Step 6.6 [LOW, fixed]: narrowed from 34/74 to
-         40/68 so the bottom corners land inside the adaptive-icon
-         safe-zone circle (33dp radius from center); the wider
-         version was getting silently clipped on circular-mask
-         launchers/OEM skins. -->
-    <path
-        android:fillColor="#FAF9F5"
-        android:pathData="M40,79 L68,79 L68,87 L40,87 Z" />
+    <!-- Original retro-TV motif, inspired by pre-flat mobile iconography
+         without copying YouTube artwork. Everything stays inside the
+         adaptive-icon safe zone. -->
+    <!-- Antennas -->
+    <path android:fillColor="#FF141413" android:pathData="M43,32 L46,30 L54,39 L51,42 Z" />
+    <path android:fillColor="#FF141413" android:pathData="M65,30 L68,32 L57,42 L54,39 Z" />
+    <!-- Terracotta television shell -->
+    <path android:fillColor="#FFD97757" android:pathData="M30,39 Q30,33 36,33 L72,33 Q78,33 78,39 L78,70 Q78,76 72,76 L36,76 Q30,76 30,70 Z" />
+    <!-- Raised glass screen -->
+    <path android:fillColor="#FFF3DDD2" android:pathData="M36,41 Q36,38 39,38 L64,38 Q67,38 67,41 L67,65 Q67,68 64,68 L39,68 Q36,68 36,65 Z" />
+    <!-- Glass highlight -->
+    <path android:fillColor="#99FFFFFF" android:pathData="M39,41 Q39,40 41,40 L60,40 L43,57 L39,57 Z" />
+    <!-- Small play mark inside the screen -->
+    <path android:fillColor="#FF6B3520" android:pathData="M48,47 L48,60 L59,53.5 Z" />
+    <!-- Side controls -->
+    <path android:fillColor="#FF141413" android:pathData="M71,44 A2.5,2.5 0,1 0,76,44 A2.5,2.5 0,1 0,71,44" />
+    <path android:fillColor="#FF141413" android:pathData="M71,54 A2.5,2.5 0,1 0,76,54 A2.5,2.5 0,1 0,71,54" />
+    <!-- Feet -->
+    <path android:fillColor="#FF141413" android:pathData="M38,76 L45,76 L43,82 L36,82 Z" />
+    <path android:fillColor="#FF141413" android:pathData="M63,76 L70,76 L72,82 L65,82 Z" />
 </vector>

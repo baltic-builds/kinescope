@@ -67,8 +67,7 @@ app. The app is named **Kinescope** -- a name with no connection to Anthropic or
 | `success` (custom, not a Material3 slot) | `#788C5D` | "Done" status text in the queue list |
 | `error` | `#BA1A1A` | Failed status text. Kept as a standard, unambiguous red rather than a brand-adjacent tone — a failure needs to read as a failure at a glance more than it needs to be on-brand. |
 
-Dark theme isn't included in this pass — everything above is a light
-scheme only. Worth a follow-up if it turns out to matter day to day.
+A dark theme was added later (patch 03); `Theme.kt` is the source of truth for its exact tokens. The light tokens above remain the visual baseline.
 
 ## Typography
 
@@ -115,11 +114,7 @@ assumption on top of the existing nine.
   `success` green; "Failed" uses `error` red.
 - **Primary button** ("Add to download queue") → already
   `Button()`; theming alone gives it the terracotta `primary` fill.
-- **App icon** → a simple adaptive icon: terracotta background
-  (`ic_launcher_background`), a plain cream download-arrow-into-tray
-  glyph as the foreground (`ic_launcher_foreground`). No external
-  image assets — both are hand-written vector drawables, so nothing
-  needed fetching from the internet to produce them.
+- **App icon** → patch 24 replaces the original download-arrow mark with an original retro television: warm cream/pale background, terracotta shell, raised cream glass and warm-dark controls. It is intentionally only *inspired by* pre-flat skeuomorphic mobile TV icons, not a copy of YouTube artwork. Android 13+ also gets a monochrome adaptive layer.
 
 ## Implementation sprint
 
@@ -183,3 +178,11 @@ tokens:
 Still not done, still Claude's actual name/logo/licensed fonts are
 intentionally never used — see the honesty section above, which
 still applies in full.
+## Patch 24 — navigation and icon extension
+
+The first post-roadmap sprint extends this system without changing its core palette or typography:
+
+- **Bottom navigation / glass treatment.** Home and Settings sit in a rounded translucent `surface` container with a subtle `outline` border, tonal elevation and soft shadow. The center Add action floats as a stronger circular `primary` element. This is the project's "glassmorphism 2.0" interpretation: layered translucency and depth using native Compose/Material primitives, not a fake screenshot blur or a new rendering dependency.
+- **Information architecture.** Home = queue + library. Center Add = focused URL/quality flow with clipboard prefill. Settings = defaults/storage/extractor/YouTube session. Icon-only navigation keeps chrome compact.
+- **Launcher icon.** Original retro-TV silhouette; `#FAF9F5` background, `#D97757` shell, `#F3DDD2` glass, `#141413` controls, translucent white highlight. Geometry stays inside the adaptive safe zone and a dedicated monochrome layer supports themed icons.
+- **Localization.** Visual layouts must tolerate both English and Russian resources; avoid fixed text widths.
