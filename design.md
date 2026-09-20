@@ -23,11 +23,10 @@ Two things follow from that:
 2. **Fonts are not copied.** Anthropic's actual brand typefaces
    (Styrene for UI text, a custom serif for display text) are
    commercial, licensed fonts — bundling them into a personal app
-   without a license isn't something to do. This system uses Android's
-   built-in system font families (`FontFamily.Serif` /
-   `FontFamily.Default`) instead, which get the same *character*
-   (serif headline, clean sans body) without touching anyone's
-   licensed type.
+   without a license isn't something to do. Kinescope instead requests
+   the independently licensed Google Fonts Inter (UI/body) and Lora
+   (display/headline) through Android's downloadable-font provider,
+   with system-font fallback if the provider is unavailable.
 
 **Also: don't use the name "Claude" or Anthropic's logo anywhere in
 this app.** Borrowing a similar visual *feel* for your own,
@@ -61,10 +60,11 @@ app. The app is named **Kinescope** -- a name with no connection to Anthropic or
 | `onSurfaceVariant` | `#73726C` | Secondary/meta text (status lines, captions) |
 | `outline` | `#E3E1D9` | Dividers, subtle borders |
 | `primary` | `#D97757` | Buttons, selected chip, links, the app's one accent |
-| `onPrimary` | `#FFFFFF` | Text/icons on top of `primary` |
+| `onPrimary` | `#3D1A0E` | Text/icons on top of `primary`; warm-dark value keeps contrast above the body-text target on terracotta |
 | `primaryContainer` | `#F3DDD2` | Selected chip background (a light tint of `primary`) |
 | `onPrimaryContainer` | `#6B3520` | Text on `primaryContainer` |
-| `success` (custom, not a Material3 slot) | `#788C5D` | "Done" status text in the queue list |
+| `success` (custom, not a Material3 slot) | `#56683F` | "Done" status text in the queue list; darkened in patch 25 for stronger light-theme contrast |
+| `warning` (custom, not a Material3 slot) | `#7A5A18` | Paused / interrupted recoverable state text with stronger light-theme contrast |
 | `error` | `#BA1A1A` | Failed status text. Kept as a standard, unambiguous red rather than a brand-adjacent tone — a failure needs to read as a failure at a glance more than it needs to be on-brand. |
 
 A dark theme was added later (patch 03); `Theme.kt` is the source of truth for its exact tokens. The light tokens above remain the visual baseline.
@@ -73,20 +73,12 @@ A dark theme was added later (patch 03); `Theme.kt` is the source of truth for i
 
 | Role | Family | Weight | Used for |
 |---|---|---|---|
-| `headlineSmall` | `FontFamily.Serif` (system serif, e.g. Noto Serif) | SemiBold | The "Kinescope" title only |
-| `titleMedium` / `titleSmall` | `FontFamily.Default` (system sans, e.g. Roboto) | SemiBold | Section headers: "Queue", "Library", settings labels |
-| `labelLarge` | `FontFamily.Default` | Medium | Button text |
-| everything else | `FontFamily.Default` | Regular | Body text, list rows, status lines |
+| `displaySmall` / `headlineSmall` | Lora via Google Fonts provider | SemiBold | Character/display moments including the Kinescope title |
+| `titleMedium` | Inter via Google Fonts provider | SemiBold | Section headers |
+| `titleSmall` / `labelLarge` / `labelSmall` | Inter via Google Fonts provider | Medium | Row titles, actions and compact labels |
+| body roles | Inter via Google Fonts provider | Regular | Body text, list rows, status/meta text |
 
-Using the *system* serif/sans families (rather than a specific
-downloaded font like Inter or Lora) was a deliberate scope call: it
-gets the intended serif-headline / sans-body pairing with zero new
-dependencies and zero new build risk, on a project that already has
-a long list of unverified assumptions (see ROADMAP.md). Swapping in
-an actual downloaded font (e.g. via Compose's Google Fonts provider)
-is a safe, optional follow-up once the app builds and runs —
-deliberately not bundled now to avoid stacking a 10th unverified
-assumption on top of the existing nine.
+The font files are not bundled in the APK. Android requests Inter and Lora through Google Play Services' downloadable-font provider; the API falls back to a system font when the provider cannot supply them. This replaced the original system-serif/system-sans prototype and is already implemented in `Theme.kt`.
 
 ## Shape scale
 
@@ -135,21 +127,13 @@ applied in this pass:
    No legacy raster mipmaps needed — `minSdk` is already 29, well
    above the API 26 adaptive-icon floor.
 5. Build and actually look at it on a device — spot-check contrast
-   (dark text on cream, white text on terracotta button) and compare
-   against the real Claude app for anything that reads obviously off.
+   (dark text on cream, warm-dark text/icons on terracotta actions) and
+   compare against the intended Kinescope visual direction for anything
+   that reads obviously off.
 6. Note anything that needs adjusting back in this file so the next
    round starts from an updated baseline instead of the same guesses.
 
-Not done in this pass, worth queuing up only if it turns out to
-matter:
-
-7. Swap system serif/sans for actual downloaded fonts (e.g. Inter +
-   Lora via Compose's Google Fonts provider) if the system-font
-   version doesn't feel close enough once seen on a real screen.
-8. Dark theme token set.
-9. A proper splash/launch theme (currently: default system background
-   until Compose content loads — fine at this app's size, but worth
-   revisiting if startup ever feels like it flashes).
+Later passes already completed the downloaded-font and dark-theme items from this original list. A dedicated splash/launch theme remains optional only if startup ever shows a visible flash on the real device; it is not active roadmap work.
 
 ## "Maximally similar" pass (post-initial design system)
 
@@ -186,3 +170,15 @@ The first post-roadmap sprint extends this system without changing its core pale
 - **Information architecture.** Home = queue + library. Center Add = focused URL/quality flow with clipboard prefill. Settings = defaults/storage/extractor/YouTube session. Icon-only navigation keeps chrome compact.
 - **Launcher icon.** Original retro-TV silhouette; `#FAF9F5` background, `#D97757` shell, `#F3DDD2` glass, `#141413` controls, translucent white highlight. Geometry stays inside the adaptive safe zone and a dedicated monochrome layer supports themed icons.
 - **Localization.** Visual layouts must tolerate both English and Russian resources; avoid fixed text widths.
+
+## Patch 25 — accessibility and state semantics
+
+Patch 25 keeps the established palette but tightens the light-theme combinations that carry actionable/status meaning:
+
+- `onPrimary` is now `#3D1A0E` on terracotta `primary` rather than white.
+- `success` is `#56683F` and `warning` is `#7A5A18` for stronger contrast on warm light surfaces.
+- Queue state color is semantic: active states use the primary-container foreground, recoverable Pause/Interrupted uses `warning`, Done uses `success`, and terminal Failed uses Material `error`.
+- Library rows expose secondary type/size/date metadata without adding another accent color.
+- Destructive Delete requires confirmation instead of relying on color alone.
+
+These are token/interaction corrections, not a visual redesign. The glass bottom navigation and retro-TV icon introduced in patch 24 remain the current direction.

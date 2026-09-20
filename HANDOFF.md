@@ -4,7 +4,7 @@ Paste this file's contents at the start of a new conversation to
 resume work with minimal re-explaining. If the new conversation
 doesn't already have repo access, also attach a fresh repomix export
 (or paste `CLAUDE.md`, `AGENTS.md`, `ROADMAP.md`, `CHANGELOG.md`,
-`CJM.md`, `roadmap.md`, `design.md`, and `RELEASE.md` directly).
+`CJM.md`, `design.md`, `RELEASE.md`, and `THIRD_PARTY_NOTICES.md` directly).
 
 ## Project identity
 
@@ -15,13 +15,25 @@ cost. The rename to **Kinescope** is done: the codebase and package
 are `com.kinescope.app` / "Kinescope" (previously
 `com.baltic.ytoffline` / "YT Offline").
 
-### Patch 24 / Sprint 1 status
+### Patch 25 / roadmap-completion status
+### Patch 25c / AAPT hotfix status
 
-The first post-roadmap feature sprint is now implemented in code and documentation, but is **not yet device-confirmed**. It adds bounded YouTube failure recovery (nightly yt-dlp refresh + client fallbacks, with exhausted verification jobs parked as resumable Pause rather than terminal Failed), optional app-private YouTube WebView cookies, pause/resume/stop, Russian resources with English fallback, a Home/Add/Settings glass-style bottom nav, correct Settings back navigation, a persistent hidden log journal (five rapid Settings taps), release-only GitHub Actions that publishes GitHub Releases, and a new retro-TV launcher icon.
+Patch 25b applied the Patch-25 target but exposed one delivery-only compile
+blocker during its mandatory Gradle gate: Android's resource compiler rejected
+an unescaped ASCII apostrophe in the English `error_control_cleanup_failed`
+string. Patch 25c escapes that apostrophe, adds an Android-specific static
+resource check for the same class of mistake, and only records completion after
+`testDebugUnitTest + lintDebug + assembleDebug` succeeds. No runtime behavior or
+roadmap scope changed in this hotfix.
 
-Important limitation: this is self-healing, not a promise that YouTube can never refuse a request. Current yt-dlp documentation says YouTube is actively enforcing PO tokens for some clients and can block an IP/session; the repo rule still forbids implementing a custom BotGuard/PO-token bypass. The fallback chain stays entirely within supported yt-dlp behavior. The WebView account session is optional because Google may reject embedded-browser sign-in on some devices.
 
-**Next required action is verification, not more feature work:** build patch 24, run the release workflow, and execute the Sprint 1 checklist at the top of `ROADMAP.md`. Do not mark any of those items done without the user's explicit real-device/Actions confirmation.
+Patch 24 / Sprint 1 was successfully applied by the user, built in Codespaces (`BUILD SUCCESSFUL`) and pushed as commit `91169f5`. That confirms compilation of the Sprint-1 code, **not** its new device-dependent behavior. Real-device verification remains open.
+
+Patch 25 consumes the still-relevant engineering work from the former lowercase S0-S11 audit and closes the autonomous reliability/hardening backlog: a durable `AtomicFile` job journal, explicit process-death recovery, strict canonical YouTube URL parsing, stable quality IDs, active-job dedupe, one serialized yt-dlp/ffmpeg/update boundary, per-job workspaces + orphan cleanup, hardened MediaStore commit semantics, off-main-thread library I/O, Android 15 foreground-service timeout handling, notification actions, privacy-redacted diagnostics with backup disabled, JVM tests, stronger release verification, pinned Android command-line tools, accessibility token corrections, and a third-party dependency inventory.
+
+The old audit assumption that authentication / an embedded browser must never exist is **superseded** by the user's explicit Patch-24 requirement for optional YouTube sign-in. The remaining extractor boundary is unchanged: cookies/retries/upstream yt-dlp client fallbacks are allowed; custom extraction, BotGuard/PO-token generation, signature deciphering, or anti-bot bypass code is not.
+
+**Next work is verification, not another autonomous roadmap sprint.** `ROADMAP.md` is now the single roadmap and contains only real-device / real-GitHub-Release checks plus one upstream blocker: the currently pinned `youtubedl-android 0.18.1` must not be advertised as 16 KB page-size compatible while its upstream native-payload issue remains open. The former lowercase `roadmap.md` has been consumed and remains deleted.
 
 **Milestone: the first successful `./gradlew assembleDebug` in this
 project's history was achieved via patches 01-14.** The
@@ -358,129 +370,51 @@ for now). **If a future change bumps the Compose BOM, recheck call
 sites like this one against whatever Material3 version the new BOM
 actually pulls in.**
 
+- **Patch 25** -- Reliability roadmap completion. Replaced the remaining in-memory-only assumptions with a durable job journal and recoverable `INTERRUPTED` state; added strict/canonical single-video URL parsing, stable quality IDs, duplicate rejection, an engine/update synchronization boundary, per-job workspaces/orphan cleanup, bounded quality fallbacks, MediaStore two-phase commit recovery, library metadata/off-main-thread I/O, Android 15 `dataSync` timeout handling, notification controls, privacy-redacted logging with backup disabled, URL/error JVM tests, release tests/lint/package/ABI verification, a pinned+checksummed Android command-line-tools bootstrap, and `THIRD_PARTY_NOTICES.md`. The former lowercase roadmap was consumed rather than restored; its no-auth/no-WebView premise was superseded by the explicit user requirement in patch 24. Device-dependent verification remains open and is intentionally not claimed here.
+
 ## What's actually done vs. still open
 
-Read `ROADMAP.md`'s top section first -- as of patch 24 it's a short
-"current state" summary plus a single, consolidated "Technical debt"
-list (the original 9-step plan's checklists don't live there
-separately anymore; `CHANGELOG.md` has the full step-by-step history
-instead). As of this snapshot:
+`ROADMAP.md` is now the authoritative, compact list of **verification gates only**. The original 9-step roadmap and the later lowercase S0-S11 audit have both been consumed into patches 01-25. Do not recreate a second roadmap.
 
-**Done before Sprint 1:** Steps 1-4, 6, 7 (Kinescope rename), 8 (`CJM.md`, patch 17 -- "keep this document current" is ongoing by nature, not a one-time task), and the
-environment/build-setup work that had to happen before Step 5 could
-even start (patches 07-14). **`./gradlew assembleDebug` succeeds locally**. The former debug CI workflow was confirmed in patch 18 but intentionally removed in patch 24; CI is release-only now. **Step 9's
-CI infrastructure is confirmed working too**: a real signed release
-build succeeded via `.github/workflows/build-release.yml` (patch 21).
-**Step 5's core functionality is now confirmed on a real device**
-(Android 13, patch 22's crash-fix + the user's patch-23 confirmation):
-install, permissions, share/paste a link, queue and complete a
-download, play it back via the system player, background persistence.
+**Confirmed:**
 
-**A note on APK size, since the user mentioned an early debug build
-felt "heavy":** expected for a debug build (debug symbols, no size
-optimization), not a bug. The signed release build was trimmed from
-~200MB to something much smaller by restricting `ndk.abiFilters` to
-`arm64-v8a` only (patch 21) -- `youtubedl-android`'s bundled
-Python/ffmpeg/ffprobe/QuickJS native libraries, multiplied per ABI,
-dominate APK size regardless of app code; `isMinifyEnabled = false`
-on the release build type is a deliberate, unrelated Step 1 decision
-(avoids R8 breaking reflection-heavy coroutine/yt-dlp-wrapper code).
+- The pre-Sprint-1 core app works end to end on a real Android 13 device (install, share/paste, queue/download, offline playback, background persistence), confirmed around patches 22-23.
+- Signed release CI has produced a real signed build in the past (patch 21).
+- Patch 24 / Sprint 1 was applied and `assembleDebug` succeeded in Codespaces; commit `91169f5` was pushed. This confirms compile integration only, not the new Sprint-1 UX/recovery behavior on-device.
+- Patch 25's delivery gate is `testDebugUnitTest + lintDebug + assembleDebug`; because the patch script self-deletes only after that gate succeeds, a committed patch-25 tree implies those local checks passed.
 
-**Still open -- see `ROADMAP.md`'s "Technical debt" section for the
-authoritative, current list, not this summary:**
+**Implemented in patch 25, still requiring device/Actions confirmation where applicable:** durable process-death recovery, Pause/Resume/Stop across lifecycle interruptions, strict URL rejection/dedupe, storage commit recovery, typed error UX, notification actions, locale behavior, optional YouTube WebView session, revised release publishing, icon rendering, and large/slow-transfer behavior.
 
-1. **Confirm the signed release APK** (not just the debug build)
-   installs and opens on a real device -- the one Step 9 item CI
-   success alone doesn't cover.
-2. **A handful of more adversarial Step 5 checks**, not individually
-   confirmed even though basic functionality now is: the
-   race-condition stress test (3-4 videos queued in quick
-   succession), `friendlyError()`'s string-matching against a real
-   broken/age-restricted/private video, airplane-mode behavior at
-   queue time, and a very large/slow download. None of these are
-   assumed to pass just because the app runs now -- say so plainly if
-   anything here turns out to matter.
-3. **`roadmap.md` (lowercase) -- GPT Astra's audit/plan.** Still
-   queued for **after** everything above is closed. Don't start it
-   early or merge it into `ROADMAP.md`. Once both roadmaps are fully
-   executed, delete both files.
-4. **The optional backlog** (queue-state persistence across a process
-   kill, orphaned temp-file cleanup, `Thread`/`Handler` ->
-   coroutines migration, `strings.xml` externalization,
-   `collectAsState()` -> `collectAsStateWithLifecycle()`, playlist
-   batch-queueing, a self-hosted sync backend -- never required, per
-   `CLAUDE.md`) -- unscheduled, user-prioritized, see `ROADMAP.md` for
-   the full list with reasoning. In-app delete is fully done (patch
-   04).
+**Known upstream blocker:** Android 15 can run on 16 KB page-size devices, but the pinned `youtubedl-android 0.18.1` currently has an open upstream report for a bundled native ffmpeg/libwebp payload that is still 4 KB-aligned. Do not label Kinescope 16 KB-compatible until a published wrapper update is verified.
 
-## File map (current, post-Kinescope-rename -- package `com.kinescope.app`)
+Everything still open is enumerated in `ROADMAP.md`. Playlist auto-expansion, a cross-device backend and custom YouTube extraction are deliberately out of scope, not unfinished promises.
 
-All files below live under
-`app/src/main/java/com/kinescope/app/` (was
-`app/src/main/java/com/baltic/ytoffline/` before patch 06).
+## File map (current package `com.kinescope.app`)
 
-- `MainActivity.kt` -- screen composables: `DownloadScreen`,
-  `QueueRow`, `EmptyQueueState`, `ConnectivityBanner`, `LibraryRow`,
-  `ComposerBar`, `SettingsPanel`/`SettingsSectionHeader`. Also
-  `playItem()`/`shareItem()` (Intent-based, both guard
-  `ActivityNotFoundException`) and `isYouTubeUrl()`/`extractUrl()`
-  (host allowlist). `TopAppBar` title now reads "Kinescope".
-- `DownloadService.kt` -- foreground service; a single background
-  worker `Thread` draining a `LinkedBlockingQueue`, restarted on
-  demand (see the `startWorkerLocked()` doc comment for the
-  race-condition reasoning); `runJob()` does the actual yt-dlp
-  `execute()` call, job-id-tag file scanning, and `friendlyError()`
-  mapping. Notification title now reads "Kinescope";
-  `ACTION_ENQUEUE` now `com.kinescope.app.ACTION_ENQUEUE`.
-- `DownloadQueueBus.kt` -- shared
-  `MutableStateFlow<List<DownloadJobStatus>>` between the service
-  (producer) and UI (consumer); `NO_INTERNET_MESSAGE` constant shared
-  with `DownloadService` so the connectivity banner can't drift out of
-  sync with a hand-typed string duplicated in two files.
-- `QualityPresets.kt` -- the four quality/format options
-  (`label`/`mimeType`/`apply: YoutubeDLRequest.() -> Unit`).
-- `MediaStorage.kt` -- `publish()`, `listPublished()`, `delete()`
-  against `MediaStore.Downloads`.
-- `Settings.kt` -- `SharedPreferences` wrapper: default quality index,
-  sanitized Downloads subfolder name, last-yt-dlp-update timestamp.
-- `YtDlpUpdater.kt` -- wraps the library's self-update call, records
-  the last-update timestamp on success. `UpdateChannel` import fixed
-  in patch 14 (nested class of `YoutubeDL`).
-- `YtOfflineApp.kt` -- background yt-dlp/ffmpeg initialization. Patch 24 moved automatic updating out of startup; recovery/manual checks use the nightly channel through `YtDlpUpdater`.
-  Class name kept as `YtOfflineApp` (internal identifier, not
-  user-visible, not part of the Step 7 rename scope) despite living in
-  `com.kinescope.app` now.
-- `Theme.kt` -- `YtOfflineTheme` (light + dark `ColorScheme`),
-  `YtOfflineExtras` (the `success`/`warning`/`surfaceRaised` extension
-  colors), the full typography scale, downloadable Google Fonts
-  (Inter/Lora) via `font_certs.xml`. Same note on identifier names as
-  above.
-- `ic_launcher_foreground.xml` / `ic_launcher_background.xml` / `ic_launcher_monochrome.xml` + adaptive-icon XML -- patch 24 retro-TV identity using the existing palette, including Android 13+ themed-icon support; earlier safe-zone/XML fixes still apply.
-- `res/drawable/ic_download.xml` -- small hand-authored static vector
-  (arrow + tray) used by `EmptyQueueState`'s icon; added in patch 22
-  to replace a framework `AnimatedVectorDrawable` that Compose's
-  `painterResource()` can't load.
-- `RELEASE.md` -- signing key generation, signed build (local or CI),
-  install instructions; renamed from the old `yt-offline` naming to
-  `kinescope` in patch 20. `design.md` -- the visual design system,
-  with a section on what it approximates and what it deliberately
-  avoids (Anthropic's actual fonts/logo/name); its "YT Offline"
-  mentions are now "Kinescope". `CLAUDE.md` -- project ground rules.
-  `AGENTS.md` -- process/workflow conventions for an AI coding agent
-  working on this repo (added patch 23). `ROADMAP.md` -- current
-  status and open technical debt (restructured patch 23; the
-  step-by-step history of completed work lives in `CHANGELOG.md`/this
-  file instead). `CHANGELOG.md` -- terse per-patch "what shipped"
-  record, newest first (patch 17). `CJM.md` -- the five-stage Customer
-  Journey Map behind Steps 1/3/4's priority ordering (patch 17).
-  `roadmap.md` -- GPT Astra's sprint-based plan, queued for after `ROADMAP.md`. `.github/workflows/build-release.yml` -- the only CI workflow after patch 24; it builds, verifies and publishes the signed APK + SHA-256 to GitHub Releases. The old debug workflow was removed.
+All Kotlin runtime files live under `app/src/main/java/com/kinescope/app/`.
 
-`minSdk` 29, `compileSdk`/`targetSdk` 35, `versionCode` 7 (default;
-overridable via `-PappVersionCode`, see patch 16), `versionName`
-"1.0.0" (default; overridable via `-PappVersionName`), Compose BOM
-`2024.11.00` (Material3 1.3.1), `youtubedl-android` 0.18.1, Gradle
-`8.10.2`. `applicationId`/`namespace`: `com.kinescope.app`. App name:
-"Kinescope".
+- `MainActivity.kt` -- Compose navigation and screens (Home/Add/Settings/Logs/YouTube session), localized queue/library UX, off-main-thread library refresh/delete, notification permission timing and Android Back behavior.
+- `DownloadService.kt` -- durable single-worker foreground queue, bounded yt-dlp recovery, Pause/Resume/Stop, per-job workspaces, publication, notification actions and Android 15 timeout handling.
+- `DownloadJobStore.kt` -- `AtomicFile` durable journal and process-death normalization/cleanup. This is the source of truth across process death; `DownloadQueueBus` is only the live UI projection.
+- `DownloadQueueBus.kt` -- in-process `StateFlow` projection of job status/progress.
+- `EngineController.kt` -- one synchronization boundary for yt-dlp/ffmpeg init, extraction and self-update.
+- `YouTubeUrlParser.kt` -- pure strict YouTube video URL extraction/canonicalization.
+- `DownloadErrorClassifier.kt` -- pure typed classification of yt-dlp failures.
+- `QualityPresets.kt` -- stable quality IDs + bounded yt-dlp format selectors.
+- `MediaStorage.kt` -- MediaStore two-phase publication/list/delete and actual-output MIME derivation.
+- `YouTubeAuth.kt` -- optional app-private YouTube WebView cookie/session capture for yt-dlp.
+- `Settings.kt` -- SharedPreferences for stable quality, storage history and yt-dlp update timestamp.
+- `AppLog.kt` -- rotating diagnostic journal using the shared privacy filter before file/Logcat output.
+- `DiagnosticSanitizer.kt` -- pure URL/cookie/private-path redaction layer covered by JVM tests.
+- `YtDlpUpdater.kt` -- nightly yt-dlp update wrapper routed through `EngineController`.
+- `YtOfflineApp.kt` -- background journal restoration, engine readiness/update cadence and crash logging.
+- `Theme.kt` -- Material3 light/dark tokens, Inter/Lora provider typography, shapes and extended success/warning tokens.
+
+Tests live under `app/src/test/java/com/kinescope/app/` and currently cover URL parsing, yt-dlp error classification and diagnostic privacy redaction.
+
+Build/release infrastructure: `.devcontainer/setup.sh` pins Android command-line tools by official archive checksum; `.github/workflows/build-release.yml` is the only CI workflow and publishes signed releases. See `RELEASE.md`.
+
+Documentation sources of truth: `CLAUDE.md` (constraints/decisions), `AGENTS.md` (working process), this file (session state), `ROADMAP.md` (remaining verification), `CHANGELOG.md` (history), `CJM.md`, `design.md`, `RELEASE.md`, and `THIRD_PARTY_NOTICES.md`.
 
 ## Key learnings & principles
 
@@ -501,9 +435,10 @@ overridable via `-PappVersionCode`, see patch 16), `versionName`
   user-level/local config location, never in a file that gets `git
   add`ed.
 - **ApplicationId timing:** changing `applicationId` after first device
-  install is effectively irreversible on Android -- the rename to
-  `com.kinescope.app` was deliberately completed before any device
-  install (still true; no device install has happened yet).
+  install is effectively irreversible on Android. The rename to
+  `com.kinescope.app` was deliberately completed before the first install,
+  and that package is now established on the user's real Android 13 device.
+  Treat the applicationId as fixed for future updates.
 - **BOM/API version discipline:** current docs/tutorials default to
   showing the latest API, which won't necessarily compile against an
   older pinned BOM/library version. Always check the actual resolved
@@ -571,34 +506,17 @@ overridable via `-PappVersionCode`, see patch 16), `versionName`
 
 ## How to resume in a new conversation
 
-1. Export a fresh repomix XML of the repo (it should reflect patches
-   01-16 if they were applied and committed -- confirm with `git log`).
-2. Paste it plus this file. `CLAUDE.md`/`ROADMAP.md`/`CHANGELOG.md`/
-   `roadmap.md`/`design.md` are nice-to-have if not already covered by
-   the repomix export, but this file's "What's actually done vs. still
-   open" section above should be enough to know where to pick up.
-3. State which of the "not done" items above to work on next -- they're
-   meant to happen in that order, but say so explicitly, since a new
-   conversation has no memory of *why* that order matters otherwise.
+1. Export a fresh repomix XML from the current repository and attach it.
+2. Read `CLAUDE.md` -> this `HANDOFF.md` -> `ROADMAP.md` -> `CHANGELOG.md` -> `AGENTS.md`. There is no lowercase second roadmap anymore.
+3. Check the latest commit and the user's most recent device/Actions report before changing any `[ ]` item in `ROADMAP.md`.
+4. Continue from a failed verification item if one exists; otherwise do not invent a new implementation phase just because the roadmap is short.
 
 ## Immediate next step for Claude (in a new conversation)
 
-**Patch 24 / Sprint 1 is implemented and awaiting verification.**
-Steps 1-9 are done or reduced to specific technical debt (see
-`ROADMAP.md`). The next task is the Sprint 1 verification checklist now at the top of `ROADMAP.md`; do not extend the sprint or mark it confirmed until the user reports the real build/device results.
+**Run/collect verification for patches 24-25.** The autonomous roadmap work is complete. The exact remaining checks are in `ROADMAP.md`: repeated YouTube recovery/session behavior, process-death + resume, queue stress/dedupe, typed error cases, airplane mode, large/audio downloads and MediaStore cleanup, RU/EN/navigation/logging/icon/notifications, then a fresh signed GitHub Release installed over the prior signed build.
 
-**What's confirmed as of patch 23:** the app runs correctly end to end
-on a real device (Android 13) -- install, share/paste a link, queue
-and complete a download, play it back, background persistence. Signed
-release builds succeed via CI. **What's still open:** installing that
-signed build on a device (Step 9's last item), and a handful of more
-adversarial Step 5 checks (race-condition stress test,
-`friendlyError()` against a real broken video, airplane mode, a very
-large download) that haven't been individually confirmed -- don't
-assume they pass just because the app runs now.
+Do not mark a device-dependent item done from source inspection or a green compile. If a verification fails, diagnose that concrete failure first and update `CHANGELOG.md` / `HANDOFF.md` in the same patch as the fix.
 
-For how to work in this repo generally (source-of-truth files,
-verification discipline, patch-script delivery and testing
-conventions, scope discipline) see **`AGENTS.md`** -- that content used
-to live in this section and has moved there so it isn't duplicated
-across two files.
+The 16 KB page-size item is upstream-dependent with the currently pinned wrapper. Re-check upstream before changing `youtubedl-android`; do not vendor a custom native payload as a shortcut without a new explicit user decision.
+
+For general repo process (guarded/idempotent patch scripts, verification discipline, English-only code/docs, no machine-specific committed paths) see `AGENTS.md`.

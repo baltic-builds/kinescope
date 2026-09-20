@@ -2,25 +2,37 @@ package com.kinescope.app
 
 import android.content.Context
 
-/**
- * Thin wrapper around SharedPreferences for the few settings this
- * app has. Deliberately not using DataStore or anything fancier —
- * SharedPreferences is built into the platform (zero extra
- * dependency) and plenty for two values.
- */
+/** Small SharedPreferences-backed settings store with migration guards. */
 object Settings {
     private const val PREFS_NAME = "yt_offline_settings"
-    private const val KEY_DEFAULT_QUALITY = "default_quality_index"
+    private const val KEY_DEFAULT_QUALITY = "default_quality_index" // legacy migration source
+    private const val KEY_DEFAULT_QUALITY_ID = "default_quality_id"
     private const val KEY_DOWNLOAD_SUBFOLDER = "download_subfolder"
+    private const val KEY_KNOWN_SUBFOLDERS = "known_download_subfolders"
     private const val KEY_LAST_UPDATE_TIMESTAMP = "last_ytdlp_update_timestamp"
-    const val DEFAULT_SUBFOLDER = "YTOffline"
 
-    fun getDefaultQualityIndex(context: Context): Int =
-        prefs(context).getInt(KEY_DEFAULT_QUALITY, 0)
+    const val DEFAULT_SUBFOLDER = "Kinescope"
+    private const val LEGACY_SUBFOLDER = "YTOffline"
+    private const val MAX_SUBFOLDER_LENGTH = 48
+
+    fun getDefaultQualityId(context: Context): QualityId {
+        val preferences = prefs(context)
+        QualityId.fromPersisted(preferences.getString(KEY_DEFAULT_QUALITY_ID, null))?.let { return it }
+
+        val legacyIndex = preferences.getInt(KEY_DEFAULT_QUALITY, 0)
+        val migrated = qualityPresets.getOrElse(legacyIndex) { qualityPresets[0] }.id
+        preferences.edit().putString(KEY_DEFAULT_QUALITY_ID, migrated.persistedValue).apply()
+        return migrated
+    }
+
+    fun getDefaultQualityIndex(context: Context): Int = qualityPresetIndex(getDefaultQualityId(context))
 
     fun setDefaultQualityIndex(context: Context, index: Int) {
-        prefs(context).edit().putInt(KEY_DEFAULT_QUALITY, index).apply()
-        AppLog.i("Settings", "Default quality index changed to $index")
+        val id = qualityPresets.getOrElse(index) { qualityPresets[0] }.id
+        prefs(context).edit()
+            .putString(KEY_DEFAULT_QUALITY_ID, id.persistedValue)
+            .remove(KEY_DEFAULT_QUALITY)
+            .apply()
     }
 
     fun getDownloadSubfolder(context: Context): String =
@@ -28,34 +40,51 @@ object Settings {
 
     fun setDownloadSubfolder(context: Context, name: String) {
         val sanitized = sanitizeSubfolder(name)
-        prefs(context).edit().putString(KEY_DOWNLOAD_SUBFOLDER, sanitized).apply()
-        AppLog.i("Settings", "Download subfolder changed to $sanitized")
+        val known = getKnownDownloadSubfolders(context) + sanitized
+        prefs(context).edit()
+            .putString(KEY_DOWNLOAD_SUBFOLDER, sanitized)
+            .putStringSet(KEY_KNOWN_SUBFOLDERS, known)
+            .apply()
     }
 
     /**
-     * ROADMAP.md Step 4 [MEDIUM, fixed]: this value flows straight
-     * into `MediaStore.Downloads.RELATIVE_PATH` in MediaStorage.kt for
-     * both insert and query, so it needs to behave like a single flat
-     * folder name, not a path -- path separators are stripped
-     * entirely (not just rejected), and the pathological "." / ".."
-     * cases fall back to the default instead of being let through as
-     * literal (harmless but confusing) folder names. Sanitizing on
-     * both read and write means even a value stored before this fix
-     * existed comes out clean.
+     * Library reads every folder Kinescope has used so changing the destination
+     * never makes previously downloaded media disappear from the app.
      */
-    private fun sanitizeSubfolder(name: String): String {
-        val stripped = name.replace("/", "").replace("\\", "").trim()
-        return if (stripped.isEmpty() || stripped == "." || stripped == "..") DEFAULT_SUBFOLDER else stripped
+    fun getKnownDownloadSubfolders(context: Context): Set<String> {
+        val preferences = prefs(context)
+        val persisted = preferences.getStringSet(KEY_KNOWN_SUBFOLDERS, emptySet()).orEmpty()
+        return buildSet {
+            add(DEFAULT_SUBFOLDER)
+            add(LEGACY_SUBFOLDER)
+            add(getDownloadSubfolder(context))
+            persisted.mapTo(this) { sanitizeSubfolder(it) }
+        }.filter { it.isNotBlank() }.toSet()
     }
 
-    // ROADMAP.md Step 6.5: backs the Extractor section's
-    // "Last updated" line in Settings. 0L (epoch) means never --
-    // formatTimestamp() in MainActivity.kt maps that to "Never".
     fun getLastUpdateTimestamp(context: Context): Long =
         prefs(context).getLong(KEY_LAST_UPDATE_TIMESTAMP, 0L)
 
     fun setLastUpdateTimestamp(context: Context, timestampMillis: Long) {
         prefs(context).edit().putLong(KEY_LAST_UPDATE_TIMESTAMP, timestampMillis).apply()
+    }
+
+    private fun sanitizeSubfolder(name: String): String {
+        val stripped = buildString {
+            name.forEach { character ->
+                if (character != '/' && character != '\\' && !character.isISOControl()) append(character)
+            }
+        }.trim().take(MAX_SUBFOLDER_LENGTH)
+
+        return if (
+            stripped.isEmpty() ||
+            stripped == "." ||
+            stripped == ".."
+        ) {
+            DEFAULT_SUBFOLDER
+        } else {
+            stripped
+        }
     }
 
     private fun prefs(context: Context) =

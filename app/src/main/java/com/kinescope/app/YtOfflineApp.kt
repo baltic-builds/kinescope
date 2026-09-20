@@ -1,12 +1,13 @@
 package com.kinescope.app
 
 import android.app.Application
-import com.yausername.ffmpeg.FFmpeg
-import com.yausername.youtubedl_android.YoutubeDL
-import com.yausername.youtubedl_android.YoutubeDLException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
-/** Initializes bundled yt-dlp + ffmpeg once, off the main thread. */
 class YtOfflineApp : Application() {
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     @Volatile
     var isReady: Boolean = false
@@ -15,23 +16,35 @@ class YtOfflineApp : Application() {
     override fun onCreate() {
         super.onCreate()
         AppLog.init(this)
-        val previousCrashHandler = Thread.getDefaultUncaughtExceptionHandler()
-        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
-            AppLog.e("Crash", "Uncaught exception on thread ${thread.name}", throwable)
-            previousCrashHandler?.uncaughtException(thread, throwable)
-        }
-        AppLog.i("App", "Kinescope process started")
-        Thread {
-            try {
-                YoutubeDL.getInstance().init(this)
-                FFmpeg.getInstance().init(this)
-                isReady = true
-                AppLog.i("App", "yt-dlp + ffmpeg initialized")
-            } catch (e: YoutubeDLException) {
-                AppLog.e("App", "Failed to initialize yt-dlp/ffmpeg", e)
-            } catch (e: Exception) {
-                AppLog.e("App", "Unexpected initialization failure", e)
+        installCrashLogger()
+
+        appScope.launch {
+            // Rebuild the visible queue without doing journal/MediaStore I/O
+            // on the main thread. Any job that died mid-execution is exposed
+            // as INTERRUPTED and requires an explicit retry.
+            DownloadJobStore.restoreToBus(this@YtOfflineApp)
+            isReady = EngineController.ensureReady(this@YtOfflineApp)
+            if (isReady) {
+                // Best-effort freshness without hitting the updater on every
+                // process start. Recovery inside DownloadService can still
+                // force an immediate nightly refresh after a YouTube block.
+                val lastUpdate = Settings.getLastUpdateTimestamp(this@YtOfflineApp)
+                if (System.currentTimeMillis() - lastUpdate >= STARTUP_UPDATE_INTERVAL_MS) {
+                    YtDlpUpdater.updateBlocking(this@YtOfflineApp)
+                }
             }
-        }.start()
+        }
+    }
+
+    private fun installCrashLogger() {
+        val previous = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            AppLog.e("Crash", "Uncaught exception on ${thread.name}", throwable)
+            previous?.uncaughtException(thread, throwable)
+        }
+    }
+
+    companion object {
+        private const val STARTUP_UPDATE_INTERVAL_MS = 12L * 60L * 60L * 1_000L
     }
 }

@@ -18,6 +18,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: kinescope-release
+  cancel-in-progress: false
+
 jobs:
   build-release:
     name: Build, verify and publish release
@@ -85,7 +89,7 @@ jobs:
         run: |
           set -euo pipefail
           version_code=$((10000 + GITHUB_RUN_NUMBER))
-          ./gradlew --no-daemon clean assembleRelease \
+          ./gradlew --no-daemon clean testDebugUnitTest lintDebug assembleRelease \
             -PappVersionName="$VERSION_NAME" \
             -PappVersionCode="$version_code"
 
@@ -101,9 +105,28 @@ jobs:
           apk="app/build/outputs/apk/release/kinescope-v${VERSION_NAME}-arm64-v8a.apk"
           mv "$src" "$apk"
 
-          apksigner="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
-          [ -x "$apksigner" ] || { echo "apksigner not found" >&2; exit 1; }
+          build_tools="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          apksigner="$build_tools/apksigner"
+          aapt="$build_tools/aapt"
+          zipalign="$build_tools/zipalign"
+          for tool in "$apksigner" "$aapt" "$zipalign"; do
+            [ -x "$tool" ] || { echo "Required Android build tool not found: $tool" >&2; exit 1; }
+          done
+
           "$apksigner" verify --verbose --print-certs "$apk"
+          "$zipalign" -c -v 4 "$apk"
+
+          badging="$($aapt dump badging "$apk" | head -n 1)"
+          echo "$badging"
+          grep -q "package: name='com.kinescope.app'" <<<"$badging" || { echo "Unexpected applicationId" >&2; exit 1; }
+          grep -q "versionName='$VERSION_NAME'" <<<"$badging" || { echo "Unexpected versionName" >&2; exit 1; }
+
+          abi_entries="$(unzip -Z1 "$apk" | grep '^lib/' || true)"
+          grep -q '^lib/arm64-v8a/' <<<"$abi_entries" || { echo "arm64-v8a native libraries missing" >&2; exit 1; }
+          if grep -Eq '^lib/(armeabi-v7a|x86|x86_64)/' <<<"$abi_entries"; then
+            echo "Unexpected non-arm64 ABI packaged in release" >&2
+            exit 1
+          fi
 
           sha="${apk}.sha256"
           sha256sum "$apk" > "$sha"

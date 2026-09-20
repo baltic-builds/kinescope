@@ -18,23 +18,18 @@ mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
 if [ -x "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" ]; then
   echo "Command line tools already installed at $ANDROID_SDK_ROOT/cmdline-tools/latest -- skipping download."
 else
-  # Google renames the build number in this URL frequently, so we scrape
-  # the current one from the official downloads page instead of
-  # hardcoding a version that will go stale.
-  DOWNLOAD_URL=$(curl -s https://developer.android.com/studio | \
-    grep -o 'https://dl.google.com/android/repository/commandlinetools-linux-[0-9]*_latest.zip' | \
-    head -n 1)
+  # Patch 25: pin the command-line tools instead of scraping Google's live
+  # downloads page on every fresh Codespace. The URL and SHA-256 below are
+  # the Linux package published on developer.android.com as of 2026-09-20.
+  # Updating this is now an explicit, reviewable dependency change rather
+  # than an invisible environment change during container creation.
+  CMDLINE_TOOLS_URL="https://dl.google.com/android/repository/commandlinetools-linux-15859902_latest.zip"
+  CMDLINE_TOOLS_SHA256="4e4c464f145a7512b57d088ac6c278c03c9eea610886b35a5e0804e74eedf583"
 
-  if [ -z "$DOWNLOAD_URL" ]; then
-    echo "Could not find the command line tools URL automatically."
-    echo "Get it manually from https://developer.android.com/studio#command-tools"
-    echo "and re-run this script with DOWNLOAD_URL set, e.g.:"
-    echo "  DOWNLOAD_URL=https://dl.google.com/android/repository/commandlinetools-linux-XXXXXXXX_latest.zip bash .devcontainer/setup.sh"
-    exit 1
-  fi
-
-  echo "Fetching: $DOWNLOAD_URL"
-  curl -sSL "$DOWNLOAD_URL" -o /tmp/cmdline-tools.zip
+  echo "Fetching pinned Android command-line tools"
+  curl --fail --location --silent --show-error "$CMDLINE_TOOLS_URL" -o /tmp/cmdline-tools.zip
+  echo "$CMDLINE_TOOLS_SHA256  /tmp/cmdline-tools.zip" | sha256sum -c -
+  rm -rf /tmp/cmdline-tools-extracted
   unzip -q /tmp/cmdline-tools.zip -d /tmp/cmdline-tools-extracted
   mv /tmp/cmdline-tools-extracted/cmdline-tools "$ANDROID_SDK_ROOT/cmdline-tools/latest"
   rm -rf /tmp/cmdline-tools.zip /tmp/cmdline-tools-extracted

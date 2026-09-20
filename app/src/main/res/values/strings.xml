@@ -46,6 +46,7 @@
     <string name="error_download_generic">Download failed: %1$s</string>
     <string name="error_output_not_found">Downloaded output file was not found.</string>
     <string name="error_failed_to_save">Could not save the downloaded file.</string>
+    <string name="error_control_cleanup_failed">Couldn\'t undo a completed save after the control request. Delete the file from Library and try again.</string>
     <string name="error_cancelled">Download was cancelled.</string>
     <string name="error_only_youtube">Only youtube.com and youtu.be links are supported.</string>
 
@@ -108,4 +109,37 @@
     <string name="cd_play">Play</string>
     <string name="cd_more_options">More options</string>
     <string name="cd_dismiss">Dismiss</string>
+
+    <!-- Patch 25 reliability and roadmap completion -->
+    <string name="status_preparing">Preparing…</string>
+    <string name="status_processing">Processing downloaded media…</string>
+    <string name="status_saving">Saving to your library…</string>
+    <string name="status_interrupted">Interrupted — tap Resume to continue</string>
+    <string name="status_retry_available">Retry available</string>
+
+    <string name="job_state_preparing">Preparing</string>
+    <string name="job_state_processing">Processing</string>
+    <string name="job_state_saving">Saving</string>
+    <string name="job_state_interrupted">Interrupted</string>
+
+    <string name="stop">Stop</string>
+    <string name="notification_complete">Download saved</string>
+
+    <string name="error_workspace_create">Could not prepare private download storage.</string>
+    <string name="error_service_timeout">Android stopped the long-running download service. Tap Resume to continue.</string>
+    <string name="error_service_start">Could not start the download service. The job was saved; tap Resume to try again.</string>
+    <string name="error_duplicate_job">This video is already queued or waiting for retry.</string>
+    <string name="error_only_youtube_video">Paste a direct YouTube video, Shorts, Live, or youtu.be link.</string>
+
+    <string name="update_waiting_for_idle">Waiting for the active download to finish before updating yt-dlp…</string>
+    <string name="personal_use_notice">Use downloads only where you have the right to save the content. Kinescope does not bypass access controls or DRM.</string>
+
+    <string name="delete_confirm_title">Delete this download?</string>
+    <string name="delete_confirm_body">The file will be removed from the device and cannot be restored by Kinescope.</string>
+    <string name="media_type_audio">Audio</string>
+    <string name="media_type_video">Video</string>
+    <string name="library_meta">%1$s · %2$s · %3$s</string>
+    <string name="logs_privacy_notice">Logs redact URLs, cookies, private app paths, and raw extractor output before they are stored.</string>
+    <string name="library_empty">No saved downloads yet.</string>
+    <string name="library_untitled">(untitled)</string>
 </resources>

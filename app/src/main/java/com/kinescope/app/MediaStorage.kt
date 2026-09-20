@@ -5,143 +5,173 @@ import android.content.Context
 import android.net.Uri
 import android.os.Environment
 import android.provider.MediaStore
+import android.webkit.MimeTypeMap
+import java.io.File
 
-/**
- * Everything related to getting a finished download out of the app's
- * private cache and into the public Downloads collection, so it
- * shows up in any file manager / gallery / media player — not just
- * inside this app.
- *
- * Requires minSdk 29 (MediaStore.Downloads didn't exist before
- * Android 10). minSdk was bumped in Phase 3 for exactly this reason
- * — see ROADMAP.md.
- */
 object MediaStorage {
 
     /**
-     * Copies [tempFile] into the public Downloads/&lt;subfolder&gt; folder
-     * via MediaStore and deletes the temp copy. [subfolder] defaults to
-     * whatever's saved in Settings (see Phase 6). [displayName] defaults
-     * to the temp file's own name, but callers can override it — see
-     * DownloadService.runJob(), which passes a humanized title instead
-     * of the raw job-id-tagged temp filename (ROADMAP.md Step 4).
-     * Returns the resulting content Uri, or null on failure.
+     * Publishes a completed private workspace file atomically through
+     * MediaStore. The caller owns the workspace/source lifecycle: this method
+     * never deletes [tempFile], so a late Pause/Stop or a failed commit can
+     * still recover without re-downloading the media.
      */
     fun publish(
         context: Context,
-        tempFile: java.io.File,
-        mimeType: String,
-        subfolder: String = Settings.getDownloadSubfolder(context),
-        displayName: String = tempFile.name
+        tempFile: File,
+        preferredMimeType: String,
+        subfolder: String,
+        displayName: String = tempFile.name,
+        onPendingUri: (Uri) -> Unit = {},
+        shouldCancel: () -> Boolean = { false }
     ): Uri? {
         val resolver = context.contentResolver
-
+        val mimeType = mimeTypeFor(displayName, preferredMimeType)
         val values = ContentValues().apply {
             put(MediaStore.Downloads.DISPLAY_NAME, displayName)
             put(MediaStore.Downloads.MIME_TYPE, mimeType)
-            // ROADMAP.md Step 4 [MEDIUM, fixed]: trailing slash must
-            // match listPublished()'s query exactly below -- relying
-            // on MediaStore to normalize a missing one on insert the
-            // same way across every OEM is exactly the kind of
-            // assumption this project has already been burned by
-            // (see the Compose BOM fix in patch 01).
-            put(MediaStore.Downloads.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/$subfolder/")
+            put(MediaStore.Downloads.RELATIVE_PATH, relativePath(subfolder))
             put(MediaStore.Downloads.IS_PENDING, 1)
         }
 
         val itemUri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
         if (itemUri == null) {
-            AppLog.e("MediaStorage", "MediaStore insert returned null for $displayName")
+            AppLog.e("MediaStorage", "MediaStore insert returned null")
             return null
         }
+        onPendingUri(itemUri)
 
         return try {
-            val opened = resolver.openOutputStream(itemUri)?.use { out ->
-                tempFile.inputStream().use { input -> input.copyTo(out) }
-            }
-            if (opened == null) {
+            if (shouldCancel()) throw PublishCancelled()
+            val wrote = resolver.openOutputStream(itemUri)?.use { out ->
+                tempFile.inputStream().use { input ->
+                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                    while (true) {
+                        if (shouldCancel()) throw PublishCancelled()
+                        val count = input.read(buffer)
+                        if (count < 0) break
+                        out.write(buffer, 0, count)
+                    }
+                }
+                true
+            } ?: false
+            if (!wrote) {
                 resolver.delete(itemUri, null, null)
-                AppLog.e("MediaStorage", "Could not open MediaStore output stream for $displayName")
+                AppLog.e("MediaStorage", "Could not open MediaStore output stream")
                 return null
             }
 
+            if (shouldCancel()) throw PublishCancelled()
             values.clear()
             values.put(MediaStore.Downloads.IS_PENDING, 0)
-            resolver.update(itemUri, values, null, null)
+            val committed = resolver.update(itemUri, values, null, null) > 0
+            if (!committed) {
+                resolver.delete(itemUri, null, null)
+                AppLog.e("MediaStorage", "MediaStore pending row could not be committed")
+                return null
+            }
 
-            tempFile.delete()
-            AppLog.i("MediaStorage", "Published $displayName to Downloads/$subfolder")
+            if (shouldCancel()) {
+                resolver.delete(itemUri, null, null)
+                return null
+            }
+            AppLog.i("MediaStorage", "Published media to Downloads/$subfolder")
             itemUri
+        } catch (_: PublishCancelled) {
+            runCatching { resolver.delete(itemUri, null, null) }
+            AppLog.i("MediaStorage", "Publication cancelled before completion")
+            null
         } catch (e: Exception) {
-            resolver.delete(itemUri, null, null)
-            AppLog.e("MediaStorage", "Failed to publish $displayName", e)
+            runCatching { resolver.delete(itemUri, null, null) }
+            AppLog.e("MediaStorage", "Failed to publish media", e)
             null
         }
     }
 
-    /** Lists items this app has previously published, newest first. */
-    fun listPublished(
-        context: Context,
-        subfolder: String = Settings.getDownloadSubfolder(context)
-    ): List<LibraryItem> {
+    /** Lists media from every Kinescope destination folder, newest first. */
+    fun listPublished(context: Context): List<LibraryItem> {
         val resolver = context.contentResolver
-        val items = mutableListOf<LibraryItem>()
-
+        val items = linkedMapOf<String, LibraryItem>()
         val projection = arrayOf(
             MediaStore.Downloads._ID,
             MediaStore.Downloads.DISPLAY_NAME,
-            MediaStore.Downloads.MIME_TYPE
+            MediaStore.Downloads.MIME_TYPE,
+            MediaStore.Downloads.DATE_ADDED,
+            MediaStore.Downloads.SIZE
         )
-        val selection = "${MediaStore.Downloads.RELATIVE_PATH} = ?"
-        val selectionArgs = arrayOf("${Environment.DIRECTORY_DOWNLOADS}/$subfolder/")
-        val sortOrder = "${MediaStore.Downloads.DATE_ADDED} DESC"
 
-        resolver.query(
-            MediaStore.Downloads.EXTERNAL_CONTENT_URI,
-            projection,
-            selection,
-            selectionArgs,
-            sortOrder
-        )?.use { cursor ->
-            val idCol = cursor.getColumnIndexOrThrow(MediaStore.Downloads._ID)
-            val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Downloads.DISPLAY_NAME)
-            val mimeCol = cursor.getColumnIndexOrThrow(MediaStore.Downloads.MIME_TYPE)
-
-            while (cursor.moveToNext()) {
-                val id = cursor.getLong(idCol)
-                val uri = Uri.withAppendedPath(MediaStore.Downloads.EXTERNAL_CONTENT_URI, id.toString())
-                items += LibraryItem(
-                    uri = uri,
-                    displayName = cursor.getString(nameCol) ?: "(untitled)",
-                    mimeType = cursor.getString(mimeCol) ?: "*/*"
-                )
-            }
+        Settings.getKnownDownloadSubfolders(context).forEach { subfolder ->
+            val selection = "${MediaStore.Downloads.RELATIVE_PATH} = ? AND ${MediaStore.Downloads.IS_PENDING} = 0"
+            val selectionArgs = arrayOf(relativePath(subfolder))
+            runCatching {
+                resolver.query(
+                    MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                    projection,
+                    selection,
+                    selectionArgs,
+                    null
+                )?.use { cursor ->
+                    val idCol = cursor.getColumnIndexOrThrow(MediaStore.Downloads._ID)
+                    val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Downloads.DISPLAY_NAME)
+                    val mimeCol = cursor.getColumnIndexOrThrow(MediaStore.Downloads.MIME_TYPE)
+                    val dateCol = cursor.getColumnIndexOrThrow(MediaStore.Downloads.DATE_ADDED)
+                    val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Downloads.SIZE)
+                    while (cursor.moveToNext()) {
+                        val id = cursor.getLong(idCol)
+                        val uri = Uri.withAppendedPath(MediaStore.Downloads.EXTERNAL_CONTENT_URI, id.toString())
+                        items[uri.toString()] = LibraryItem(
+                            uri = uri,
+                            displayName = cursor.getString(nameCol) ?: context.getString(R.string.library_untitled),
+                            mimeType = cursor.getString(mimeCol) ?: "*/*",
+                            dateAddedSeconds = cursor.getLong(dateCol),
+                            sizeBytes = cursor.getLong(sizeCol)
+                        )
+                    }
+                }
+            }.onFailure { AppLog.e("MediaStorage", "Library query failed", it) }
         }
-        return items
+
+        return items.values.sortedByDescending { it.dateAddedSeconds }
     }
 
-    /**
-     * Deletes a previously published item from MediaStore. Returns
-     * true on success. ROADMAP.md Step 6.5: backs the Library row's
-     * overflow-menu Delete action -- no RecoverableSecurityException
-     * handling needed since these are rows this app itself inserted,
-     * and apps always have delete permission for their own rows on
-     * API 29+.
-     */
     fun delete(context: Context, item: LibraryItem): Boolean {
         return try {
             val deleted = context.contentResolver.delete(item.uri, null, null) > 0
-            if (!deleted) AppLog.w("MediaStorage", "Delete returned 0 rows for ${item.displayName}")
+            if (!deleted) AppLog.w("MediaStorage", "Delete returned no rows")
             deleted
-        } catch (e: SecurityException) {
-            AppLog.e("MediaStorage", "Delete denied for ${item.displayName}", e)
+        } catch (e: Exception) {
+            AppLog.e("MediaStorage", "Delete failed", e)
             false
         }
     }
+
+    fun deletePending(context: Context, uri: Uri) {
+        runCatching { context.contentResolver.delete(uri, null, null) }
+            .onFailure { AppLog.e("MediaStorage", "Could not clean stale pending row", it) }
+    }
+
+    fun deleteUri(context: Context, uri: Uri): Boolean = try {
+        context.contentResolver.delete(uri, null, null) > 0
+    } catch (e: Exception) {
+        AppLog.e("MediaStorage", "Could not remove a just-published row", e)
+        false
+    }
+
+    private fun relativePath(subfolder: String): String =
+        "${Environment.DIRECTORY_DOWNLOADS}/$subfolder/"
+
+    private fun mimeTypeFor(displayName: String, fallback: String): String {
+        val extension = displayName.substringAfterLast('.', "").lowercase().takeIf { it.isNotBlank() }
+        return extension?.let { MimeTypeMap.getSingleton().getMimeTypeFromExtension(it) } ?: fallback
+    }
+
+    private class PublishCancelled : RuntimeException()
 }
 
 data class LibraryItem(
     val uri: Uri,
     val displayName: String,
-    val mimeType: String
+    val mimeType: String,
+    val dateAddedSeconds: Long,
+    val sizeBytes: Long
 )

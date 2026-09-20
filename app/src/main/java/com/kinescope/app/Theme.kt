@@ -59,14 +59,10 @@ data class YtOfflineExtendedColors(
 )
 
 private val LightExtendedColors = YtOfflineExtendedColors(
-    success = Color(0xFF788C5D),
-    // Contrast note: ~3.2:1 as plain text against the light
-    // background/surfaceVariant -- short status words read fine at
-    // this size, but it's below WCAG AA's 4.5:1 body-text threshold.
-    // Matches the hex ROADMAP.md Step 6.1 specifies as-is; worth a
-    // look once this is on an actual screen (see design.md's
-    // "compare against a real device" note).
-    warning = Color(0xFFB8862E),
+    success = Color(0xFF56683F),
+    // Darkened in patch 25 so status text clears 4.5:1 against the
+    // light surfaceVariant used by queue rows.
+    warning = Color(0xFF7A5A18),
     surfaceRaised = Color(0xFFFFFFFF)
 )
 
@@ -89,7 +85,7 @@ object YtOfflineExtras {
 
 private val LightColors = lightColorScheme(
     primary = Color(0xFFD97757),
-    onPrimary = Color(0xFFFFFFFF),
+    onPrimary = Color(0xFF3D1A0E),
     primaryContainer = Color(0xFFF3DDD2),
     onPrimaryContainer = Color(0xFF6B3520),
     background = Color(0xFFFAF9F5),

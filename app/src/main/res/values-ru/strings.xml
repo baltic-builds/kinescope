@@ -46,6 +46,7 @@
     <string name="error_download_generic">Ошибка загрузки: %1$s</string>
     <string name="error_output_not_found">Не удалось найти загруженный файл.</string>
     <string name="error_failed_to_save">Не удалось сохранить загруженный файл.</string>
+    <string name="error_control_cleanup_failed">Не удалось отменить уже завершённое сохранение. Удалите файл из библиотеки и повторите действие.</string>
     <string name="error_cancelled">Загрузка отменена.</string>
     <string name="error_only_youtube">Поддерживаются только ссылки youtube.com и youtu.be.</string>
 
@@ -108,4 +109,37 @@
     <string name="cd_play">Воспроизвести</string>
     <string name="cd_more_options">Дополнительные действия</string>
     <string name="cd_dismiss">Закрыть</string>
+
+    <!-- Patch 25 reliability and roadmap completion -->
+    <string name="status_preparing">Подготовка…</string>
+    <string name="status_processing">Обрабатываем загруженный файл…</string>
+    <string name="status_saving">Сохраняем в библиотеку…</string>
+    <string name="status_interrupted">Загрузка прервана — нажмите «Продолжить»</string>
+    <string name="status_retry_available">Можно повторить</string>
+
+    <string name="job_state_preparing">Подготовка</string>
+    <string name="job_state_processing">Обработка</string>
+    <string name="job_state_saving">Сохранение</string>
+    <string name="job_state_interrupted">Прервано</string>
+
+    <string name="stop">Остановить</string>
+    <string name="notification_complete">Загрузка сохранена</string>
+
+    <string name="error_workspace_create">Не удалось подготовить внутреннее хранилище для загрузки.</string>
+    <string name="error_service_timeout">Android остановил длительную загрузку. Нажмите «Продолжить», чтобы возобновить её.</string>
+    <string name="error_service_start">Не удалось запустить службу загрузки. Задача сохранена — нажмите «Продолжить», чтобы повторить.</string>
+    <string name="error_duplicate_job">Это видео уже находится в очереди или ожидает повторной попытки.</string>
+    <string name="error_only_youtube_video">Вставьте прямую ссылку на видео, Shorts или трансляцию YouTube либо ссылку youtu.be.</string>
+
+    <string name="update_waiting_for_idle">Ждём завершения текущей загрузки, затем обновим yt-dlp…</string>
+    <string name="personal_use_notice">Скачивайте только тот контент, который вы вправе сохранять. Kinescope не обходит ограничения доступа или DRM.</string>
+
+    <string name="delete_confirm_title">Удалить эту загрузку?</string>
+    <string name="delete_confirm_body">Файл будет удалён с устройства. Kinescope не сможет его восстановить.</string>
+    <string name="media_type_audio">Аудио</string>
+    <string name="media_type_video">Видео</string>
+    <string name="library_meta">%1$s · %2$s · %3$s</string>
+    <string name="logs_privacy_notice">Перед сохранением журнал скрывает ссылки, cookie, внутренние пути приложения и необработанный вывод загрузчика.</string>
+    <string name="library_empty">Сохранённых загрузок пока нет.</string>
+    <string name="library_untitled">(без названия)</string>
 </resources>

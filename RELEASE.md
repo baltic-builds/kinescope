@@ -115,7 +115,12 @@ then delete the `.txt` file locally -- it's no longer needed once it's
 in GitHub's secret store, and it's an unencrypted copy of your signing
 key while it exists.
 
-Then, under this repo's **Actions** tab, run *Build and Publish Signed Release* (`.github/workflows/build-release.yml`) by hand and supply a version name such as `1.2.0`. The workflow validates all four secrets, builds with a monotonic CI versionCode, verifies the APK signature with `apksigner`, creates a SHA-256 checksum, uploads both as a 30-day workflow artifact, and creates a GitHub Release tagged `v<version>` containing the same two files. Optional release notes can be entered at dispatch time; otherwise GitHub generates them. Signing material is deleted in an `if: always()` cleanup step.
+Then, under this repo's **Actions** tab, run *Build and Publish Signed Release* (`.github/workflows/build-release.yml`) by hand and supply a version name such as `1.2.0`. The workflow serializes release runs, validates all four secrets, runs `testDebugUnitTest` + `lintDebug`, builds with a monotonic CI versionCode, verifies the APK signature with `apksigner`, verifies zip alignment, checks the application ID / requested version name / arm64-only native payload, creates a SHA-256 checksum, uploads both as a 30-day workflow artifact, and creates a GitHub Release tagged `v<version>` containing the same two files. Optional release notes can be entered at dispatch time; otherwise GitHub generates them. Signing material is deleted in an `if: always()` cleanup step.
+
+
+### Android 15 / 16 KB page-size note
+
+The release workflow verifies ordinary zip alignment, but that is **not** a claim that every bundled native library is compatible with Android devices using 16 KB memory pages. The currently pinned `youtubedl-android 0.18.1` has an open upstream report for a bundled ffmpeg/libwebp payload that remains 4 KB-aligned. Keep the release ABI at `arm64-v8a`, but treat 16 KB-device support as upstream-blocked until a published wrapper version is verified. Do not vendor a custom replacement native payload just to make this check green without a separate explicit decision.
 
 ## 4. Publish it somewhere you can reach from your phone
 

@@ -12,6 +12,62 @@ Patches are cumulative and applied in order (01, 02, 03, ...). See each
 patch's own `.py` script for the exact, idempotent, exact-match-guarded
 edits it makes.
 
+
+## Patch 25c — Android string-resource compile hotfix
+
+Patch 25b applied the full Patch-25 roadmap-completion tree, but its local
+verification correctly stopped at `:app:mergeDebugResources`: the English
+`error_control_cleanup_failed` resource used the ASCII apostrophe in
+`Couldn't` without Android string-resource escaping. The XML was well-formed,
+so the earlier generic XML/static validation did not catch the AAPT-specific
+string grammar.
+
+### Fixed
+- Escaped the apostrophe as `Couldn\'t`, unblocking AAPT resource compilation.
+- Extended the delivery-time static verification to reject unescaped ASCII
+  apostrophes in string-resource text while still allowing XML entities and
+  escaped apostrophes.
+- Re-ran the full Patch-25 local gate: `testDebugUnitTest`, `lintDebug`, and
+  `assembleDebug` must all succeed before this recovery patch records itself as
+  complete and removes the superseded delivery scripts.
+
+## Patch 25 — Reliability roadmap completion and release hardening
+
+Patch 24 was successfully applied, locally built and pushed by the user (`91169f5`; `BUILD SUCCESSFUL`). Patch 25 consumes the still-relevant engineering work from the former lowercase S0-S11 audit and closes everything that can be completed autonomously in Codespaces. Real-device and real-release verification stays open in `ROADMAP.md` and is deliberately not marked done here.
+
+### Durable queue and lifecycle
+- Added `DownloadJobStore`, an `AtomicFile`-backed journal written **before** foreground-service dispatch. Accepted jobs therefore survive process death as explicit recoverable `INTERRUPTED` rows instead of disappearing from the in-memory `StateFlow`.
+- Journal restoration cleans stale `MediaStore` pending rows, normalizes jobs that died while executing, merges safely with any very-fast fresh enqueue, and removes orphaned per-job workspaces.
+- Reworked the queue around stable `QualityId` values rather than list indexes; old index preferences migrate transparently.
+- Closed two queue-control races found during the final patch-25 review: a Pause arriving after `queue.poll()` but before `runJob()` can no longer be cleared/ignored, and an idle worker can no longer call an unconditional `stopSelf()` after a newer start has already arrived. Idle shutdown now uses the service `startId` / `stopSelfResult()` contract and hands queued work to a successor worker safely.
+- Serialized yt-dlp/ffmpeg initialization, execution and self-update behind `EngineController`, preventing an updater from replacing the executable while a download uses it.
+- Added Android 15 `dataSync` foreground-service timeout handling. An active job is persisted as recoverable before the service stops.
+
+### Input, output and storage correctness
+- Added a shared strict `YouTubeUrlParser`: only supported YouTube video URL forms are canonicalized; playlist-only links, lookalike hosts, userinfo, non-standard ports, bad schemes and oversized shared input are rejected. Active duplicates are rejected by video ID.
+- Added pure `DownloadErrorClassifier` so yt-dlp text matching is typed/testable rather than mixed into localized UI copy.
+- Each job now owns `cacheDir/jobs/<id>` and resumes inside that workspace. Final-output lookup is job-local, orphan cleanup is deterministic, and `--no-playlist` is explicit.
+- Video fallback selectors are bounded to the selected maximum resolution instead of allowing `/b` to silently exceed it.
+- MediaStore publication is a real commit boundary: actual output extension drives MIME detection where possible, `IS_PENDING=0` must succeed before the private source is deleted, and an interrupted pending URI is journaled for cleanup/retry.
+- Library queries include the current and historically used Kinescope subfolders, exclude pending rows, expose local size/date/type metadata, and run off the Compose/UI thread. Deletion now requires confirmation.
+
+### UX, notifications, privacy and diagnostics
+- Expanded job states to preparing/running/processing/saving/paused/interrupted/done/failed/stopped, with Resume available for recoverable states.
+- Added notification tap/Stop actions, throttled progress notifications and a completion notification. Runtime notification permission is requested only when the user actually accepts a download, not on cold start.
+- Disabled Android app backup while cookies/logs/job journal exist. `AppLog` now redacts URLs, known YouTube cookie values and app-private paths before persistent logging **and** Logcat; throwable output is bounded to the error type/message plus a short sanitized stack prefix.
+- Updated light-theme action/status colors for stronger contrast while preserving the existing Kinescope palette.
+
+### Tests, environment and release
+- Added JVM unit tests for YouTube URL parsing, yt-dlp error classification and diagnostic privacy redaction; added the Android coroutines runtime explicitly.
+- Release Actions now run `testDebugUnitTest` + `lintDebug` before assembly, serialize concurrent release runs, and verify signature, zip alignment, package name, requested version and arm64-only native contents before publishing the APK + SHA-256.
+- `.devcontainer/setup.sh` now pins the official Android command-line tools Linux archive and verifies its SHA-256 instead of scraping a mutable webpage during Codespace creation.
+- Added `THIRD_PARTY_NOTICES.md` and refreshed `README.md`, `ROADMAP.md`, `HANDOFF.md`, `CLAUDE.md`, `AGENTS.md`, `RELEASE.md` and `design.md` for the post-roadmap architecture. The handoff also removes a stale pre-first-install note: `com.kinescope.app` is now an established package on the user's Android 13 device and should be treated as fixed.
+
+### Deliberate non-changes / upstream blockers
+- The older audit's "no authentication / no embedded browser" assumption is not restored: the user's later explicit Sprint-1 requirement for optional YouTube WebView session capture supersedes it.
+- Playlist expansion, cross-device sync/backend and custom YouTube extraction remain out of scope.
+- The app stays on published `youtubedl-android 0.18.1`. Current upstream has an open 16 KB page-size native-payload issue, so Kinescope does **not** claim 16 KB-device compatibility until upstream ships a verified fix.
+
 ## Patch 24 — Sprint 1: resilient downloads, account session, localization, navigation and release publishing
 
 First feature sprint after the original roadmap reached steady state. The implementation is complete in code but remains **pending real-device / real-GitHub verification**; per `AGENTS.md`, none of the device-dependent behavior below is considered confirmed until the user reports it working.

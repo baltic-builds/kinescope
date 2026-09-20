@@ -120,8 +120,11 @@ dependencies {
     // Phase 4: foreground service + notification + shared queue state.
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 
     // Design pass: downloadable Google Fonts (Inter/Lora) instead of
     // bundling font files. See Theme.kt and design.md.
     implementation("androidx.compose.ui:ui-text-google-fonts")
+
+    testImplementation("junit:junit:4.13.2")
 }

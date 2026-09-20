@@ -6,11 +6,9 @@ import android.content.ActivityNotFoundException
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.os.SystemClock
 import android.webkit.CookieManager
 import android.webkit.WebChromeClient
@@ -55,6 +53,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -83,6 +82,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -95,6 +95,10 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.DateFormat
 import java.util.Date
 
@@ -111,14 +115,22 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         handleIncomingIntent(intent)
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-        }
-
         setContent {
             YtOfflineTheme {
-                KinescopeApp(prefillUrl = sharedUrl.value)
+                KinescopeApp(
+                    prefillUrl = sharedUrl.value,
+                    requestNotifications = ::requestNotificationsIfNeeded
+                )
             }
+        }
+    }
+
+    private fun requestNotificationsIfNeeded() {
+        if (
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
 
@@ -131,7 +143,7 @@ class MainActivity : ComponentActivity() {
     private fun handleIncomingIntent(intent: Intent?) {
         if (intent?.action == Intent.ACTION_SEND && intent.type == "text/plain") {
             val sharedText = intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty()
-            extractUrl(sharedText)?.let {
+            YouTubeUrlParser.firstFromText(sharedText)?.canonicalUrl?.let {
                 sharedUrl.value = it
                 AppLog.i("MainActivity", "Received shared YouTube URL")
             }
@@ -141,16 +153,6 @@ class MainActivity : ComponentActivity() {
 
 private enum class AppSection { HOME, QUICK_ADD, SETTINGS, LOGS, YOUTUBE_AUTH }
 
-private val YOUTUBE_HOSTS = setOf(
-    "youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be", "www.youtu.be"
-)
-
-private fun isYouTubeUrl(url: String): Boolean =
-    runCatching { Uri.parse(url).host?.lowercase() }.getOrNull() in YOUTUBE_HOSTS
-
-private fun extractUrl(text: String): String? =
-    Regex("""https?://\S+""").findAll(text).map { it.value }.firstOrNull { isYouTubeUrl(it) }
-
 private fun formatTimestamp(millis: Long): String {
     if (millis == 0L) return ""
     return DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(millis))
@@ -159,20 +161,21 @@ private fun formatTimestamp(millis: Long): String {
 private fun clipboardYouTubeUrl(context: Context): String? {
     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return null
     val text = clipboard.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty()
-    return extractUrl(text)
+    return YouTubeUrlParser.firstFromText(text)?.canonicalUrl
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun KinescopeApp(prefillUrl: String) {
+private fun KinescopeApp(prefillUrl: String, requestNotifications: () -> Unit) {
     val context = LocalContext.current
     val jobs by DownloadQueueBus.jobs.collectAsState()
+    val scope = rememberCoroutineScope()
 
     var section by remember { mutableStateOf(AppSection.HOME) }
     var url by remember { mutableStateOf("") }
     var urlError by remember { mutableStateOf<String?>(null) }
     var selectedQuality by remember { mutableIntStateOf(Settings.getDefaultQualityIndex(context)) }
-    var library by remember { mutableStateOf(MediaStorage.listPublished(context)) }
+    var library by remember { mutableStateOf<List<LibraryItem>>(emptyList()) }
     var updateStatus by remember { mutableStateOf("") }
     var isUpdating by remember { mutableStateOf(false) }
     var lastUpdateTimestamp by remember { mutableLongStateOf(Settings.getLastUpdateTimestamp(context)) }
@@ -187,21 +190,31 @@ private fun KinescopeApp(prefillUrl: String) {
         }
     }
 
-    LaunchedEffect(jobs) {
-        library = MediaStorage.listPublished(context)
+    suspend fun loadLibrary() {
+        library = withContext(Dispatchers.IO) { MediaStorage.listPublished(context) }
+    }
+
+    val completedCount = jobs.count { it.state == JobState.DONE }
+    LaunchedEffect(completedCount) { loadLibrary() }
+
+    fun refreshLibrary() {
+        scope.launch { loadLibrary() }
     }
 
     fun runUpdate() {
         isUpdating = true
-        updateStatus = context.getString(R.string.update_checking)
-        Thread {
-            val result = YtDlpUpdater.updateBlocking(context)
-            Handler(Looper.getMainLooper()).post {
-                updateStatus = result
-                isUpdating = false
-                lastUpdateTimestamp = Settings.getLastUpdateTimestamp(context)
+        val engineBusy = jobs.any { it.state in setOf(JobState.PREPARING, JobState.RUNNING, JobState.PROCESSING, JobState.SAVING) }
+        updateStatus = context.getString(if (engineBusy) R.string.update_waiting_for_idle else R.string.update_checking)
+        scope.launch {
+            val result = withContext(Dispatchers.IO) { YtDlpUpdater.updateBlocking(context) }
+            updateStatus = if (result.startsWith("ERROR:")) {
+                context.getString(R.string.update_failed, result.removePrefix("ERROR:").ifBlank { context.getString(R.string.error_unknown) })
+            } else {
+                context.getString(R.string.update_done)
             }
-        }.start()
+            isUpdating = false
+            lastUpdateTimestamp = Settings.getLastUpdateTimestamp(context)
+        }
     }
 
     fun openQuickAdd() {
@@ -288,16 +301,18 @@ private fun KinescopeApp(prefillUrl: String) {
                 AppSection.HOME -> HomeScreen(
                     jobs = jobs,
                     library = library,
-                    onRefreshLibrary = { library = MediaStorage.listPublished(context) },
+                    onRefreshLibrary = { refreshLibrary() },
                     onPlay = { playItem(context, it) },
                     onShare = { shareItem(context, it) },
                     onDelete = { item ->
-                        if (MediaStorage.delete(context, item)) {
-                            AppLog.i("Library", "Deleted ${item.displayName}")
-                            library = MediaStorage.listPublished(context)
-                        } else {
-                            Toast.makeText(context, R.string.delete_failed, Toast.LENGTH_SHORT).show()
-                            AppLog.w("Library", "Delete failed for ${item.displayName}")
+                        scope.launch {
+                            val deleted = withContext(Dispatchers.IO) { MediaStorage.delete(context, item) }
+                            if (deleted) {
+                                AppLog.i("Library", "Deleted library item")
+                                loadLibrary()
+                            } else {
+                                Toast.makeText(context, R.string.delete_failed, Toast.LENGTH_SHORT).show()
+                            }
                         }
                     },
                     onPause = { DownloadService.pause(context, it) },
@@ -312,14 +327,22 @@ private fun KinescopeApp(prefillUrl: String) {
                     onQualitySelected = { selectedQuality = it },
                     errorText = urlError,
                     onDownload = {
-                        val trimmed = url.trim()
-                        if (isYouTubeUrl(trimmed)) {
-                            DownloadService.enqueue(context, trimmed, selectedQuality)
-                            url = ""
-                            urlError = null
-                            section = AppSection.HOME
-                        } else {
-                            urlError = context.getString(R.string.error_only_youtube)
+                        when (DownloadService.enqueue(context, url, selectedQuality)) {
+                            DownloadService.EnqueueResult.ACCEPTED -> {
+                                requestNotifications()
+                                url = ""
+                                urlError = null
+                                section = AppSection.HOME
+                            }
+                            DownloadService.EnqueueResult.DUPLICATE -> {
+                                urlError = context.getString(R.string.error_duplicate_job)
+                            }
+                            DownloadService.EnqueueResult.INVALID -> {
+                                urlError = context.getString(R.string.error_only_youtube_video)
+                            }
+                            DownloadService.EnqueueResult.START_FAILED -> {
+                                urlError = context.getString(R.string.error_service_start)
+                            }
                         }
                     }
                 )
@@ -450,7 +473,9 @@ private fun HomeScreen(
     onStop: (String) -> Unit,
     onSignIn: () -> Unit
 ) {
-    val networkFailure = jobs.any { it.state == JobState.FAILED && it.failureKind == FailureKind.NO_INTERNET }
+    val networkFailure = jobs.any {
+        it.failureKind == FailureKind.NO_INTERNET && it.state in setOf(JobState.INTERRUPTED, JobState.FAILED)
+    }
     val verificationFailure = jobs.any {
         it.failureKind == FailureKind.YOUTUBE_VERIFICATION &&
             (it.state == JobState.PAUSED || it.state == JobState.FAILED)
@@ -508,13 +533,24 @@ private fun HomeScreen(
             }
         }
 
-        items(library, key = { it.uri.toString() }) { item ->
-            LibraryRow(
-                item = item,
-                onPlay = { onPlay(item) },
-                onShare = { onShare(item) },
-                onDelete = { onDelete(item) }
-            )
+        if (library.isEmpty()) {
+            item {
+                Text(
+                    text = stringResource(R.string.library_empty),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(vertical = 12.dp)
+                )
+            }
+        } else {
+            items(library, key = { it.uri.toString() }) { item ->
+                LibraryRow(
+                    item = item,
+                    onPlay = { onPlay(item) },
+                    onShare = { onShare(item) },
+                    onDelete = { onDelete(item) }
+                )
+            }
         }
     }
 }
@@ -560,8 +596,9 @@ private fun QueueRow(
                 )
                 val statusColor = when (job.state) {
                     JobState.QUEUED, JobState.STOPPED -> MaterialTheme.colorScheme.onSurfaceVariant
-                    JobState.RUNNING -> MaterialTheme.colorScheme.primary
-                    JobState.PAUSED -> YtOfflineExtras.colors.warning
+                    JobState.PREPARING, JobState.RUNNING, JobState.PROCESSING, JobState.SAVING ->
+                        MaterialTheme.colorScheme.onPrimaryContainer
+                    JobState.PAUSED, JobState.INTERRUPTED -> YtOfflineExtras.colors.warning
                     JobState.DONE -> YtOfflineExtras.colors.success
                     JobState.FAILED -> MaterialTheme.colorScheme.error
                 }
@@ -593,7 +630,7 @@ private fun QueueRow(
                         Icon(painterResource(R.drawable.ic_stop), contentDescription = stringResource(R.string.cd_stop))
                     }
                 }
-                JobState.PAUSED -> {
+                JobState.PAUSED, JobState.INTERRUPTED, JobState.FAILED -> {
                     IconButton(onClick = { onResume(job.id) }) {
                         Icon(Icons.Default.PlayArrow, contentDescription = stringResource(R.string.cd_resume))
                     }
@@ -601,11 +638,12 @@ private fun QueueRow(
                         Icon(painterResource(R.drawable.ic_stop), contentDescription = stringResource(R.string.cd_stop))
                     }
                 }
-                JobState.QUEUED -> {
+                JobState.QUEUED, JobState.PREPARING, JobState.PROCESSING -> {
                     IconButton(onClick = { onStop(job.id) }) {
                         Icon(painterResource(R.drawable.ic_stop), contentDescription = stringResource(R.string.cd_stop))
                     }
                 }
+                JobState.SAVING -> Unit
                 else -> Unit
             }
         }
@@ -616,8 +654,12 @@ private fun QueueRow(
 private fun jobStateLabel(state: JobState): String = stringResource(
     when (state) {
         JobState.QUEUED -> R.string.job_state_queued
+        JobState.PREPARING -> R.string.job_state_preparing
         JobState.RUNNING -> R.string.job_state_running
+        JobState.PROCESSING -> R.string.job_state_processing
+        JobState.SAVING -> R.string.job_state_saving
         JobState.PAUSED -> R.string.job_state_paused
+        JobState.INTERRUPTED -> R.string.job_state_interrupted
         JobState.DONE -> R.string.job_state_done
         JobState.FAILED -> R.string.job_state_failed
         JobState.STOPPED -> R.string.job_state_stopped
@@ -713,6 +755,8 @@ private fun LibraryRow(
     onDelete: () -> Unit
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
+    var confirmDelete by remember { mutableStateOf(false) }
+
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -723,18 +767,40 @@ private fun LibraryRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+                .padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = item.displayName,
-                style = MaterialTheme.typography.titleSmall,
-                modifier = Modifier.weight(1f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = item.displayName,
+                    style = MaterialTheme.typography.titleSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                val mediaType = when {
+                    item.mimeType.startsWith("audio/") -> stringResource(R.string.media_type_audio)
+                    item.mimeType.startsWith("video/") -> stringResource(R.string.media_type_video)
+                    else -> item.mimeType
+                }
+                val mediaDate = if (item.dateAddedSeconds > 0) {
+                    DateFormat.getDateInstance(DateFormat.SHORT).format(Date(item.dateAddedSeconds * 1_000L))
+                } else {
+                    "—"
+                }
+                Text(
+                    text = stringResource(R.string.library_meta, mediaType, formatFileSize(item.sizeBytes), mediaDate),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
             IconButton(onClick = onPlay) {
-                Icon(Icons.Default.PlayArrow, contentDescription = stringResource(R.string.cd_play), tint = MaterialTheme.colorScheme.primary)
+                Icon(
+                    Icons.Default.PlayArrow,
+                    contentDescription = stringResource(R.string.cd_play),
+                    tint = MaterialTheme.colorScheme.primary
+                )
             }
             Box {
                 IconButton(onClick = { menuExpanded = true }) {
@@ -749,12 +815,37 @@ private fun LibraryRow(
                     DropdownMenuItem(
                         text = { Text(stringResource(R.string.delete)) },
                         leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) },
-                        onClick = { menuExpanded = false; onDelete() }
+                        onClick = { menuExpanded = false; confirmDelete = true }
                     )
                 }
             }
         }
     }
+
+    if (confirmDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text(stringResource(R.string.delete_confirm_title)) },
+            text = { Text(stringResource(R.string.delete_confirm_body)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmDelete = false
+                    onDelete()
+                }) { Text(stringResource(R.string.delete)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDelete = false }) { Text(stringResource(R.string.cancel)) }
+            }
+        )
+    }
+}
+
+private fun formatFileSize(bytes: Long): String = when {
+    bytes >= 1_073_741_824L -> "%.1f GB".format(bytes / 1_073_741_824.0)
+    bytes >= 1_048_576L -> "%.1f MB".format(bytes / 1_048_576.0)
+    bytes >= 1_024L -> "%.0f KB".format(bytes / 1_024.0)
+    bytes > 0 -> "$bytes B"
+    else -> "—"
 }
 
 @Composable
@@ -812,6 +903,12 @@ private fun QuickAddScreen(
         ) {
             Text(stringResource(R.string.start_download))
         }
+        Spacer(modifier = Modifier.height(10.dp))
+        Text(
+            text = stringResource(R.string.personal_use_notice),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 
@@ -928,9 +1025,7 @@ private fun SettingsScreen(
             }
             if (hasSession) {
                 OutlinedButton(onClick = {
-                    YouTubeAuth.clearSession(context) {
-                        Handler(Looper.getMainLooper()).post { hasSession = false }
-                    }
+                    YouTubeAuth.clearSession(context) { hasSession = false }
                 }) {
                     Text(stringResource(R.string.youtube_sign_out))
                 }
@@ -1044,6 +1139,12 @@ private fun LogsScreen() {
                 Text(stringResource(R.string.share_logs))
             }
         }
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = stringResource(R.string.logs_privacy_notice),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
         Spacer(modifier = Modifier.height(10.dp))
         if (lines.isEmpty()) {
             Text(stringResource(R.string.logs_empty), color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -1071,10 +1172,10 @@ private fun playItem(context: Context, item: LibraryItem) {
     }
     try {
         context.startActivity(intent)
-        AppLog.i("Library", "Opened ${item.displayName}")
+        AppLog.i("Library", "Opened library item")
     } catch (e: ActivityNotFoundException) {
         Toast.makeText(context, R.string.no_player, Toast.LENGTH_SHORT).show()
-        AppLog.e("Library", "No player for ${item.displayName}", e)
+        AppLog.e("Library", "No player for library item", e)
     }
 }
 
@@ -1088,7 +1189,7 @@ private fun shareItem(context: Context, item: LibraryItem) {
         context.startActivity(Intent.createChooser(intent, context.getString(R.string.share_file, item.displayName)))
     } catch (e: ActivityNotFoundException) {
         Toast.makeText(context, R.string.no_share_app, Toast.LENGTH_SHORT).show()
-        AppLog.e("Library", "No share target for ${item.displayName}", e)
+        AppLog.e("Library", "No share target for library item", e)
     }
 }
 

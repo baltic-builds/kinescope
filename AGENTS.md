@@ -33,8 +33,7 @@ before editing anything.
 - Development happens exclusively in **GitHub Codespaces** — no
   Android Studio GUI, no emulator, no connected device. Every build
   has to succeed headlessly.
-- Build: `./gradlew assembleDebug` (or `assembleRelease`, if
-  `keystore.properties` is present — see `RELEASE.md`).
+- Verification build: `./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug`. A plain `assembleDebug` is acceptable only as a quick compile while iterating. Signed releases are built by `.github/workflows/build-release.yml`; see `RELEASE.md`.
 - If `gradlew` is missing or the devcontainer's `postCreateCommand`
   didn't finish, run `bash .devcontainer/setup.sh` manually.
 - CI: `.github/workflows/build-release.yml` only, manually triggered (`workflow_dispatch`) and hand-versioned per run. It publishes the signed APK + checksum to GitHub Releases. Debug CI was deliberately removed in patch 24; `./gradlew assembleDebug` remains the local sanity check.
@@ -88,9 +87,11 @@ Python patch script, not as inline instructions to run by hand:
 5. **Docs updated in the same patch as the code they describe** —
    `ROADMAP.md`'s technical-debt list and `CHANGELOG.md`'s new entry
    land together with the change, not as a follow-up.
-6. **Alongside every patch script:** the command to run it,
-   `./gradlew assembleDebug` as a sanity check, and the git
-   add/commit/push commands with a descriptive commit message.
+6. **Alongside every patch script:** the command to run it and the git
+   add/commit/push commands with a descriptive commit message. The script
+   itself should run `./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug`
+   before self-deleting whenever practical, so verification cannot be
+   accidentally skipped.
 7. **Scoped to one coherent unit of work** — one `ROADMAP.md` item, or
    a tightly related group — rather than sprawling across unrelated
    changes. Work in sprints across a conversation (a batch of related
@@ -140,3 +141,8 @@ paid service, a backend, or a dependency on Anthropic branding/name.
 Extraction always goes through `yt-dlp` (via `youtubedl-android`) —
 never write custom YouTube extraction logic. See `CLAUDE.md` for the
 full ground rules.
+
+There is now only one roadmap file: `ROADMAP.md`. The former lowercase
+`roadmap.md` audit was consumed into patch 25 and deleted. Do not
+recreate it or restore its obsolete historical assumptions; add new
+work to `ROADMAP.md` instead.
