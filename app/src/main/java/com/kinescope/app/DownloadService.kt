@@ -351,6 +351,25 @@ class DownloadService : Service() {
         outputTemplate: String,
         profile: RecoveryProfile
     ) {
+        // Patch 27: an optional local DPI-bypass engine (see DpiBypass.kt). It is off by default;
+        // when the user has switched it on in Settings, this starts a fresh engine process for
+        // exactly this attempt and always tears it down afterwards, success or failure, so no
+        // orphaned ":dpi" process survives a crash or a cancelled attempt.
+        val bypass = DpiBypass.startIfEnabled(this)
+        try {
+            executeAttemptOverBypass(job, preset, outputTemplate, profile, bypass)
+        } finally {
+            bypass?.close()
+        }
+    }
+
+    private fun executeAttemptOverBypass(
+        job: StoredDownloadJob,
+        preset: QualityPreset,
+        outputTemplate: String,
+        profile: RecoveryProfile,
+        bypass: BypassSession?
+    ) {
         val request = YoutubeDLRequest(job.canonicalUrl).apply {
             addOption("-o", outputTemplate)
             addOption("--no-playlist")
@@ -368,11 +387,16 @@ class DownloadService : Service() {
             }
             profile.extractorArgs?.let { addOption("--extractor-args", it) }
             if (profile.forceIpv4) addOption("--force-ipv4")
+            // socks5h: the bypass engine resolves the host name itself, not the device, so a
+            // network that filters DNS for these hosts does not defeat the bypass by itself
+            // (NetworkCheck's DNS_BLOCKS_BYPASS verdict names exactly this remaining case).
+            bypass?.let { addOption("--proxy", "socks5h://${DpiEngine.HOST}:${it.port}") }
         }
 
         AppLog.i(
             "DownloadService",
-            "Executing job=${job.id} profile=$profile authenticated=${profile.useCookies && YouTubeAuth.hasSavedSession(this)}"
+            "Executing job=${job.id} profile=$profile authenticated=${profile.useCookies && YouTubeAuth.hasSavedSession(this)} " +
+                "bypass=${bypass != null}"
         )
         YoutubeDL.getInstance().execute(request, job.id) { progress, etaInSeconds, _ ->
             if (requestedControls[job.id] != null) {

@@ -89,6 +89,16 @@ android {
     buildFeatures {
         compose = true
     }
+
+    // Patch 27: the bundled DPI-bypass engine (app/src/main/cpp) is vendored C, built by CMake.
+    // Requires the Android NDK to be installed (see .devcontainer/setup.sh /
+    // .github/workflows/build-release.yml); not just the SDK.
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
 }
 
 dependencies {

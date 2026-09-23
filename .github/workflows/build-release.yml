@@ -44,7 +44,8 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
         with:
-          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
+          # Patch 27: ndk;27.2.12479018 builds the bundled DPI-bypass engine (app/src/main/cpp).
+          packages: 'platform-tools platforms;android-35 build-tools;35.0.0 ndk;27.2.12479018'
 
       - name: Validate release inputs and signing secrets
         env:

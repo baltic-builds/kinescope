@@ -1007,6 +1007,9 @@ private fun SettingsScreen(
         }
 
         SettingsDivider()
+        BypassSettingsSection()
+
+        SettingsDivider()
         SettingsSectionHeader(stringResource(R.string.settings_youtube_account))
         Text(
             text = if (hasSession) stringResource(R.string.youtube_session_saved) else stringResource(R.string.youtube_session_not_saved),

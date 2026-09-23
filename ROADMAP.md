@@ -4,6 +4,8 @@
 
 Patch 24's local build is explicitly confirmed by the user (`BUILD SUCCESSFUL`, commit `91169f5`). Patch 25c is the delivery hotfix for the single AAPT string-resource blocker found by Patch 25b's mandatory Gradle gate; Patch 25c itself is guarded by `testDebugUnitTest`, `lintDebug` and `assembleDebug` before its delivery scripts are removed. The remaining items below are therefore **verification gates**, not unimplemented feature work.
 
+**Patch 27** adds new, user-requested feature scope on top of the verification-gates state above: an in-app network bypass (a bundled MIT-licensed ByeDPI engine, the same engine the third-party ByeByeDPI app wraps) that can help when a network blocks YouTube by inspecting connection headers rather than by DNS or IP filtering. It is off by default. Details in `CHANGELOG.md`; the integration research and design record lives in the project's memory as `INTEGRATION_PLAN.md`.
+
 Decisions that remain unchanged:
 
 - `applicationId` / namespace: `com.kinescope.app`.
@@ -56,6 +58,7 @@ These require the user's phone or a real GitHub Actions run. Do not mark them co
 - [ ] Test private, age-restricted and unavailable videos and confirm the localized typed error states still match current yt-dlp output.
 - [ ] Queue while airplane mode is enabled; confirm the job becomes recoverable `INTERRUPTED`, then resumes normally after connectivity returns.
 - [ ] Complete at least one large/slow download and one audio-only download. Confirm the final file type/name/library metadata are correct and no pending MediaStore ghost remains after success/failure.
+- [ ] **Network bypass (patch 27):** on the actual restricted corporate Wi-Fi, open Settings -> Network bypass -> "Test the connection". Confirm the direct path fails and read which stage it fails at (DNS/TCP/TLS). Run "Find a working strategy" and confirm it either selects a strategy that gets all three probe hosts through, or reports none did. If one was found, switch the bypass on and queue a real download; confirm it completes and that yt-dlp's log line shows `bypass=true`. If the direct-path failure turns out to be at the DNS stage, note that the bypass is not expected to fix it (see `Verdict.DNS_BLOCKS_BYPASS`) and that finding is not a bug.
 - [ ] Verify Russian locale, non-Russian English fallback, Home/Add/Settings navigation, Back-to-Home behavior, five-tap Logs access, delete confirmation, and the new launcher/themed icon on-device.
 - [ ] Verify notification permission timing, notification Stop action, tap-to-open, progress throttling and completion notification.
 
@@ -68,6 +71,10 @@ These require the user's phone or a real GitHub Actions run. Do not mark them co
 ### Platform limitation to re-check upstream
 
 - [ ] **16 KB page-size devices:** Android 15 supports devices with 16 KB memory pages, but the currently pinned `youtubedl-android 0.18.1` still has an open upstream issue reporting a bundled ffmpeg/libwebp payload that remains 4 KB-aligned. Do not claim Kinescope is 16 KB-compatible until the wrapper publishes a verified fix; re-evaluate when upgrading that dependency.
+
+### Patch 27 network bypass: unverified on a real device
+
+- [ ] **Patch 27 network bypass is unverified on a real device.** Every claim about it below is from sandbox testing (a host-compiled build of the vendored engine driven by a JVM harness, not the actual arm64-v8a `.so` inside a real APK): the JNI glue starts/stops the real ByeDPI engine and relays traffic correctly through every built-in strategy, and the strategy parser rejects the real upstream strategy list's non-desync options plus ~30 hostile inputs. NOT yet confirmed: that CMake actually cross-compiles cleanly for arm64-v8a inside the Codespace/Actions NDK toolchain, that the `:dpi` process starts and is torn down correctly on a real device, that a real corporate-network block is actually a DPI signature this engine can get around (vs. DNS/IP filtering, which the Verdict text already says it cannot fix), and that the search actually finds a working strategy against the user's specific network. Do not mark this feature done from the Gradle gate alone.
 
 ---
 

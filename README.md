@@ -51,6 +51,10 @@ Cookies, logs and the durable job journal remain in app-private storage. Android
 
 Third-party dependency/licensing inventory: `THIRD_PARTY_NOTICES.md`.
 
+## Network bypass (patch 27)
+
+Kinescope can optionally route downloads through a bundled DPI-bypass engine (the same MIT-licensed [ByeDPI](https://github.com/hufrea/byedpi) engine that [ByeByeDPI](https://github.com/romanvht/ByeByeDPI) wraps) for networks that block YouTube by inspecting connection headers rather than by DNS or IP filtering. It is off by default; switch it on in Settings -> Network bypass, run "Find a working strategy" or pick one manually, and optionally "Test the connection" to see which layer (DNS/TCP/TLS) a network is actually blocking at. It is not a VPN: it does not hide the IP address or encrypt traffic, and cannot help when the block is DNS- or IP-based rather than DPI-based. Building it requires the Android NDK in addition to the SDK; see `.devcontainer/setup.sh`.
+
 ## Building in Codespaces
 
 There is no Android Studio/emulator requirement. Development and verification are headless.

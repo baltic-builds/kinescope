@@ -1,0 +1,79 @@
+package com.kinescope.app
+
+import android.content.Context
+import java.util.concurrent.Callable
+import java.util.concurrent.Executors
+
+internal data class BypassDiagnosis(
+    val strategy: String,
+    val engineStarted: Boolean,
+    val reports: List<NetworkCheckReport>
+)
+
+/** Glue between the settings, the engine and the download service. */
+object DpiBypass {
+    /**
+     * Starts the engine for a download when the bypass is switched on. Returns null when it is off
+     * or could not start; the download then simply proceeds on the direct connection.
+     */
+    fun startIfEnabled(context: Context): DpiEngineSession? {
+        if (!DpiPrefs.isEnabled(context)) return null
+        val line = DpiStrategyStore.selected(context)
+        val parsed = DpiStrategyParser.parse(line) as? DpiStrategyParser.Parsed.Ok
+        if (parsed == null) {
+            AppLog.w("DpiBypass", "Selected strategy is not valid; continuing without bypass")
+            return null
+        }
+        val session = DpiEngine.start(context, parsed.args)
+        if (session == null) {
+            AppLog.w("DpiBypass", "Engine did not start; continuing without bypass")
+        } else {
+            AppLog.i("DpiBypass", "Engine ready; strategy=\"$line\"")
+        }
+        return session
+    }
+
+    /** Direct-only check of every probe host. True when nothing on this network needs bypassing. */
+    internal fun directConnectionWorks(hosts: List<String> = DpiStrategySearch.DEFAULT_HOSTS): Boolean {
+        val check = NetworkCheck()
+        return inParallel(hosts) { host -> check.checkDirect(host).ok }.all { it }
+    }
+
+    /** Direct and bypassed check of every probe host with the currently selected strategy. */
+    internal fun diagnose(context: Context, hosts: List<String> = DpiStrategySearch.DEFAULT_HOSTS): BypassDiagnosis {
+        val line = DpiStrategyStore.selected(context)
+        val parsed = DpiStrategyParser.parse(line) as? DpiStrategyParser.Parsed.Ok
+        val session = parsed?.let { DpiEngine.start(context, it.args) }
+        try {
+            val endpoint = session?.let { SocksEndpoint(DpiEngine.HOST, it.port) }
+            val check = NetworkCheck()
+            val reports = inParallel(hosts) { host -> check.run(endpoint, host) }
+            return BypassDiagnosis(line, engineStarted = session != null, reports = reports)
+        } finally {
+            session?.close()
+        }
+    }
+
+    /** Runs the strategy search over [DpiStrategyStore.candidates]. Blocking; see [DpiStrategySearch]. */
+    internal fun search(
+        context: Context,
+        isCancelled: () -> Boolean,
+        onProgress: (SearchProgress) -> Unit
+    ): List<StrategyResult> {
+        val check = NetworkCheck(stageTimeoutMs = 2_500)
+        val search = DpiStrategySearch(
+            startEngine = { args -> DpiEngine.start(context, args) },
+            probeHost = { port, host -> check.checkViaBypass(SocksEndpoint(DpiEngine.HOST, port), host).ok }
+        )
+        return search.run(DpiStrategyStore.candidates(context), isCancelled, onProgress)
+    }
+
+    private fun <T> inParallel(hosts: List<String>, block: (String) -> T): List<T> {
+        val pool = Executors.newFixedThreadPool(hosts.size)
+        try {
+            return hosts.map { host -> pool.submit(Callable { block(host) }) }.map { it.get() }
+        } finally {
+            pool.shutdownNow()
+        }
+    }
+}

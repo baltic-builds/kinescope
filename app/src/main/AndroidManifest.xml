@@ -40,6 +40,14 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
+        <!-- Patch 27: hosts the bundled ByeDPI engine (app/src/main/cpp) in its own process so the
+             engine's process-wide C globals cannot leak state between strategies or downloads; the
+             process is killed after every run (see DpiEngineService.kt / DpiEngine.kt). -->
+        <service
+            android:name=".DpiEngineService"
+            android:exported="false"
+            android:process=":dpi" />
+
     </application>
 
 </manifest>

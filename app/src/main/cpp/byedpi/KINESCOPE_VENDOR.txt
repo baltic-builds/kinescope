@@ -1,0 +1,6 @@
+Vendored, unmodified copy of https://github.com/hufrea/byedpi (MIT License, see LICENSE).
+Commit: ba532298de7b28cfe854aea83d061369d13ca290 (2026-03-26)
+Left out on purpose: win_service.c/.h (Windows only), Makefile, Dockerfile, dist/, README.md.
+Kinescope never edits these files. Its own glue lives one directory up (dpi_jni.c). To update,
+replace the files from a newer upstream commit, update the commit line above, and re-run the
+engine checks listed in HANDOFF.md.
