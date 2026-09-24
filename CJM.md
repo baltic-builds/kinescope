@@ -16,6 +16,19 @@ network-restricted. Videos have to be downloaded *before* departure,
 while full, unrestricted home internet access is available, and
 watched entirely offline once in-region.
 
+## Restricted-network fast path (patch 28)
+
+Use this when YouTube itself is hard to open on the current network:
+
+1. Open Kinescope and tap **ByeDPI** on Home.
+2. If no strategy has been verified yet, Kinescope opens Settings. Run **Test strategies**; only a full three-host pass becomes eligible. On the first YouTube session Android also asks for standard VPN permission.
+3. Kinescope starts the local ByeDPI engine plus a YouTube-only TUN -> SOCKS bridge and opens the official YouTube app. No remote VPN server is involved and other applications are not routed through Kinescope.
+4. Pick the video in YouTube and use **Share -> Kinescope**. The existing single-task share intent opens Quick Add with the canonical link.
+5. Start the download. While the YouTube bypass session is active, Kinescope automatically starts the separate short-lived `:dpi` engine with the same verified strategy; the long-lived YouTube engine stays isolated in `:dpi_vpn`.
+6. Pause/resume when needed; swipe a queue row end-to-start to remove it. Stop the YouTube bypass from Settings or its persistent notification.
+
+The normal pre-trip flow below remains valid when the network is unrestricted.
+
 ## The five stages
 
 ### 1. Prep at home — the night before a trip

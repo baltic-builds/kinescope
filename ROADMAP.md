@@ -58,7 +58,9 @@ These require the user's phone or a real GitHub Actions run. Do not mark them co
 - [ ] Test private, age-restricted and unavailable videos and confirm the localized typed error states still match current yt-dlp output.
 - [ ] Queue while airplane mode is enabled; confirm the job becomes recoverable `INTERRUPTED`, then resumes normally after connectivity returns.
 - [ ] Complete at least one large/slow download and one audio-only download. Confirm the final file type/name/library metadata are correct and no pending MediaStore ghost remains after success/failure.
-- [ ] **Network bypass (patch 27):** on the actual restricted corporate Wi-Fi, open Settings -> Network bypass -> "Test the connection". Confirm the direct path fails and read which stage it fails at (DNS/TCP/TLS). Run "Find a working strategy" and confirm it either selects a strategy that gets all three probe hosts through, or reports none did. If one was found, switch the bypass on and queue a real download; confirm it completes and that yt-dlp's log line shows `bypass=true`. If the direct-path failure turns out to be at the DNS stage, note that the bypass is not expected to fix it (see `Verdict.DNS_BLOCKS_BYPASS`) and that finding is not a bug.
+- [x] **Network bypass core (patch 27):** user-confirmed after this handoff snapshot: GitHub Actions builds successfully and ByeDPI works on the target device/network. Do not reopen the old NDK/device-engine gate unless a regression appears.
+- [ ] **Patch 28 YouTube split tunnel:** on the restricted network, test a strategy, tap Home -> ByeDPI, grant Android VPN consent on first use, confirm the official YouTube app opens and plays through the local route, Share a video to Kinescope, and confirm the resulting download completes through the isolated `:dpi` download engine while the `:dpi_vpn` YouTube session remains active. Verify notification Stop and confirm other apps are not routed.
+- [ ] **Patch 28 queue gesture:** swipe queued, paused and running rows end-to-start and confirm each disappears, durable state/workspace is removed, and later queued jobs continue. Confirm SAVING cannot be swiped away.
 - [ ] Verify Russian locale, non-Russian English fallback, Home/Add/Settings navigation, Back-to-Home behavior, five-tap Logs access, delete confirmation, and the new launcher/themed icon on-device.
 - [ ] Verify notification permission timing, notification Stop action, tap-to-open, progress throttling and completion notification.
 
@@ -72,9 +74,10 @@ These require the user's phone or a real GitHub Actions run. Do not mark them co
 
 - [ ] **16 KB page-size devices:** Android 15 supports devices with 16 KB memory pages, but the currently pinned `youtubedl-android 0.18.1` still has an open upstream issue reporting a bundled ffmpeg/libwebp payload that remains 4 KB-aligned. Do not claim Kinescope is 16 KB-compatible until the wrapper publishes a verified fix; re-evaluate when upgrading that dependency.
 
-### Patch 27 network bypass: unverified on a real device
+### Patch 27 network bypass: verified baseline
 
-- [ ] **Patch 27 network bypass is unverified on a real device.** Every claim about it below is from sandbox testing (a host-compiled build of the vendored engine driven by a JVM harness, not the actual arm64-v8a `.so` inside a real APK): the JNI glue starts/stops the real ByeDPI engine and relays traffic correctly through every built-in strategy, and the strategy parser rejects the real upstream strategy list's non-desync options plus ~30 hostile inputs. NOT yet confirmed: that CMake actually cross-compiles cleanly for arm64-v8a inside the Codespace/Actions NDK toolchain, that the `:dpi` process starts and is torn down correctly on a real device, that a real corporate-network block is actually a DPI signature this engine can get around (vs. DNS/IP filtering, which the Verdict text already says it cannot fix), and that the search actually finds a working strategy against the user's specific network. Do not mark this feature done from the Gradle gate alone.
+- [x] The user reports that GitHub Actions now completes successfully and ByeDPI works on the target device/network. This supersedes the old sandbox-only warning for the Patch-27 engine path.
+- [ ] Patch 28 adds a new layer on top of that verified engine: the YouTube-only Android `VpnService` + TUN-to-SOCKS bridge. Its first-run permission/session lifecycle still needs the focused device check above.
 
 ---
 

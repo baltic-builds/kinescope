@@ -8,8 +8,13 @@
     <!-- Lets downloads keep running when the app is backgrounded. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <!-- Lets DownloadService check for a connection before trying. -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <queries>
+        <package android:name="com.google.android.youtube" />
+    </queries>
 
     <application
         android:name=".YtOfflineApp"
@@ -47,6 +52,27 @@
             android:name=".DpiEngineService"
             android:exported="false"
             android:process=":dpi" />
+
+        <service
+            android:name=".DpiVpnEngineService"
+            android:exported="false"
+            android:process=":dpi_vpn" />
+
+        <service
+            android:name=".BypassVpnService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse"
+            android:permission="android.permission.BIND_VPN_SERVICE">
+            <intent-filter>
+                <action android:name="android.net.VpnService" />
+            </intent-filter>
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="vpn" />
+            <meta-data
+                android:name="android.net.VpnService.SUPPORTS_ALWAYS_ON"
+                android:value="false" />
+        </service>
 
     </application>
 

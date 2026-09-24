@@ -17,7 +17,7 @@ import android.util.Log
  * Nothing here calls [AppLog]: that logger is not multi-process safe and is deliberately not
  * initialised in this process (see [YtOfflineApp]). The client logs what it observes instead.
  */
-class DpiEngineService : Service() {
+open class DpiEngineService : Service() {
     override fun onBind(intent: Intent): IBinder? {
         val args = intent.getStringArrayExtra(EXTRA_ARGS) ?: return null
         Thread(null, {
@@ -46,3 +46,6 @@ class DpiEngineService : Service() {
         private const val ENGINE_STACK_BYTES = 4L * 1024L * 1024L
     }
 }
+
+/** Dedicated native-engine process for the external YouTube VPN path. */
+class DpiVpnEngineService : DpiEngineService()

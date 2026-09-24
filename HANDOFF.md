@@ -27,9 +27,15 @@ resource check for the same class of mistake, and only records completion after
 roadmap scope changed in this hotfix.
 
 
+### Patch 28 / YouTube split-tunnel status
+
+The user has now confirmed the two Patch-27 facts that were previously open: GitHub Actions builds successfully and ByeDPI works on the target device/network. Patch 28 builds on that verified base. The bypass Settings flow is now test-first, the Home screen can start a YouTube-only Android `VpnService`, and `hev-socks5-tunnel` bridges the TUN interface into a dedicated ByeDPI SOCKS5 engine hosted in `:dpi_vpn`. The official YouTube package is the only allowed VPN application, so Kinescope and both ByeDPI processes stay outside the TUN and cannot route-loop. Strategy tests/downloads remain in the separate short-lived `:dpi` process; while the YouTube session is active, a shared download automatically uses the same verified strategy without sharing native process state.
+
+Patch 28 also fixes stale STOPPED queue rows and adds end-to-start swipe removal, while reducing the glass navbar footprint without changing the established Kinescope palette/type system. The remaining new device gate is narrow: verify first-run Android VPN consent, YouTube playback under the split tunnel, Share -> Kinescope -> download while the YouTube tunnel remains active and the isolated download engine starts cleanly, notification Stop, and swipe removal. Do not reopen the already-confirmed Patch-27 build/engine questions.
+
 ### Patch 27 / network bypass status
 
-User-requested feature, not a bugfix: the user's corporate Wi-Fi is believed to restrict YouTube by DPI (header inspection), and asked for the `ByeByeDPI`/`byedpi` approach to be built directly into Kinescope. Patch 27 vendors the MIT `hufrea/byedpi` C engine, adds Kinescope's own JNI glue (no ByeByeDPI Kotlin/Java code used), and adds a Settings section to enable it, search for/choose a strategy, and update the strategy list. Verified in the sandbox with a host-compiled build of the real engine driven by JVM test harnesses (start/stop/relay through every built-in strategy over both a plain-TCP and a TLS+HTTP path; 18 unit tests). **Not yet verified**: that the real arm64-v8a CMake/NDK build succeeds, that the `:dpi` process behaves correctly on a real device, or that this actually gets past the user's specific network restriction (vs. it being DNS/IP filtering, which this feature is not designed to fix). See `ROADMAP.md`'s new gate. Full design record: `INTEGRATION_PLAN.md` in the project's memory.
+Patch 27 vendors the MIT `hufrea/byedpi` C engine and Kinescope's own JNI glue, with strategy parsing/search and a download-only SOCKS5 path. Its sandbox harness and unit tests remain documented in `CHANGELOG.md`. The previously open real-build/runtime gate is now closed by the user's current status: GitHub Actions builds successfully and ByeDPI works on the target device/network. Full design record: `INTEGRATION_PLAN.md` in the project's memory.
 
 
 Patch 24 / Sprint 1 was successfully applied by the user, built in Codespaces (`BUILD SUCCESSFUL`) and pushed as commit `91169f5`. That confirms compilation of the Sprint-1 code, **not** its new device-dependent behavior. Real-device verification remains open.
@@ -38,7 +44,7 @@ Patch 25 consumes the still-relevant engineering work from the former lowercase 
 
 The old audit assumption that authentication / an embedded browser must never exist is **superseded** by the user's explicit Patch-24 requirement for optional YouTube sign-in. The remaining extractor boundary is unchanged: cookies/retries/upstream yt-dlp client fallbacks are allowed; custom extraction, BotGuard/PO-token generation, signature deciphering, or anti-bot bypass code is not.
 
-**Next work is verification, not another autonomous roadmap sprint.** `ROADMAP.md` is now the single roadmap and contains only real-device / real-GitHub-Release checks plus one upstream blocker: the currently pinned `youtubedl-android 0.18.1` must not be advertised as 16 KB page-size compatible while its upstream native-payload issue remains open. The former lowercase `roadmap.md` has been consumed and remains deleted.
+**Next work is focused Patch-28 device verification, not another autonomous roadmap sprint.** `ROADMAP.md` is now the single roadmap and contains only real-device / real-GitHub-Release checks plus one upstream blocker: the currently pinned `youtubedl-android 0.18.1` must not be advertised as 16 KB page-size compatible while its upstream native-payload issue remains open. The former lowercase `roadmap.md` has been consumed and remains deleted.
 
 **Milestone: the first successful `./gradlew assembleDebug` in this
 project's history was achieved via patches 01-14.** The
@@ -342,7 +348,7 @@ Documentation sources of truth: `CLAUDE.md` (constraints/decisions), `AGENTS.md`
 
 **Run/collect verification for patches 24-25.** The autonomous roadmap work is complete. The exact remaining checks are in `ROADMAP.md`: repeated YouTube recovery/session behavior, process-death + resume, queue stress/dedupe, typed error cases, airplane mode, large/audio downloads and MediaStore cleanup, RU/EN/navigation/logging/icon/notifications, then a fresh signed GitHub Release installed over the prior signed build.
 
-**Network-bypass follow-up (patch 27):** the feature is implemented and sandbox-tested but has *never been built for arm64-v8a or run on a device*. Before doing anything else with it: (1) get one real `./gradlew assembleDebug` (or the release workflow) to actually succeed with the NDK installed -- CMake/NDK cross-compilation was never exercised, only a host glibc build; (2) get the user to run the new `ROADMAP.md` gate on the actual restricted network. Don't assume the sandbox verification (host-compiled engine, JVM harness) generalizes to the real toolchain without that first real build.
+**Network-bypass follow-up:** the user has confirmed the Patch-27 engine on the real target path: GitHub Actions builds successfully and ByeDPI works on-device. Do not reopen that old gate unless a regression appears. Patch 28's only remaining network gate is the new YouTube-only Android VPN lifecycle (`ROADMAP.md`).
 
 Do not mark a device-dependent item done from source inspection or a green compile. If a verification fails, diagnose that concrete failure first and update `CHANGELOG.md` / `HANDOFF.md` in the same patch as the fix.
 

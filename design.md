@@ -182,3 +182,14 @@ Patch 25 keeps the established palette but tightens the light-theme combinations
 - Destructive Delete requires confirmation instead of relying on color alone.
 
 These are token/interaction corrections, not a visual redesign. The glass bottom navigation and retro-TV icon introduced in patch 24 remain the current direction.
+## Patch 28 — lighter chrome and gesture cleanup
+
+Patch 28 modernizes the existing system without changing its identity:
+
+- Keep the warm cream/terracotta palette, Inter/Lora typography, native Material shapes and the glass navigation concept.
+- Bottom navigation is intentionally narrower (`maxWidth 330dp`), with 48dp touch targets and a 48dp Add action, lower tonal elevation and softer shadow. It should read as a floating control strip rather than a full-width dock.
+- Home gets one compact text action, `ByeDPI` / `YouTube`, instead of another card or persistent banner. State detail belongs in Settings and the foreground notification.
+- ByeDPI Settings are progressive-disclosure: status -> test -> optional enable. Raw strategy command lines are implementation detail and no longer occupy the normal settings surface.
+- The YouTube tunnel and Kinescope download/test engine use separate Android processes (`:dpi_vpn` and `:dpi`), preserving the existing process-isolation rule for ByeDPI's native global state.
+- Download rows expose destructive removal by end-to-start swipe. The red destructive surface appears only during the gesture; pause/resume remains the only persistent per-row control. `SAVING` cannot be swiped away.
+- Preserve whitespace. Do not compensate for the smaller navbar by adding new labels, borders, gradients, floating badges or decorative surfaces elsewhere.

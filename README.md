@@ -10,7 +10,7 @@
 
 A personal Android app for downloading individual YouTube videos before travel and watching them offline later. Kinescope is sideload-only: no Google Play requirement, no Kinescope backend and no required paid service.
 
-**Status after patch 25:** the original implementation roadmap and the later reliability audit have been folded into the codebase. Patch 24's local `assembleDebug` is user-confirmed (`91169f5`); patch 25 adds durable queue recovery, strict URL handling, storage/privacy hardening, tests and stronger release verification. Remaining work is real-device / real-Actions verification listed in `ROADMAP.md`, not another autonomous implementation phase.
+**Status after patch 28:** GitHub Actions builds successfully and the original embedded ByeDPI download path is user-confirmed on-device. Patch 28 adds a verified-strategy gate, a YouTube-only local Android VPN route, queue swipe removal, and a lighter navigation treatment. Remaining work is the focused device check in `ROADMAP.md`.
 
 ## Product flow
 
@@ -51,9 +51,13 @@ Cookies, logs and the durable job journal remain in app-private storage. Android
 
 Third-party dependency/licensing inventory: `THIRD_PARTY_NOTICES.md`.
 
-## Network bypass (patch 27)
+## Network bypass (patch 28)
 
-Kinescope can optionally route downloads through a bundled DPI-bypass engine (the same MIT-licensed [ByeDPI](https://github.com/hufrea/byedpi) engine that [ByeByeDPI](https://github.com/romanvht/ByeByeDPI) wraps) for networks that block YouTube by inspecting connection headers rather than by DNS or IP filtering. It is off by default; switch it on in Settings -> Network bypass, run "Find a working strategy" or pick one manually, and optionally "Test the connection" to see which layer (DNS/TCP/TLS) a network is actually blocking at. It is not a VPN: it does not hide the IP address or encrypt traffic, and cannot help when the block is DNS- or IP-based rather than DPI-based. Building it requires the Android NDK in addition to the SDK; see `.devcontainer/setup.sh`.
+Kinescope bundles the MIT `hufrea/byedpi` engine. In Settings -> ByeDPI, run **Test strategies** first; only a strategy that passes every probe can be enabled. The regular download switch routes yt-dlp through the local SOCKS5 engine.
+
+The Home **ByeDPI** action adds a second, deliberately narrow path for the official YouTube app: Android `VpnService` captures only `com.google.android.youtube`, `hev-socks5-tunnel` converts that TUN traffic to SOCKS5, and the existing ByeDPI engine opens the network connections. No remote VPN server is used, other apps are not captured, and the public IP is not hidden. Once active, open YouTube, choose a video, **Share -> Kinescope**, and download. Kinescope automatically starts its separate short-lived `:dpi` engine with the same verified strategy while the YouTube `:dpi_vpn` session stays active.
+
+The first start shows Android's standard VPN-consent dialog. Stop the session from Settings or its foreground notification. Building still requires the Android NDK; Patch 28 additionally vendors an arm64 `hev-socks5-tunnel` library built from its pinned MIT upstream tag.
 
 ## Building in Codespaces
 

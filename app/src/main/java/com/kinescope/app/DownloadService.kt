@@ -481,14 +481,7 @@ class DownloadService : Service() {
                 DownloadJobStore.pendingUri(job)?.let { MediaStorage.deletePending(this, it) }
                 DownloadJobStore.remove(this, job.id)
                 DownloadJobStore.cleanupWorkspace(this, job.id)
-                DownloadQueueBus.update(job.id) {
-                    it.copy(
-                        state = JobState.STOPPED,
-                        progressText = getString(R.string.status_stopped),
-                        progressFraction = null,
-                        failureKind = null
-                    )
-                }
+                DownloadQueueBus.remove(job.id)
                 AppLog.i("DownloadService", "Stopped job=${job.id}; workspace removed")
             }
         }
@@ -783,17 +776,21 @@ class DownloadService : Service() {
         }
 
         fun pause(context: Context, id: String) = sendControl(context, ACTION_PAUSE, id, foreground = false)
-        fun stop(context: Context, id: String) = sendControl(context, ACTION_STOP, id, foreground = false)
+        fun stop(context: Context, id: String) {
+            if (sendControl(context, ACTION_STOP, id, foreground = false)) DownloadQueueBus.remove(id)
+        }
         fun resume(context: Context, id: String) = sendControl(context, ACTION_RESUME, id, foreground = true)
 
-        private fun sendControl(context: Context, actionName: String, id: String, foreground: Boolean) {
+        private fun sendControl(context: Context, actionName: String, id: String, foreground: Boolean): Boolean {
             val intent = Intent(context, DownloadService::class.java).apply {
                 action = actionName
                 putExtra(EXTRA_JOB_ID, id)
             }
-            runCatching {
+            return runCatching {
                 if (foreground) ContextCompat.startForegroundService(context, intent) else context.startService(intent)
+                true
             }.onFailure { AppLog.e("DownloadService", "Control dispatch failed action=$actionName job=$id", it) }
+                .getOrDefault(false)
         }
     }
 }

@@ -16,9 +16,14 @@ object DpiBypass {
      * Starts the engine for a download when the bypass is switched on. Returns null when it is off
      * or could not start; the download then simply proceeds on the direct connection.
      */
-    fun startIfEnabled(context: Context): DpiEngineSession? {
-        if (!DpiPrefs.isEnabled(context)) return null
+    fun startIfEnabled(context: Context): BypassSession? {
+        val requestedByYouTubeJourney = BypassVpnController.state.value.active
+        if (!DpiPrefs.isEnabled(context) && !requestedByYouTubeJourney) return null
         val line = DpiStrategyStore.selected(context)
+        if (!DpiPrefs.isStrategyVerified(context, line)) {
+            AppLog.w("DpiBypass", "Selected strategy is not verified; continuing without bypass")
+            return null
+        }
         val parsed = DpiStrategyParser.parse(line) as? DpiStrategyParser.Parsed.Ok
         if (parsed == null) {
             AppLog.w("DpiBypass", "Selected strategy is not valid; continuing without bypass")

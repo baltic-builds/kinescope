@@ -13,6 +13,8 @@ class DpiStrategyParserTest {
         assertEquals(listOf("-f-1", "-t8", "-s1+s", "-d3+s", "-a1"), args("--fake -1 --ttl 8 --split 1+s --disorder 3+s -a1"))
         assertEquals(listOf("-d1", "-Atorst", "-r1+s"), args("--disorder 1 --auto=torst --tlsrec 1+s"))
         assertEquals(listOf("-f-1", "-S"), args("--fake -1 --md5sig"))
+        assertEquals(listOf("-d1", "-e1", "-m1"), args("-d1 -e1 -m1"))
+        assertEquals(listOf("-e\\x00"), args("--oob-data \\x00"))
         assertEquals(listOf("-s1:5+sm", "-At,r,s", "-Mh,d,r", "-Qr"), args("-s 1:5+sm -At,r,s -M h,d,r -Q r"))
     }
 
@@ -27,7 +29,7 @@ class DpiStrategyParserTest {
         val hostile = listOf(
             "-p1081", "--port 1081", "-i0.0.0.0", "--ip 0.0.0.0", "-I::1", "-H /etc/hosts", "--hosts=:a",
             "-j :1.2.3.4", "-y /tmp/x", "-C 1.2.3.4", "-B 1", "-P /x", "-l /etc/passwd", "-D", "-w /tmp/p",
-            "-E", "-x2", "-b99999999", "-c1", "-N", "-U", "-e a", "-# note", "-/ x", "-d1 -p2"
+            "-E", "-x2", "-b99999999", "-c1", "-N", "-U", "-e aa", "-e /", "-# note", "-/ x", "-d1 -p2"
         )
         for (line in hostile) assertTrue("should reject: $line", DpiStrategyParser.parse(line) is DpiStrategyParser.Parsed.Rejected)
     }

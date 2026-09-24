@@ -144,10 +144,10 @@
     <string name="library_untitled">(без названия)</string>
 
     <string name="bypass_title">Обход блокировок сети</string>
-    <string name="bypass_description">Помогает, когда сеть (например, рабочий Wi-Fi) блокирует YouTube, анализируя заголовки соединений. Загрузки идут через небольшой движок внутри Kinescope, который дробит и переупорядочивает первые пакеты каждого соединения. Это не VPN: он не скрывает IP-адрес и не шифрует трафик. Он не поможет, если сеть блокирует DNS-запросы или сами IP-адреса.</string>
+    <string name="bypass_description">Сначала проверьте стратегию. Затем Kinescope сможет использовать локальный ByeDPI для загрузок и приложения YouTube. Android VPN нужен только для локальной маршрутизации YouTube: удалённого VPN-сервера нет, публичный IP не скрывается.</string>
     <string name="bypass_enable">Использовать обход для загрузок</string>
     <string name="bypass_strategy_label">Активная стратегия</string>
-    <string name="bypass_find">Найти рабочую стратегию</string>
+    <string name="bypass_find">Проверить стратегии</string>
     <string name="bypass_find_progress">Проверка стратегии %1$d из %2$d…</string>
     <string name="bypass_stop_search">Остановить поиск</string>
     <string name="bypass_search_found">Рабочая стратегия найдена и выбрана.</string>
@@ -156,7 +156,7 @@
     <string name="bypass_search_not_needed">В этой сети YouTube доступен напрямую, сравнивать стратегии не с чем. Запустите поиск в сети с ограничениями.</string>
     <string name="bypass_use">Выбрать</string>
     <string name="bypass_result_hosts">%1$d из %2$d узлов</string>
-    <string name="bypass_test">Проверить соединение</string>
+    <string name="bypass_test">Проверить выбранную</string>
     <string name="bypass_testing">Проверка…</string>
     <string name="bypass_test_title">Проверка соединения</string>
     <string name="bypass_test_direct">Напрямую: %1$s</string>
@@ -178,7 +178,7 @@
     <string name="bypass_verdict_bypass_fixes">Прямое соединение блокируется, а через обход проходит. Включите обход.</string>
     <string name="bypass_verdict_bypass_also_fails">Не работает ни прямое соединение, ни обход. Попробуйте другую стратегию или обновите список.</string>
     <string name="bypass_verdict_bypass_unavailable">Движок обхода недоступен.</string>
-    <string name="bypass_update">Обновить список стратегий</string>
+    <string name="bypass_update">Обновить список</string>
     <string name="bypass_updating">Обновление…</string>
     <string name="bypass_update_done">Добавлено новых стратегий: %1$d (всего %2$d).</string>
     <string name="bypass_update_same">Список уже актуален (стратегий: %1$d).</string>
@@ -187,4 +187,28 @@
     <string name="bypass_list_builtin">Используется встроенный список.</string>
     <string name="bypass_engine_note">Движок ByeDPI встроен в приложение и обновляется вместе с ним. Здесь обновляется список стратегий.</string>
     <string name="bypass_close">Закрыть</string>
+<string name="bypass_search_found_direct">Стратегия проверена. В этой сети YouTube также доступен напрямую.</string>
+<string name="bypass_test_verified">Выбранная стратегия прошла все проверки и готова к работе.</string>
+<string name="bypass_operation_failed">Операция не выполнена. Технические детали доступны в логах.</string>
+<string name="bypass_ready">Готово</string>
+<string name="bypass_not_ready">Нужна проверка</string>
+<string name="bypass_verified_at">Проверено: %1$s</string>
+<string name="bypass_test_first_hint">Сначала один раз проверьте стратегии.</string>
+<string name="bypass_enable_locked">Включение станет доступно после успешной проверки стратегии.</string>
+<string name="bypass_youtube_active">Обход для YouTube активен</string>
+<string name="bypass_quick_action">ByeDPI</string>
+<string name="bypass_open_youtube">YouTube</string>
+<string name="bypass_starting_short">Запуск…</string>
+<string name="bypass_need_test">Сначала проверьте стратегию ByeDPI в настройках.</string>
+<string name="bypass_vpn_permission_denied">Разрешение Android VPN не предоставлено.</string>
+<string name="bypass_vpn_no_verified_strategy">Перед запуском YouTube проверьте стратегию ByeDPI.</string>
+<string name="bypass_vpn_youtube_missing">Приложение YouTube не установлено.</string>
+<string name="bypass_vpn_engine_failed">Не удалось запустить ByeDPI.</string>
+<string name="bypass_vpn_tunnel_failed">Не удалось запустить локальный туннель YouTube.</string>
+<string name="bypass_notification_channel">Обход YouTube</string>
+<string name="bypass_notification_title">Kinescope · ByeDPI</string>
+<string name="bypass_notification_starting">Запуск локальной маршрутизации YouTube…</string>
+<string name="bypass_notification_active">Трафик YouTube проходит через локальный ByeDPI.</string>
+<string name="cd_remove_download">Удалить загрузку</string>
+    <string name="bypass_wait_download">Дождитесь окончания текущей загрузки, прежде чем тестировать или менять ByeDPI.</string>
 </resources>

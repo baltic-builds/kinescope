@@ -13,6 +13,8 @@ object DpiPrefs {
     private const val KEY_ENABLED = "enabled"
     private const val KEY_STRATEGY = "strategy"
     private const val KEY_LIST_UPDATED_AT = "list_updated_at"
+    private const val KEY_VERIFIED_STRATEGY = "verified_strategy"
+    private const val KEY_VERIFIED_AT = "verified_at"
 
     private fun prefs(context: Context) = context.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE)
 
@@ -25,7 +27,26 @@ object DpiPrefs {
     internal fun storedStrategy(context: Context): String? = prefs(context).getString(KEY_STRATEGY, null)
 
     fun setStrategy(context: Context, line: String) {
-        prefs(context).edit().putString(KEY_STRATEGY, line).apply()
+        val store = prefs(context)
+        val editor = store.edit().putString(KEY_STRATEGY, line)
+        if (store.getString(KEY_VERIFIED_STRATEGY, null) != line) {
+            editor.remove(KEY_VERIFIED_STRATEGY).remove(KEY_VERIFIED_AT).putBoolean(KEY_ENABLED, false)
+        }
+        editor.apply()
+    }
+
+    fun isStrategyVerified(context: Context, line: String): Boolean =
+        prefs(context).getString(KEY_VERIFIED_STRATEGY, null) == line
+
+    fun verifiedAt(context: Context): Long = prefs(context).getLong(KEY_VERIFIED_AT, 0L)
+
+    fun markStrategyVerified(context: Context, line: String) {
+        require(DpiStrategyParser.parse(line) is DpiStrategyParser.Parsed.Ok)
+        prefs(context).edit()
+            .putString(KEY_STRATEGY, line)
+            .putString(KEY_VERIFIED_STRATEGY, line)
+            .putLong(KEY_VERIFIED_AT, System.currentTimeMillis())
+            .apply()
     }
 
     fun listUpdatedAt(context: Context): Long = prefs(context).getLong(KEY_LIST_UPDATED_AT, 0L)
@@ -89,8 +110,10 @@ object DpiStrategyStore {
         if (lines.isEmpty()) return StrategyListUpdate.Failed("no usable strategies in the downloaded list")
 
         val previous = downloaded(context)
-        DpiPrefs.setListUpdatedAt(context, System.currentTimeMillis())
-        if (lines == previous) return StrategyListUpdate.Unchanged(candidates(context).size)
+        if (lines == previous) {
+            DpiPrefs.setListUpdatedAt(context, System.currentTimeMillis())
+            return StrategyListUpdate.Unchanged(candidates(context).size)
+        }
 
         val atomic = AtomicFile(listFile(context))
         val stream = try {
@@ -105,6 +128,7 @@ object DpiStrategyStore {
             atomic.failWrite(stream)
             return StrategyListUpdate.Failed(e.message ?: "could not save the list")
         }
+        DpiPrefs.setListUpdatedAt(context, System.currentTimeMillis())
         return StrategyListUpdate.Updated(added = lines.count { it !in previous }, total = candidates(context).size)
     }
 
@@ -119,6 +143,9 @@ object DpiStrategyStore {
             connection.instanceFollowRedirects = true
             connection.setRequestProperty("User-Agent", "Kinescope")
             val code = connection.responseCode
+            if (!connection.url.protocol.equals("https", ignoreCase = true)) {
+                throw IOException("redirected to a non-HTTPS URL")
+            }
             if (code != HttpURLConnection.HTTP_OK) throw IOException("HTTP $code")
             val output = java.io.ByteArrayOutputStream()
             val buffer = ByteArray(4096)

@@ -1,12 +1,14 @@
 package com.kinescope.app
 
 import android.Manifest
+import android.app.Activity
 import android.annotation.SuppressLint
 import android.content.ActivityNotFoundException
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
@@ -18,6 +20,7 @@ import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -36,6 +39,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -69,10 +73,13 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -164,12 +171,25 @@ private fun clipboardYouTubeUrl(context: Context): String? {
     return YouTubeUrlParser.firstFromText(text)?.canonicalUrl
 }
 
+private fun openYouTubeApp(context: Context): Boolean {
+    val intent = context.packageManager.getLaunchIntentForPackage(BypassVpnService.YOUTUBE_PACKAGE) ?: return false
+    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    return runCatching {
+        context.startActivity(intent)
+        true
+    }.getOrElse {
+        AppLog.e("MainActivity", "Could not open YouTube", it)
+        false
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun KinescopeApp(prefillUrl: String, requestNotifications: () -> Unit) {
     val context = LocalContext.current
     val jobs by DownloadQueueBus.jobs.collectAsState()
     val scope = rememberCoroutineScope()
+    val bypassState by BypassVpnController.state.collectAsState()
 
     var section by remember { mutableStateOf(AppSection.HOME) }
     var url by remember { mutableStateOf("") }
@@ -181,6 +201,19 @@ private fun KinescopeApp(prefillUrl: String, requestNotifications: () -> Unit) {
     var lastUpdateTimestamp by remember { mutableLongStateOf(Settings.getLastUpdateTimestamp(context)) }
     var settingsTapCount by remember { mutableIntStateOf(0) }
     var lastSettingsTapAt by remember { mutableLongStateOf(0L) }
+    var openYouTubeWhenReady by remember { mutableStateOf(false) }
+
+    val vpnPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            openYouTubeWhenReady = BypassVpnService.start(context)
+            if (!openYouTubeWhenReady) Toast.makeText(context, R.string.bypass_vpn_tunnel_failed, Toast.LENGTH_SHORT).show()
+        } else {
+            openYouTubeWhenReady = false
+            Toast.makeText(context, R.string.bypass_vpn_permission_denied, Toast.LENGTH_SHORT).show()
+        }
+    }
 
     LaunchedEffect(prefillUrl) {
         if (prefillUrl.isNotBlank()) {
@@ -223,6 +256,39 @@ private fun KinescopeApp(prefillUrl: String, requestNotifications: () -> Unit) {
             urlError = null
         }
         section = AppSection.QUICK_ADD
+    }
+
+    fun openByeDpiYouTube() {
+        val strategy = DpiStrategyStore.selected(context)
+        if (!DpiPrefs.isStrategyVerified(context, strategy)) {
+            section = AppSection.SETTINGS
+            Toast.makeText(context, R.string.bypass_need_test, Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (bypassState.active) {
+            if (!openYouTubeApp(context)) Toast.makeText(context, R.string.bypass_vpn_youtube_missing, Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (bypassState.starting) return
+        val permissionIntent = VpnService.prepare(context)
+        if (permissionIntent == null) {
+            openYouTubeWhenReady = BypassVpnService.start(context)
+            if (!openYouTubeWhenReady) Toast.makeText(context, R.string.bypass_vpn_tunnel_failed, Toast.LENGTH_SHORT).show()
+        } else {
+            openYouTubeWhenReady = true
+            vpnPermissionLauncher.launch(permissionIntent)
+        }
+    }
+
+    LaunchedEffect(bypassState.active, bypassState.errorRes, openYouTubeWhenReady) {
+        if (bypassState.active && openYouTubeWhenReady) {
+            openYouTubeWhenReady = false
+            if (!openYouTubeApp(context)) Toast.makeText(context, R.string.bypass_vpn_youtube_missing, Toast.LENGTH_SHORT).show()
+        } else if (bypassState.errorRes != null && openYouTubeWhenReady) {
+            val errorRes = bypassState.errorRes ?: return@LaunchedEffect
+            openYouTubeWhenReady = false
+            Toast.makeText(context, errorRes, Toast.LENGTH_LONG).show()
+        }
     }
 
     fun openSettingsWithSecretTap() {
@@ -272,6 +338,21 @@ private fun KinescopeApp(prefillUrl: String, requestNotifications: () -> Unit) {
                             }
                         }) {
                             Icon(Icons.Default.ArrowBack, contentDescription = stringResource(R.string.cd_back))
+                        }
+                    }
+                },
+                actions = {
+                    if (section == AppSection.HOME) {
+                        TextButton(enabled = !bypassState.starting, onClick = { openByeDpiYouTube() }) {
+                            Text(
+                                stringResource(
+                                    when {
+                                        bypassState.active -> R.string.bypass_open_youtube
+                                        bypassState.starting -> R.string.bypass_starting_short
+                                        else -> R.string.bypass_quick_action
+                                    }
+                                )
+                            )
                         }
                     }
                 },
@@ -379,58 +460,59 @@ private fun GlassBottomBar(
     onSettings: () -> Unit
 ) {
     Surface(color = Color.Transparent) {
-        Surface(
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 10.dp)
-                .border(
-                    width = 1.dp,
-                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.55f),
-                    shape = MaterialTheme.shapes.extraLarge
-                ),
-            shape = MaterialTheme.shapes.extraLarge,
-            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
-            tonalElevation = 8.dp,
-            shadowElevation = 12.dp
+                .padding(vertical = 6.dp),
+            contentAlignment = Alignment.Center
         ) {
-            Row(
+            Surface(
                 modifier = Modifier
+                    .widthIn(max = 330.dp)
                     .fillMaxWidth()
-                    .padding(horizontal = 18.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                    .padding(horizontal = 16.dp)
+                    .border(
+                        width = 1.dp,
+                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.42f),
+                        shape = MaterialTheme.shapes.extraLarge
+                    ),
+                shape = MaterialTheme.shapes.extraLarge,
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+                tonalElevation = 4.dp,
+                shadowElevation = 6.dp
             ) {
-                GlassNavIcon(
-                    selected = section == AppSection.HOME,
-                    onClick = onHome
-                ) {
-                    Icon(Icons.Default.Home, contentDescription = stringResource(R.string.cd_home))
-                }
-
-                Surface(
+                Row(
                     modifier = Modifier
-                        .size(56.dp)
-                        .clickable(onClick = onQuickAdd),
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.94f),
-                    tonalElevation = 6.dp,
-                    shadowElevation = 8.dp
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 5.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            Icons.Default.Add,
-                            contentDescription = stringResource(R.string.cd_quick_add),
-                            tint = MaterialTheme.colorScheme.onPrimary,
-                            modifier = Modifier.size(28.dp)
-                        )
+                    GlassNavIcon(selected = section == AppSection.HOME, onClick = onHome) {
+                        Icon(Icons.Default.Home, contentDescription = stringResource(R.string.cd_home))
                     }
-                }
-
-                GlassNavIcon(
-                    selected = section == AppSection.SETTINGS || section == AppSection.LOGS,
-                    onClick = onSettings
-                ) {
-                    Icon(Icons.Default.Settings, contentDescription = stringResource(R.string.cd_settings))
+                    Surface(
+                        modifier = Modifier.size(48.dp).clickable(onClick = onQuickAdd),
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.94f),
+                        tonalElevation = 3.dp,
+                        shadowElevation = 4.dp
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                Icons.Default.Add,
+                                contentDescription = stringResource(R.string.cd_quick_add),
+                                tint = MaterialTheme.colorScheme.onPrimary,
+                                modifier = Modifier.size(25.dp)
+                            )
+                        }
+                    }
+                    GlassNavIcon(
+                        selected = section == AppSection.SETTINGS || section == AppSection.LOGS,
+                        onClick = onSettings
+                    ) {
+                        Icon(Icons.Default.Settings, contentDescription = stringResource(R.string.cd_settings))
+                    }
                 }
             }
         }
@@ -555,6 +637,7 @@ private fun HomeScreen(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun QueueRow(
     job: DownloadJobStatus,
@@ -562,89 +645,108 @@ private fun QueueRow(
     onResume: (String) -> Unit,
     onStop: (String) -> Unit
 ) {
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp),
-        shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surfaceVariant
-    ) {
-        Row(
-            modifier = Modifier.padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+    val dismissState = rememberSwipeToDismissBoxState(
+        confirmValueChange = { value ->
+            if (value == SwipeToDismissBoxValue.EndToStart && job.state != JobState.SAVING) {
+                onStop(job.id)
+                true
+            } else {
+                false
+            }
+        },
+        positionalThreshold = { distance -> distance * 0.35f }
+    )
+    SwipeToDismissBox(
+        state = dismissState,
+        enableDismissFromStartToEnd = false,
+        enableDismissFromEndToStart = job.state != JobState.SAVING,
+        backgroundContent = {
             Box(
                 modifier = Modifier
-                    .size(48.dp)
-                    .clip(MaterialTheme.shapes.small)
-                    .background(MaterialTheme.colorScheme.primaryContainer),
-                contentAlignment = Alignment.Center
+                    .fillMaxSize()
+                    .padding(vertical = 4.dp)
+                    .clip(MaterialTheme.shapes.medium)
+                    .background(MaterialTheme.colorScheme.errorContainer)
+                    .padding(end = 20.dp),
+                contentAlignment = Alignment.CenterEnd
             ) {
                 Icon(
-                    imageVector = Icons.Default.PlayArrow,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer
+                    Icons.Default.Delete,
+                    contentDescription = stringResource(R.string.cd_remove_download),
+                    tint = MaterialTheme.colorScheme.onErrorContainer
                 )
             }
-            Spacer(modifier = Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "${job.qualityLabel} — ${job.url}",
-                    style = MaterialTheme.typography.titleSmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                val statusColor = when (job.state) {
-                    JobState.QUEUED, JobState.STOPPED -> MaterialTheme.colorScheme.onSurfaceVariant
-                    JobState.PREPARING, JobState.RUNNING, JobState.PROCESSING, JobState.SAVING ->
-                        MaterialTheme.colorScheme.onPrimaryContainer
-                    JobState.PAUSED, JobState.INTERRUPTED -> YtOfflineExtras.colors.warning
-                    JobState.DONE -> YtOfflineExtras.colors.success
-                    JobState.FAILED -> MaterialTheme.colorScheme.error
-                }
-                Text(
-                    text = stringResource(
-                        R.string.job_status_line,
-                        jobStateLabel(job.state),
-                        job.progressText
-                    ),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = statusColor
-                )
-                if (job.state == JobState.RUNNING) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    LinearProgressIndicator(
-                        progress = job.progressFraction ?: 0f,
-                        modifier = Modifier.fillMaxWidth(),
-                        color = MaterialTheme.colorScheme.primary,
-                        trackColor = MaterialTheme.colorScheme.surface
+        }
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp),
+            shape = MaterialTheme.shapes.medium,
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            tonalElevation = 0.dp
+        ) {
+            Row(
+                modifier = Modifier.padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(MaterialTheme.shapes.small)
+                        .background(MaterialTheme.colorScheme.primaryContainer),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.PlayArrow,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer
                     )
                 }
-            }
-            when (job.state) {
-                JobState.RUNNING -> {
-                    IconButton(onClick = { onPause(job.id) }) {
-                        Icon(painterResource(R.drawable.ic_pause), contentDescription = stringResource(R.string.cd_pause))
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "${job.qualityLabel} — ${job.url}",
+                        style = MaterialTheme.typography.titleSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    val statusColor = when (job.state) {
+                        JobState.QUEUED, JobState.STOPPED -> MaterialTheme.colorScheme.onSurfaceVariant
+                        JobState.PREPARING, JobState.RUNNING, JobState.PROCESSING, JobState.SAVING ->
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        JobState.PAUSED, JobState.INTERRUPTED -> YtOfflineExtras.colors.warning
+                        JobState.DONE -> YtOfflineExtras.colors.success
+                        JobState.FAILED -> MaterialTheme.colorScheme.error
                     }
-                    IconButton(onClick = { onStop(job.id) }) {
-                        Icon(painterResource(R.drawable.ic_stop), contentDescription = stringResource(R.string.cd_stop))
+                    Text(
+                        text = stringResource(R.string.job_status_line, jobStateLabel(job.state), job.progressText),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = statusColor
+                    )
+                    if (job.state == JobState.RUNNING) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        LinearProgressIndicator(
+                            progress = job.progressFraction ?: 0f,
+                            modifier = Modifier.fillMaxWidth(),
+                            color = MaterialTheme.colorScheme.primary,
+                            trackColor = MaterialTheme.colorScheme.surface
+                        )
                     }
                 }
-                JobState.PAUSED, JobState.INTERRUPTED, JobState.FAILED -> {
-                    IconButton(onClick = { onResume(job.id) }) {
-                        Icon(Icons.Default.PlayArrow, contentDescription = stringResource(R.string.cd_resume))
+                when (job.state) {
+                    JobState.RUNNING -> {
+                        IconButton(onClick = { onPause(job.id) }) {
+                            Icon(painterResource(R.drawable.ic_pause), contentDescription = stringResource(R.string.cd_pause))
+                        }
                     }
-                    IconButton(onClick = { onStop(job.id) }) {
-                        Icon(painterResource(R.drawable.ic_stop), contentDescription = stringResource(R.string.cd_stop))
+                    JobState.PAUSED, JobState.INTERRUPTED, JobState.FAILED -> {
+                        IconButton(onClick = { onResume(job.id) }) {
+                            Icon(Icons.Default.PlayArrow, contentDescription = stringResource(R.string.cd_resume))
+                        }
                     }
+                    else -> Unit
                 }
-                JobState.QUEUED, JobState.PREPARING, JobState.PROCESSING -> {
-                    IconButton(onClick = { onStop(job.id) }) {
-                        Icon(painterResource(R.drawable.ic_stop), contentDescription = stringResource(R.string.cd_stop))
-                    }
-                }
-                JobState.SAVING -> Unit
-                else -> Unit
             }
         }
     }

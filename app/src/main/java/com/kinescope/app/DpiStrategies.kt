@@ -24,7 +24,7 @@ object DpiStrategyParser {
         data class Rejected(val reason: String) : Parsed
     }
 
-    private enum class Kind { FLAG, NUMERIC, LIST, FAKE_SNI }
+    private enum class Kind { FLAG, NUMERIC, LIST, FAKE_SNI, BYTE }
 
     private class Option(val short: Char, val long: String, val kind: Kind)
 
@@ -51,6 +51,7 @@ object DpiStrategyParser {
         Option('M', "mod-http", Kind.LIST),
         Option('Q', "fake-tls-mod", Kind.LIST),
         Option('n', "fake-sni", Kind.FAKE_SNI),
+        Option('e', "oob-data", Kind.BYTE),
         Option('S', "md5sig", Kind.FLAG),
         Option('Y', "drop-sack", Kind.FLAG),
         Option('F', "tfo", Kind.FLAG),
@@ -65,6 +66,7 @@ object DpiStrategyParser {
     // option name starts with an upper-case letter.
     private val numericValue = Regex("^[0-9+\\-][0-9A-Za-z:,+\\-]{0,63}$")
     private val listValue = Regex("^[A-Za-z][A-Za-z0-9_=,]{0,63}$")
+    private val byteValue = Regex("^(?:[A-Za-z0-9]|\\\\x[0-9A-Fa-f]{2})$")
     private val fakeSniValue =
         Regex("^(\\{sni\\}|[A-Za-z0-9?#*_-]{1,63}(\\.[A-Za-z0-9?#*_-]{1,63})+)$")
 
@@ -105,7 +107,9 @@ object DpiStrategyParser {
             val grammar = when (option.kind) {
                 Kind.NUMERIC -> numericValue
                 Kind.LIST -> listValue
-                else -> fakeSniValue
+                Kind.BYTE -> byteValue
+                Kind.FAKE_SNI -> fakeSniValue
+                Kind.FLAG -> error("flag handled above")
             }
             if (!grammar.matches(value)) {
                 return Parsed.Rejected("bad value for -${option.short}: '${value.take(20)}'")
