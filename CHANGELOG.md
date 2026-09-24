@@ -13,6 +13,40 @@ patch's own `.py` script for the exact, idempotent, exact-match-guarded
 edits it makes.
 
 
+<!-- moved to the top of CHANGELOG.md by patch 28 -->
+## Patch 27 — In-app network bypass (bundled ByeDPI engine)
+
+User-requested feature: the user's corporate Wi-Fi is believed to restrict YouTube by inspecting connection headers (DPI), and asked for the approach used by [ByeByeDPI](https://github.com/romanvht/ByeByeDPI) / [ByeDPI](https://github.com/hufrea/byedpi) to be built directly into Kinescope, with Settings controls to turn it on, search for and choose a strategy, and update. Full research and design record: `INTEGRATION_PLAN.md` in the project's memory.
+
+### What was verified before writing this patch (sandbox, not a real device)
+- Cloned upstream `hufrea/byedpi` at commit `ba532298`; it is a ~6.6k LOC MIT-licensed C SOCKS5 server implementing "desync" strategies (split/disorder/fake first packets) as CLI flags. It is not a VPN and does not encrypt traffic or hide the IP.
+- Vendored those C sources unmodified into `app/src/main/cpp/byedpi/` (win_service.* excluded, Windows-only) and wrote Kinescope's own JNI glue (`dpi_jni.c`) from scratch -- no code from ByeByeDPI's own (GPL-3.0) Kotlin/Java/native-lib.c was used or derived from.
+- Built the vendored engine + glue as a host `.so` (glibc, JNI headers fetched from the OpenJDK mirror) and drove it with a JVM test harness: started/stopped the real engine through every built-in strategy, relayed real bytes through it via a hand-written SOCKS5 client to both a plain TCP echo server and a local TLS+HTTP server (full CONNECT -> TLS handshake -> HTTP request path). All built-ins passed both harnesses; a concurrent second engine start is correctly refused.
+- Wrote `DpiStrategyParser`, an allowlist-only parser for the engine's desync CLI syntax: it accepts the documented split/disorder/oob/fake/tlsrec/auto/etc. options and their attached-argument and `--long-form` spellings, substitutes the `{sni}` placeholder ByeByeDPI's own list uses, and rejects everything that could change the listen address, read/write a file, or connect elsewhere (`--ip`, `--port`, `--hosts`, `--cache-file`, `--connect-to`, `--daemon`, ...). Verified against the real upstream `proxytest_strategies.list` (59 of 60 lines accepted; the one rejected line uses an option this app does not expose) and ~30 hand-written hostile inputs (path/host/port overrides, shell metacharacters, and getopt long-option-abbreviation collisions such as `-daemon`, `-de`, `-nno-domain`). 18 JVM unit tests across the parser, `NetworkCheck` (extended for the bypass path), and the strategy search.
+
+### Added
+- `app/src/main/cpp/byedpi/` -- vendored unmodified ByeDPI C sources (MIT license, provenance in `KINESCOPE_VENDOR.txt`).
+- `app/src/main/cpp/dpi_jni.c` + `CMakeLists.txt` -- Kinescope's own JNI glue; 16 KB-page-aligned link flags (`-Wl,-z,max-page-size=16384`).
+- `DpiNative.kt` -- JNI declarations (`nativeRun`/`nativeStop`), loads `libkinescope_dpi.so`.
+- `DpiEngineService.kt` -- hosts the engine in its own `:dpi` process (declared in `AndroidManifest.xml`), killed after every run so the engine's process-wide C globals never carry state between strategies or downloads.
+- `DpiEngine.kt` -- binds/unbinds the service, waits for the SOCKS5 port to answer (bounded, polling), exposes an `AutoCloseable` `BypassSession`.
+- `NetworkCheck.kt` -- layered direct-vs-bypassed reachability probe (DNS/TCP/proxy/CONNECT/TLS/HTTP stages) with a `Verdict` classifying which layer, if any, is blocked and whether the bypass gets past it.
+- `DpiStrategies.kt` -- `DpiStrategyParser` (above) and a small offline `DpiBuiltInStrategies` list so the feature works before any list update and without network access.
+- `DpiStrategyStore.kt` -- `SharedPreferences` for the enabled flag and selected strategy, plus an HTTPS-only (size- and count-bounded) download of ByeByeDPI's own community strategy list, re-validated through the same parser before it is ever used.
+- `DpiSearch.kt` (`DpiStrategySearch`) -- tries candidate strategies in turn against three real probe hosts (`www.youtube.com`, `i.ytimg.com`, `redirector.googlevideo.com`); stops at the first strategy that gets all three through, otherwise keeps the one with the most hosts through.
+- `DpiBypass.kt` -- glue used by both the download path and the Settings UI: starts the engine for a download when enabled, and runs `NetworkCheck` to diagnose direct-vs-bypassed reachability per host.
+- `BypassSettingsSection()` in `BypassSettings.kt`, wired into `SettingsScreen`: on/off switch, "Find a working strategy" (progress + Stop, per-result "Use" buttons), "Test the connection" (direct vs. bypassed stage-by-stage result + plain-language verdict), "Update the strategy list".
+- `DownloadService.executeAttempt()`: when the bypass is enabled, starts the engine for the duration of that attempt and points yt-dlp's `--proxy` at `socks5h://127.0.0.1:<port>` (the `h` matters: the engine resolves the host name itself, so DNS filtering of the device does not by itself defeat it); the session is always closed in a `finally`, including on exception.
+- New JVM tests: `DpiStrategyParserTest`, `NetworkCheckTest` (bypass-path SOCKS5 fixtures, `Verdict.DNS_BLOCKS_BYPASS`), `DpiStrategySearchTest`.
+- `.devcontainer/setup.sh` and `.github/workflows/build-release.yml` now also install `ndk;27.2.12479018`, required to compile the new native code.
+- `THIRD_PARTY_NOTICES.md`, `README.md` updated for the new dependency and feature.
+
+### Explicitly not done in this patch
+- Not verified on a real device or a real GitHub Actions run (new `ROADMAP.md` gate). In particular, whether CMake cross-compiles cleanly for arm64-v8a in that exact toolchain is unproven -- only a host (glibc, x86_64) build was tested.
+- Not on by default; the user must switch it on in Settings.
+- Does not claim to fix DNS- or IP-level blocking; the Verdict text says so explicitly (`DNS_BLOCKED`, `DNS_BLOCKS_BYPASS`) rather than implying the bypass is a universal fix.
+- Does not touch `DownloadErrorClassifier`; that stays unrelated to whether a bypass is active.
+
 ## Patch 25c — Android string-resource compile hotfix
 
 Patch 25b applied the full Patch-25 roadmap-completion tree, but its local
@@ -584,35 +618,3 @@ below).
   can no longer crash the whole process. Dead
   `requestLegacyExternalStorage="true"` removed.
 
-<!-- patch 27: the paragraph this note was meant to extend was not found verbatim in this file (it may have been reworded since this patch was written); appended standalone instead. Consider folding it into the surrounding prose by hand. -->
-## Patch 27 — In-app network bypass (bundled ByeDPI engine)
-
-User-requested feature: the user's corporate Wi-Fi is believed to restrict YouTube by inspecting connection headers (DPI), and asked for the approach used by [ByeByeDPI](https://github.com/romanvht/ByeByeDPI) / [ByeDPI](https://github.com/hufrea/byedpi) to be built directly into Kinescope, with Settings controls to turn it on, search for and choose a strategy, and update. Full research and design record: `INTEGRATION_PLAN.md` in the project's memory.
-
-### What was verified before writing this patch (sandbox, not a real device)
-- Cloned upstream `hufrea/byedpi` at commit `ba532298`; it is a ~6.6k LOC MIT-licensed C SOCKS5 server implementing "desync" strategies (split/disorder/fake first packets) as CLI flags. It is not a VPN and does not encrypt traffic or hide the IP.
-- Vendored those C sources unmodified into `app/src/main/cpp/byedpi/` (win_service.* excluded, Windows-only) and wrote Kinescope's own JNI glue (`dpi_jni.c`) from scratch -- no code from ByeByeDPI's own (GPL-3.0) Kotlin/Java/native-lib.c was used or derived from.
-- Built the vendored engine + glue as a host `.so` (glibc, JNI headers fetched from the OpenJDK mirror) and drove it with a JVM test harness: started/stopped the real engine through every built-in strategy, relayed real bytes through it via a hand-written SOCKS5 client to both a plain TCP echo server and a local TLS+HTTP server (full CONNECT -> TLS handshake -> HTTP request path). All built-ins passed both harnesses; a concurrent second engine start is correctly refused.
-- Wrote `DpiStrategyParser`, an allowlist-only parser for the engine's desync CLI syntax: it accepts the documented split/disorder/oob/fake/tlsrec/auto/etc. options and their attached-argument and `--long-form` spellings, substitutes the `{sni}` placeholder ByeByeDPI's own list uses, and rejects everything that could change the listen address, read/write a file, or connect elsewhere (`--ip`, `--port`, `--hosts`, `--cache-file`, `--connect-to`, `--daemon`, ...). Verified against the real upstream `proxytest_strategies.list` (59 of 60 lines accepted; the one rejected line uses an option this app does not expose) and ~30 hand-written hostile inputs (path/host/port overrides, shell metacharacters, and getopt long-option-abbreviation collisions such as `-daemon`, `-de`, `-nno-domain`). 18 JVM unit tests across the parser, the shared `NetworkCheck` (patch 26) extended for the bypass path, and the strategy search.
-
-### Added
-- `app/src/main/cpp/byedpi/` -- vendored unmodified ByeDPI C sources (MIT license, provenance in `KINESCOPE_VENDOR.txt`).
-- `app/src/main/cpp/dpi_jni.c` + `CMakeLists.txt` -- Kinescope's own JNI glue; 16 KB-page-aligned link flags (`-Wl,-z,max-page-size=16384`).
-- `DpiNative.kt` -- JNI declarations (`nativeRun`/`nativeStop`), loads `libkinescope_dpi.so`.
-- `DpiEngineService.kt` -- hosts the engine in its own `:dpi` process (declared in `AndroidManifest.xml`), killed after every run so the engine's process-wide C globals never carry state between strategies or downloads.
-- `DpiEngine.kt` -- binds/unbinds the service, waits for the SOCKS5 port to answer (bounded, polling), exposes an `AutoCloseable` `BypassSession`.
-- `DpiStrategies.kt` -- `DpiStrategyParser` (above) and a small offline `DpiBuiltInStrategies` list so the feature works before any list update and without network access.
-- `DpiStrategyStore.kt` -- `SharedPreferences` for the enabled flag and selected strategy, plus an HTTPS-only (size- and count-bounded) download of ByeByeDPI's own community strategy list, re-validated through the same parser before it is ever used.
-- `DpiSearch.kt` (`DpiStrategySearch`) -- tries candidate strategies in turn against three real probe hosts (`www.youtube.com`, `i.ytimg.com`, `redirector.googlevideo.com`); stops at the first strategy that gets all three through, otherwise keeps the one with the most hosts through.
-- `DpiBypass.kt` -- glue used by both the download path and the Settings UI: starts the engine for a download when enabled, and reuses patch 26's `NetworkCheck`/`Verdict` machinery to diagnose direct-vs-bypassed reachability per host.
-- `BypassSettingsSection()` in `BypassSettings.kt`, wired into `SettingsScreen`: on/off switch, "Find a working strategy" (progress + Stop, per-result "Use" buttons), "Test the connection" (direct vs. bypassed stage-by-stage result + plain-language verdict), "Update the strategy list".
-- `DownloadService.executeAttempt()`: when the bypass is enabled, starts the engine for the duration of that attempt and points yt-dlp's `--proxy` at `socks5h://127.0.0.1:<port>` (the `h` matters: the engine resolves the host name itself, so DNS filtering of the device does not by itself defeat it); the session is always closed in a `finally`, including on exception.
-- New JVM tests: `DpiStrategyParserTest`, `NetworkCheckTest` (extended: bypass-path SOCKS5 fixtures, `Verdict.DNS_BLOCKS_BYPASS`), `DpiStrategySearchTest`.
-- `.devcontainer/setup.sh` and `.github/workflows/build-release.yml` now also install `ndk;27.2.12479018`, required to compile the new native code.
-- `THIRD_PARTY_NOTICES.md`, `README.md` updated for the new dependency and feature.
-
-### Explicitly not done in this patch
-- Not verified on a real device or a real GitHub Actions run (new `ROADMAP.md` gate). In particular, whether CMake cross-compiles cleanly for arm64-v8a in that exact toolchain is unproven -- only a host (glibc, x86_64) build was tested.
-- Not on by default; the user must switch it on in Settings.
-- Does not claim to fix DNS- or IP-level blocking; the Verdict text says so explicitly (`DNS_BLOCKED`, `DNS_BLOCKS_BYPASS`) rather than implying the bypass is a universal fix.
-- Does not touch `DownloadErrorClassifier`/`NetworkProbe` (patch 26); those are unrelated to whether a bypass is active.

@@ -27,6 +27,11 @@ resource check for the same class of mistake, and only records completion after
 roadmap scope changed in this hotfix.
 
 
+### Patch 27 / network bypass status
+
+User-requested feature, not a bugfix: the user's corporate Wi-Fi is believed to restrict YouTube by DPI (header inspection), and asked for the `ByeByeDPI`/`byedpi` approach to be built directly into Kinescope. Patch 27 vendors the MIT `hufrea/byedpi` C engine, adds Kinescope's own JNI glue (no ByeByeDPI Kotlin/Java code used), and adds a Settings section to enable it, search for/choose a strategy, and update the strategy list. Verified in the sandbox with a host-compiled build of the real engine driven by JVM test harnesses (start/stop/relay through every built-in strategy over both a plain-TCP and a TLS+HTTP path; 18 unit tests). **Not yet verified**: that the real arm64-v8a CMake/NDK build succeeds, that the `:dpi` process behaves correctly on a real device, or that this actually gets past the user's specific network restriction (vs. it being DNS/IP filtering, which this feature is not designed to fix). See `ROADMAP.md`'s new gate. Full design record: `INTEGRATION_PLAN.md` in the project's memory.
+
+
 Patch 24 / Sprint 1 was successfully applied by the user, built in Codespaces (`BUILD SUCCESSFUL`) and pushed as commit `91169f5`. That confirms compilation of the Sprint-1 code, **not** its new device-dependent behavior. Real-device verification remains open.
 
 Patch 25 consumes the still-relevant engineering work from the former lowercase S0-S11 audit and closes the autonomous reliability/hardening backlog: a durable `AtomicFile` job journal, explicit process-death recovery, strict canonical YouTube URL parsing, stable quality IDs, active-job dedupe, one serialized yt-dlp/ffmpeg/update boundary, per-job workspaces + orphan cleanup, hardened MediaStore commit semantics, off-main-thread library I/O, Android 15 foreground-service timeout handling, notification actions, privacy-redacted diagnostics with backup disabled, JVM tests, stronger release verification, pinned Android command-line tools, accessibility token corrections, and a third-party dependency inventory.
@@ -75,225 +80,37 @@ one extracted into a working copy and dry-run-verified (diffs +
 bracket balance + idempotency, usually across 2-5 full-chain passes)
 before being handed over -- never delivered untested:
 
-- **Patch 01** -- ROADMAP Steps 1-3: the Compose BOM version (was a
-  fabricated future release that doesn't exist), `execute()`'s
-  progress-callback arity (confirmed 3-parameter against the
-  youtubedl-android library's own sample-app source, not guessed),
-  `updateYoutubeDL()`'s required `UpdateChannel` argument, the
-  `DownloadService` worker race condition (fixed more thoroughly than
-  the roadmap's own sample fix actually closes -- see the doc comment
-  above `startWorkerLocked()` for why), and a catch-all exception
-  handler so one bad download can no longer crash the whole process.
-- **Patch 02** -- ROADMAP Step 4: filename humanization (yt-dlp writes
-  the real title via its own output template; a bracketed job-id tag
-  makes the resulting file findable afterward, then gets stripped back
-  out), job-id-tag-based output file scanning (replacing an
-  exact-filename assumption that a humanized title also broke),
-  `MediaStore.RELATIVE_PATH`'s trailing-slash mismatch between insert
-  and query, atomic `DownloadQueueBus` updates
-  (`MutableStateFlow.update {}` instead of a racy read-then-write),
-  Downloads-subfolder-name sanitization, YouTube-host validation on
-  shared/pasted URLs, and an `ActivityNotFoundException` guard on the
-  video-player launch intent.
-- **Patch 03** -- ROADMAP Step 6.1/6.2/6.3/6.6: a real dark
-  `ColorScheme` (there was only ever a light one), three tokens
-  Material3's baseline `ColorScheme` has no slot for (`surfaceRaised`,
-  `warning`, `errorContainer`) exposed via a `CompositionLocal`-backed
-  `YtOfflineExtras` object (mirrors how `MaterialTheme.colorScheme`
-  itself is accessed), a completed typography scale, and the
-  adaptive-icon safe-zone clipping fix.
-- **Patch 04** -- ROADMAP Step 6.5: queue-row thumbnail placeholders
-  and a real `LinearProgressIndicator` (required adding a
-  `progressFraction: Float?` field to `DownloadJobStatus` -- previously
-  there was only a formatted string like "45% (ETA 12s)"), an
-  empty-queue illustration, a Library overflow menu with **working**
-  Share (`Intent.ACTION_SEND`) and Delete (`ContentResolver.delete()`
-  -- genuinely new functionality, not just a UI affordance), a
-  sectioned Settings screen (with a persisted yt-dlp-last-updated
-  timestamp, new), a dismissible connectivity-loss banner, and a
-  composer-bar focus-border fix.
-- **Patch 06** -- ROADMAP Step 7 (Kinescope rename): `namespace` /
-  `applicationId` in `app/build.gradle.kts` and `rootProject.name` in
-  `settings.gradle.kts` renamed to `com.kinescope.app` / `kinescope`;
-  every Kotlin source file physically moved from
-  `app/src/main/java/com/baltic/ytoffline/` to
-  `app/src/main/java/com/kinescope/app/` with its `package`
-  declaration updated to match; `app_name` in `strings.xml` changed to
-  "Kinescope"; the two other user-visible leftover strings
-  (`DownloadService`'s notification title, `MainActivity`'s
-  `TopAppBar` title) updated so the rebrand doesn't look half-done on
-  screen; `design.md`'s three "YT Offline" mentions updated. Internal
-  Kotlin identifiers containing "YtOffline" (the `YtOfflineApp` class,
-  `YtOfflineTheme`, `YtOfflineExtras`, etc.) were deliberately left
-  unchanged -- not user-visible, not in ROADMAP.md's Step 7 checklist,
-  and renaming them would add risk for no user-facing benefit.
-  (Patch 05 isn't listed here as a numbered accomplishment -- it was
-  the documentation-only patch that produced this file and the
-  ROADMAP.md status section, in the previous conversation.)
-- **Patch 07** -- Pre-Step-5 environment fix: `.devcontainer/setup.sh`
-  had a `pipefail` bug (`yes | sdkmanager --licenses`) that could
-  silently abort setup before the Gradle wrapper was ever generated --
-  fixed by disabling `pipefail` around just that one pipeline and
-  checking `sdkmanager`'s real exit status explicitly. Also
-  pre-verified the `youtubedl-android`/`ffmpeg` import paths and API
-  shapes against the library's README and sample app -- **this
-  pre-verification turned out to be incomplete**; see patch 14.
-- **Patch 08** -- Documentation only: recorded the two-roadmap situation
-  (this `ROADMAP.md`, by Claude Fable 5.1, vs. the separate `roadmap.md`
-  by GPT Astra, added later) and the required execution order -- finish
-  `ROADMAP.md` through Step 9 first, then `roadmap.md`, then delete
-  both files -- in both `ROADMAP.md` and this file, so a fresh session
-  doesn't have to re-discover or re-litigate it.
-- **Patch 09** -- Fixed a stale cross-reference in `ROADMAP.md`'s Step 5
-  section ("Do not move to Step 7 (signed release)...") left over from
-  before the Kinescope-rename step was inserted as its own Step 7;
-  signed release has been Step 9 since patch 06. Documentation only.
-- **Patch 10** -- Made `.devcontainer/setup.sh` safely re-runnable: the
-  Android cmdline-tools download/extract/`mv` block failed outright on
-  a second run ("Directory not empty") once already installed once;
-  the `.bashrc` export block also duplicated itself on every run. Both
-  guarded to skip/no-op when already done.
-- **Patch 11** -- First attempt at the real `./gradlew assembleDebug`
-  failure (a bare, cryptic `25.0.2` error with no other text).
-  Hypothesis: a JDK too new for Gradle 8.10.2. Added auto-detection of
-  an installed JDK 17 via SDKMAN, pinned via `org.gradle.java.home` in
-  `gradle.properties` if found. **Didn't fix anything yet** -- this
-  Codespace has no JDK 17 at all (see patch 12).
-- **Patch 12** -- Broadened patch 11's JDK search to accept any JDK
-  Gradle 8.10.2 can actually run on (17-23 inclusive, per Gradle's own
-  8.10 release notes: "Gradle now supports running on Java 23") instead
-  of requiring exactly 17. A live diagnostic confirmed the root cause
-  precisely: `java`/`javac` on `PATH` resolve to a Codespace-provided
-  JDK 25.0.2 at `/home/codespace/java/current`, entirely separate from
-  -- and taking priority over -- the devcontainer Java feature's
-  SDKMAN-managed install (which itself only has `21.0.10-ms` and
-  `25.0.2-ms`, no 17.x, despite `devcontainer.json` requesting version
-  17). Patch 12 picked up the already-installed `21.0.10-ms` and pinned
-  it. **This is what actually fixed the JDK mismatch** -- the next real
-  build got past environment setup entirely for the first time.
-- **Patch 13** -- Fixed the first real compile-time error, hit right
-  after the JDK fix: `ic_launcher_foreground.xml` had a comment
-  containing `--`, which the XML spec forbids anywhere in a comment
-  body (only valid as part of the closing `-->`). Confirmed via a
-  regex scan of every XML comment in the repo that this was the only
-  occurrence.
-- **Patch 14** -- Fixed the real, final compile error and the actual
-  substance of Appendix finding #11: `UpdateChannel` is a **nested
-  class of `YoutubeDL`**
-  (`com.yausername.youtubedl_android.YoutubeDL.UpdateChannel`), not
-  top-level in `com.yausername.youtubedl_android` as patch 07 had
-  concluded from a README comment that dropped the qualifying prefix
-  for brevity. Confirmed this time by `git clone`-ing the actual
-  library at the exact tagged version (`0.18.1`) pinned in
-  `app/build.gradle.kts` and reading the real source directly, rather
-  than inferring from secondary sources. Everything else patch 07
-  checked (`YoutubeDL`/`YoutubeDLRequest`/`YoutubeDLException`/`FFmpeg`
-  locations, the 3-parameter `execute()` callback,
-  `updateYoutubeDL()`'s signature) was re-confirmed correct against
-  this same real checkout. **After this patch, `./gradlew assembleDebug`
-  succeeded -- the first successful build in the project's history.**
-- **Patch 15** -- Documentation consolidation after the first
-  successful build: `README.md` rewritten from scratch (the draft
-  `ROADMAP.md` referenced could no longer be located in the repo),
-  this file refreshed end to end, and `ROADMAP.md`'s top status block
-  and Step 2/Step 5 notes updated to match. (This bullet itself was
-  missing from this list until patch 16 caught it -- self-referential
-  doc patches are easy to under-describe.)
-- **Patch 16** -- Added `.github/workflows/build-debug.yml`: a
-  manual-only (`workflow_dispatch`) GitHub Actions workflow that builds
-  a debug APK and uploads it as a run artifact, so getting a build onto
-  a phone no longer depends on adb or a Codespace-browser download.
-  Version name is supplied by hand each run; `versionCode` is derived
-  from the Actions run number so it always increases. `app/build.gradle.kts`
-  updated to read optional `appVersionCode`/`appVersionName` Gradle
-  properties (falls back to the existing hardcoded `7`/`"1.0.0"` for
-  local builds). Also introduced `CHANGELOG.md` and the process behind
-  it: from this patch on, a completed `ROADMAP.md` item gets its
-  detailed checklist collapsed to a one-line pointer there, with the
-  actual change log recorded in `CHANGELOG.md` instead -- `ROADMAP.md`
-  shrank from 634 to well under 300 lines as a result. Also fixed a
-  stale, never-flipped checkbox in `ROADMAP.md`'s Step 8 (the README
-  rewrite was actually done in patch 15, but the checkbox said
-  otherwise). **Multi-pass full-chain testing caught the exact
-  "later patch breaks an earlier patch's own idempotency check" failure
-  mode already documented below** -- collapsing the Appendix removed
-  the anchor rows patches 07/13/14 depend on, and rewriting the top
-  status block/Step 2 broke patch 15's checks too. Fixed by adding a
-  short-circuit guard to each of those four scripts' `patch_roadmap()`:
-  if patch 16's Appendix-trim marker is present, skip that patch's
-  ROADMAP.md edit entirely (nothing left for it to do; patch 16's
-  rewrite already incorporates it). Without this, a repeated full-chain
-  run would have either failed loudly or, for patch 07's row 34,
-  silently resurrected content patch 16 had intentionally removed.
-- **Patch 17** -- Added `CJM.md`: the five-stage Customer Journey Map
-  (prep at home -> queue & download -> departure/loses access -> watch
-  offline in-region -> return & refresh library) as a standalone living
-  document, closing Step 8's last concrete checkbox. States explicitly
-  why stage 1 (queuing several videos at home, the night before a trip)
-  is the highest-risk moment: it's the last point of full internet
-  access, and nothing between it and departure is recoverable if it
-  goes wrong -- the actual reason every crash/race/silent-failure fix
-  in Steps 1/3/4 was ranked Critical/High. This was the one remaining
-  fully autonomous item -- everything else still open (Step 5's device
-  install/testing, and Step 9's signed release, which `ROADMAP.md`
-  itself explicitly gates on Step 5 being confirmed on a real device)
-  needs the user's actual phone and can't be advanced further from
-  here without that. **Also patched patch 16's own script, twice**:
-  since this patch further modifies both `ROADMAP.md` and `HANDOFF.md`
-  after patch 16 already did, patch 16's idempotency check broke on a
-  repeated full-chain run for both files, for the same reason patch 16
-  itself had to fix patches 07/13/14/15 -- caught by this patch's own
-  multi-pass regression test. Fixed by giving
-  `whole_file_guarded_replace()` an optional `superseded_marker`
-  parameter, used by both patch 16's `patch_roadmap()` and
-  `patch_handoff()` calls. Expect this to recur for any future patch
-  touching either file again -- budget time to vaccinate the immediate
-  predecessor each time.
-- **Patch 18** -- Fixed the `Build Debug APK` workflow's first real
-  failure, reported by the user directly from an Actions run: `Value
-  '/usr/local/sdkman/candidates/java/21.0.10-ms' given for
-  org.gradle.java.home Gradle property is invalid`. Root cause: patch
-  12 pinned Gradle's JDK by writing directly into the project's
-  **committed** `gradle.properties` -- correct for the one Codespace
-  where that exact SDKMAN path exists, wrong for every other
-  environment cloning the repo, including the Actions runner four
-  patches later. Fixed by redirecting `.devcontainer/setup.sh`'s
-  (unchanged) JDK-detection logic to write the pin into the user-level
-  `$HOME/.gradle/gradle.properties` instead, which Gradle already
-  prioritizes over the project-level file and which never leaves the
-  machine; removed the stale invalid line from the committed file,
-  which is what actually unblocks CI. Verified by simulating both
-  environments (fake SDKMAN dirs for the Codespace path, confirmed
-  project file stays clean either way) rather than just reasoning
-  about it, since this project has been burned before by assuming
-  environment behavior instead of checking it.
-- **Patch 19** -- Documentation/handoff update (no app code changes;
-  patch 17/18's own scripts did need a small fix, see below). The
-  user confirmed patch 18's fix worked: a real GitHub Actions run
-  succeeded and produced a downloadable debug APK. Recorded that
-  confirmation across `ROADMAP.md`/`HANDOFF.md`, and recorded an
-  explicit decision from the user: **Step 9 (signed release) starts
-  next**, ahead of Step 5's manual on-device checklist being
-  individually gone through and reported back -- logged as a standing
-  decision in `CLAUDE.md`'s instruction log so a future session acts on
-  it rather than re-litigating `ROADMAP.md`'s original Step 9 gate.
-  `ROADMAP.md`'s execution order, Step 5 section, and Step 9 section
-  all updated to match, while preserving the original caution's actual
-  point (a signed release is still built from unverified code) as
-  context rather than deleting it outright. **Also vaccinated patch 16,
-  17, and 18's own scripts, two levels deep:** `patch_claude_md()`
-  (patch 16), `patch_roadmap()` (patch 17), and
-  `patch_changelog()`/`patch_handoff()` (patch 18) each needed a
-  `superseded_marker` for this patch's direct edits to those files.
-  Then, since patch 17 also patches patch 16's *script file* (it
-  already had a `patch_patch16_script()` function, added in patch 17
-  itself to fix an earlier collision), and this patch's fix to patch
-  16's script changes that same script file again, patch 17's check on
-  it needed a `superseded_marker` too -- only surfaced on a second
-  full-chain regression run after the first round of fixes existed,
-  since the collision couldn't happen until they did. This snapshot is
-  meant to be pasted into a new conversation next, per the user's own
-  request.
+<!-- patch 01-20 narrative compressed by patch 28 -->
+Patches 01-20 took the project from a never-compiled 7-phase draft to a
+signed, CI-published release, closing the original review's numbered
+roadmap steps one by one. The full patch-by-patch detail (each fix, each
+root cause, each thing that was wrong about an earlier assumption) lives
+in `CHANGELOG.md`'s own Patch 01 through Patch 20 entries and is not
+repeated here -- this summary exists so a fresh session doesn't have to
+read 500+ lines of largely-superseded narrative just to get oriented.
+
+In short: patches 01-05 fixed the roadmap's Steps 1-4 and 6 (compile
+blockers, a fabricated dependency version, a worker race condition,
+filename/MediaStore correctness, the design-token/dark-theme gaps) and
+produced this handoff file. Patch 06 executed the Kinescope rename
+(`com.baltic.ytoffline` -> `com.kinescope.app`). Patches 07-14 chased
+down the environment/toolchain problems blocking the very first
+successful `./gradlew assembleDebug` -- a `pipefail`/SIGPIPE setup-script
+bug, two rounds of JDK-version mismatches between what the devcontainer
+requested and what the Codespace actually had on `PATH`, an invalid `--`
+inside an XML comment, and finally a wrongly-assumed top-level class that
+turned out to be nested (`YoutubeDL.UpdateChannel`) -- confirmed each
+time against the library's own real tagged source rather than secondary
+docs. Patch 14 is the first successful build in the project's history.
+Patches 15-19 consolidated documentation, added `CHANGELOG.md`/`CJM.md`,
+stood up the first CI workflow (`build-debug.yml`), and fixed a
+machine-specific JDK path that had been committed into shared
+`gradle.properties` and broke on the Actions runner -- surfacing (and
+then fixing, repeatedly, one layer deeper each time) the "a later doc
+patch breaks an earlier patch's own idempotency check" failure mode
+documented below under "Key learnings." Patch 20 added the signed-release
+CI workflow (`build-release.yml`).
+
 - **Patch 20** -- Step 9: CI-based signed release build. Added
   `.github/workflows/build-release.yml`, mirroring `build-debug.yml`'s
   manual-`workflow_dispatch`, hand-versioned design, but running
@@ -411,6 +228,13 @@ All Kotlin runtime files live under `app/src/main/java/com/kinescope/app/`.
 - `YtDlpUpdater.kt` -- nightly yt-dlp update wrapper routed through `EngineController`.
 - `YtOfflineApp.kt` -- background journal restoration, engine readiness/update cadence and crash logging.
 - `Theme.kt` -- Material3 light/dark tokens, Inter/Lora provider typography, shapes and extended success/warning tokens.
+- `DpiNative.kt` / `DpiEngineService.kt` / `DpiEngine.kt` -- bundled DPI-bypass engine (patch 27): JNI binding, `:dpi`-process host service, bind/wait/close client.
+- `NetworkCheck.kt` -- direct-vs-bypassed layered reachability probe (DNS/TCP/proxy/CONNECT/TLS/HTTP) with a plain-language `Verdict`.
+- `DpiStrategies.kt` -- allowlist-only parser for the engine's desync CLI syntax + offline built-in strategies.
+- `DpiStrategyStore.kt` -- bypass on/off + selected-strategy preferences, optional community strategy-list download.
+- `DpiSearch.kt` / `DpiBypass.kt` -- strategy search against real probe hosts; glue used by both the download path and the Settings UI.
+- `BypassSettings.kt` -- the Settings section Compose UI for the bypass feature.
+- `app/src/main/cpp/` -- vendored ByeDPI C engine (`byedpi/`, MIT, unmodified) + Kinescope's own JNI glue (`dpi_jni.c`) and `CMakeLists.txt`.
 
 Tests live under `app/src/test/java/com/kinescope/app/` and currently cover URL parsing, yt-dlp error classification and diagnostic privacy redaction.
 
@@ -506,6 +330,7 @@ Documentation sources of truth: `CLAUDE.md` (constraints/decisions), `AGENTS.md`
   assume every environment inherits every fix a previous environment
   needed; re-derive from first principles per environment.
 
+<!-- patch 27 blocks relocated by patch 28 -->
 ## How to resume in a new conversation
 
 1. Export a fresh repomix XML from the current repository and attach it.
@@ -525,15 +350,4 @@ The 16 KB page-size item is upstream-dependent with the currently pinned wrapper
 
 For general repo process (guarded/idempotent patch scripts, verification discipline, English-only code/docs, no machine-specific committed paths) see `AGENTS.md`.
 
-<!-- patch 27: the paragraph this note was meant to extend was not found verbatim in this file (it may have been reworded since this patch was written); appended standalone instead. Consider folding it into the surrounding prose by hand. -->
-### Patch 27 / network bypass status
 
-User-requested feature, not a bugfix: the user's corporate Wi-Fi is believed to restrict YouTube by DPI (header inspection), and asked for the `ByeByeDPI`/`byedpi` approach to be built directly into Kinescope. Patch 27 vendors the MIT `hufrea/byedpi` C engine, adds Kinescope's own JNI glue (no ByeByeDPI Kotlin/Java code used), and adds a Settings section to enable it, search for/choose a strategy, and update the strategy list. Verified in the sandbox with a host-compiled build of the real engine driven by JVM test harnesses (start/stop/relay through every built-in strategy over both a plain-TCP and a TLS+HTTP path; 18 unit tests). **Not yet verified**: that the real arm64-v8a CMake/NDK build succeeds, that the `:dpi` process behaves correctly on a real device, or that this actually gets past the user's specific network restriction (vs. it being DNS/IP filtering, which this feature is not designed to fix). See `ROADMAP.md`'s new gate. Full design record: `INTEGRATION_PLAN.md` in the project's memory.
-
-<!-- patch 27: the paragraph this note was meant to extend was not found verbatim in this file (it may have been reworded since this patch was written); appended standalone instead. Consider folding it into the surrounding prose by hand. -->
-- `DpiNative.kt` / `DpiEngineService.kt` / `DpiEngine.kt` -- patch 27 bundled DPI-bypass engine: JNI binding, `:dpi`-process host service, bind/wait/close client.
-- `DpiStrategies.kt` -- allowlist-only parser for the engine's desync CLI syntax + offline built-in strategies.
-- `DpiStrategyStore.kt` -- bypass on/off + selected-strategy preferences, optional community strategy-list download.
-- `DpiSearch.kt` / `DpiBypass.kt` -- strategy search against real probe hosts; glue used by both the download path and the Settings UI.
-- `BypassSettings.kt` -- the Settings section Compose UI for the bypass feature.
-- `app/src/main/cpp/` -- vendored ByeDPI C engine (`byedpi/`, MIT, unmodified) + Kinescope's own JNI glue (`dpi_jni.c`) and `CMakeLists.txt`.
