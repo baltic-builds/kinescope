@@ -35,8 +35,17 @@ object Settings {
             .apply()
     }
 
-    fun getDownloadSubfolder(context: Context): String =
-        sanitizeSubfolder(prefs(context).getString(KEY_DOWNLOAD_SUBFOLDER, DEFAULT_SUBFOLDER) ?: DEFAULT_SUBFOLDER)
+    fun getDownloadSubfolder(context: Context): String {
+        val preferences = prefs(context)
+        val stored = preferences.getString(KEY_DOWNLOAD_SUBFOLDER, DEFAULT_SUBFOLDER) ?: DEFAULT_SUBFOLDER
+        if (stored == LEGACY_SUBFOLDER) {
+            // One-time upgrade for devices that still have the pre-rename default persisted;
+            // a deliberate user choice of a different name is untouched.
+            preferences.edit().putString(KEY_DOWNLOAD_SUBFOLDER, DEFAULT_SUBFOLDER).apply()
+            return DEFAULT_SUBFOLDER
+        }
+        return sanitizeSubfolder(stored)
+    }
 
     fun setDownloadSubfolder(context: Context, name: String) {
         val sanitized = sanitizeSubfolder(name)

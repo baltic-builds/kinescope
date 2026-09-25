@@ -79,6 +79,18 @@ These require the user's phone or a real GitHub Actions run. Do not mark them co
 - [x] The user reports that GitHub Actions now completes successfully and ByeDPI works on the target device/network. This supersedes the old sandbox-only warning for the Patch-27 engine path.
 - [ ] Patch 28 adds a new layer on top of that verified engine: the YouTube-only Android `VpnService` + TUN-to-SOCKS bridge. Its first-run permission/session lifecycle still needs the focused device check above.
 
+### Patch 29 bypass reliability, fallback strategies, plain-language UI
+
+Not yet device-verified. Full detail in `CHANGELOG.md`.
+
+- [x] Fixed a multi-process init race: the `:dpi` / `:dpi_vpn` engine processes were re-running queue recovery, MediaStore cleanup and the yt-dlp updater on every spawn because `Application.onCreate()` runs in every process and had no process guard.
+- [x] The strategy search now runs automatically the first time Settings is opened, and turns the download-bypass switch on by itself once a strategy verifies -- previously nothing triggered the first search, so the switch stayed permanently disabled.
+- [x] The search now keeps looking for up to 4 working strategies (primary + up to 3 fallbacks) instead of stopping at the first one; both the download bypass and the YouTube VPN tunnel try them in order and use the first one that actually starts.
+- [x] One-time migration of the pre-rename `YTOffline` folder name to `Kinescope` for devices that still had the old value persisted.
+- [x] Removed ByeDPI/DNS/TCP/TLS/HTTP/"engine" jargon from the bypass UI copy, EN and RU.
+- [x] Video quality presets now prefer H.264 + AAC (falling back to the old unconstrained selector) to fix completed-but-unplayable (black screen, no sound) downloads caused by yt-dlp picking VP9/Opus inside an `.mp4` container.
+- [ ] **Needs a real device to confirm:** the automatic first-run search actually completes and enables the switch; a fallback strategy is actually used when the primary one fails to start; the YouTube VPN tunnel start also cascades through fallbacks; the folder migration takes effect for an existing install; a freshly downloaded video plays with picture and sound.
+
 ---
 
 ## Deliberately out of scope

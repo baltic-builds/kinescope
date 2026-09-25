@@ -23,15 +23,27 @@ data class QualityPreset(
 
 val qualityPresets = listOf(
     QualityPreset(QualityId.VIDEO_1080, R.string.quality_1080p, "video/mp4") {
-        addOption("-f", "bv*[height<=1080]+ba/b[height<=1080]")
+        addOption(
+            "-f",
+            "bv*[vcodec^=avc][height<=1080]+ba[acodec^=mp4a]/" +
+                "bv*[height<=1080]+ba/b[height<=1080]"
+        )
         addOption("--merge-output-format", "mp4")
     },
     QualityPreset(QualityId.VIDEO_720, R.string.quality_720p, "video/mp4") {
-        addOption("-f", "bv*[height<=720]+ba/b[height<=720]")
+        addOption(
+            "-f",
+            "bv*[vcodec^=avc][height<=720]+ba[acodec^=mp4a]/" +
+                "bv*[height<=720]+ba/b[height<=720]"
+        )
         addOption("--merge-output-format", "mp4")
     },
     QualityPreset(QualityId.VIDEO_480, R.string.quality_480p, "video/mp4") {
-        addOption("-f", "bv*[height<=480]+ba/b[height<=480]")
+        addOption(
+            "-f",
+            "bv*[vcodec^=avc][height<=480]+ba[acodec^=mp4a]/" +
+                "bv*[height<=480]+ba/b[height<=480]"
+        )
         addOption("--merge-output-format", "mp4")
     },
     QualityPreset(QualityId.AUDIO_MP3, R.string.quality_audio_mp3, "audio/mpeg") {

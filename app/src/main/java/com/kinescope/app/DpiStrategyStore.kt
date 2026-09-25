@@ -15,6 +15,9 @@ object DpiPrefs {
     private const val KEY_LIST_UPDATED_AT = "list_updated_at"
     private const val KEY_VERIFIED_STRATEGY = "verified_strategy"
     private const val KEY_VERIFIED_AT = "verified_at"
+    private const val KEY_VERIFIED_FALLBACKS = "verified_fallbacks"
+    private const val KEY_INITIAL_SEARCH_DONE = "initial_search_done"
+    private const val MAX_FALLBACKS = 3
 
     private fun prefs(context: Context) = context.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE)
 
@@ -40,13 +43,37 @@ object DpiPrefs {
 
     fun verifiedAt(context: Context): Long = prefs(context).getLong(KEY_VERIFIED_AT, 0L)
 
-    fun markStrategyVerified(context: Context, line: String) {
-        require(DpiStrategyParser.parse(line) is DpiStrategyParser.Parsed.Ok)
+    /**
+     * Records the strategy to use plus, when the search found more than one working
+     * strategy, up to [MAX_FALLBACKS] more to fall back to if the primary one fails to
+     * start at run time (see [DpiStrategyStore.verifiedChain]).
+     */
+    fun markStrategiesVerified(context: Context, primary: String, fallbacks: List<String> = emptyList()) {
+        require(DpiStrategyParser.parse(primary) is DpiStrategyParser.Parsed.Ok)
+        val validFallbacks = fallbacks
+            .filter { it != primary && DpiStrategyParser.parse(it) is DpiStrategyParser.Parsed.Ok }
+            .distinct()
+            .take(MAX_FALLBACKS)
         prefs(context).edit()
-            .putString(KEY_STRATEGY, line)
-            .putString(KEY_VERIFIED_STRATEGY, line)
+            .putString(KEY_STRATEGY, primary)
+            .putString(KEY_VERIFIED_STRATEGY, primary)
             .putLong(KEY_VERIFIED_AT, System.currentTimeMillis())
+            .putString(KEY_VERIFIED_FALLBACKS, validFallbacks.joinToString("\n"))
             .apply()
+    }
+
+    fun verifiedFallbacks(context: Context): List<String> {
+        val raw = prefs(context).getString(KEY_VERIFIED_FALLBACKS, null) ?: return emptyList()
+        return raw.split("\n")
+            .filter { it.isNotBlank() && DpiStrategyParser.parse(it) is DpiStrategyParser.Parsed.Ok }
+    }
+
+    /** True once the one-time automatic first-run strategy search has been attempted. */
+    fun hasRunInitialSearch(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_INITIAL_SEARCH_DONE, false)
+
+    fun setHasRunInitialSearch(context: Context, done: Boolean) {
+        prefs(context).edit().putBoolean(KEY_INITIAL_SEARCH_DONE, done).apply()
     }
 
     fun listUpdatedAt(context: Context): Long = prefs(context).getLong(KEY_LIST_UPDATED_AT, 0L)
@@ -97,6 +124,19 @@ object DpiStrategyStore {
         val stored = DpiPrefs.storedStrategy(context)
         if (stored != null && DpiStrategyParser.parse(stored) is DpiStrategyParser.Parsed.Ok) return stored
         return DpiBuiltInStrategies.lines.first()
+    }
+
+    /**
+     * The verified strategy to try first, followed by its verified fallbacks -- empty when
+     * nothing has been verified yet. Callers that actually start the engine should try each
+     * line in order and use the first one that starts (see [DpiBypass] and
+     * `BypassVpnService`); callers that only need "is the feature usable right now" should
+     * check whether this list is empty.
+     */
+    fun verifiedChain(context: Context): List<String> {
+        val primary = selected(context)
+        if (!DpiPrefs.isStrategyVerified(context, primary)) return emptyList()
+        return (listOf(primary) + DpiPrefs.verifiedFallbacks(context)).distinct()
     }
 
     /** Blocking network call: run it on a background thread. */

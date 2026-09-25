@@ -15,6 +15,12 @@ class YtOfflineApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // The ":dpi" and ":dpi_vpn" engine-host processes (DpiEngineService /
+        // DpiVpnEngineService) also run Application.onCreate(). Without this guard they
+        // repeated queue recovery, MediaStore cleanup and the yt-dlp updater every time an
+        // engine process spawned, racing the real download worker in the main process over
+        // the shared job journal. Only the main process continues past this point.
+        if (Application.getProcessName() != packageName) return
         AppLog.init(this)
         installCrashLogger()
 

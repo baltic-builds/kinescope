@@ -90,9 +90,15 @@ fun BypassSettingsSection() {
                         onProgress = { snapshot -> scope.launch { progress = snapshot } }
                     )
                 }
-                val working = results.firstOrNull { it.fullPass }
+                val passes = results.filter { it.fullPass }
+                val working = passes.firstOrNull()
                 if (working != null) {
-                    DpiPrefs.markStrategyVerified(context, working.line)
+                    DpiPrefs.markStrategiesVerified(context, working.line, passes.drop(1).map { it.line })
+                    // The user asked to turn the bypass on manually before; requiring that extra
+                    // tap after a successful test read as "the button does nothing". Turn it on
+                    // as soon as a strategy is verified instead.
+                    DpiPrefs.setEnabled(context, true)
+                    enabled = true
                     verified = true
                     verifiedAt = DpiPrefs.verifiedAt(context)
                     message = context.getString(
@@ -112,6 +118,16 @@ fun BypassSettingsSection() {
                 progress = null
                 searchJob = null
             }
+        }
+    }
+
+    // Runs the strategy search by itself, once, the first time this screen is opened on a
+    // device -- so a fresh install/update does not require the user to know to press
+    // "Test strategies" before the bypass (or the Home-screen YouTube action) can do anything.
+    LaunchedEffect(Unit) {
+        if (!DpiPrefs.hasRunInitialSearch(context)) {
+            DpiPrefs.setHasRunInitialSearch(context, true)
+            if (!initialVerified && controlsEnabled) startSearch()
         }
     }
 

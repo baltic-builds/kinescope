@@ -27,12 +27,20 @@ internal class DpiStrategySearch(
     private val probeHost: (port: Int, host: String) -> Boolean,
     private val hosts: List<String> = DEFAULT_HOSTS
 ) {
+    /**
+     * [stopAfterFullPasses] bounds how many fully-passing strategies to collect before
+     * stopping early (the default of 1 reproduces the original "stop at the first working
+     * strategy" behavior). The caller that wants a primary strategy plus fallbacks passes a
+     * higher value; the extra full passes, if any, become the fallbacks.
+     */
     fun run(
         candidates: List<String>,
         isCancelled: () -> Boolean,
-        onProgress: (SearchProgress) -> Unit
+        onProgress: (SearchProgress) -> Unit,
+        stopAfterFullPasses: Int = 1
     ): List<StrategyResult> {
         val results = mutableListOf<StrategyResult>()
+        var fullPasses = 0
         for ((index, line) in candidates.withIndex()) {
             if (isCancelled()) break
             onProgress(SearchProgress(index, candidates.size, line, results.toList()))
@@ -44,7 +52,10 @@ internal class DpiStrategySearch(
             }
             results += result
             onProgress(SearchProgress(index + 1, candidates.size, line, results.toList()))
-            if (result.fullPass) break
+            if (result.fullPass) {
+                fullPasses++
+                if (fullPasses >= stopAfterFullPasses) break
+            }
         }
         return results
     }

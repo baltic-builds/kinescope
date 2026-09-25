@@ -25,6 +25,55 @@ edits it makes.
 - Tightened the existing glass navigation rather than replacing the design system: narrower max width, smaller controls, lower elevation/shadow, and a compact Home `ByeDPI` action.
 - Updated `HANDOFF.md`, `README.md`, `CJM.md`, `design.md`, `ROADMAP.md`, and `THIRD_PARTY_NOTICES.md` with the new architecture and verification boundary.
 
+## Patch 29 — Bypass reliability, fallback strategies, plain-language UI
+
+Reported after patch 28: build succeeds and the app launches, but the bypass did not do
+anything when switched on, the background YouTube VPN mode did not work either, the
+download folder still showed the pre-rename name on-device, and a downloaded video one
+patch back played as a black screen with no sound.
+
+### Fixed
+- **Multi-process init race.** `Application.onCreate()` runs in every Android process; the
+  `:dpi` / `:dpi_vpn` engine-host processes had no guard, so every time one spawned it also
+  ran `DownloadJobStore.restoreToBus()`, `EngineController.ensureReady()` and the yt-dlp
+  updater in parallel with the real download worker in the main process, racing the shared
+  job journal. `YtOfflineApp.onCreate()` now returns immediately when
+  `Application.getProcessName() != packageName`.
+- **The bypass switch looked broken because nothing ever verified a strategy for it.** The
+  "Use the bypass for downloads" switch can only be turned on once a strategy has passed
+  its connection test, but no code path ever ran that test automatically -- so on a fresh
+  install/update the switch stayed disabled no matter how many times it was tapped. Settings
+  now runs the strategy search by itself the first time the screen opens
+  (`DpiPrefs.hasRunInitialSearch`), and any successful search (automatic or manual) also
+  turns the switch on, instead of leaving that as a separate step.
+- **No runtime fallback strategy.** Only a single verified strategy was ever stored.
+  `DpiStrategySearch.run()` gained a `stopAfterFullPasses` parameter (default 1, so every
+  existing unit test is unchanged) and the orchestrated search now uses 4, collecting a
+  primary plus up to 3 fallbacks. `DpiPrefs.markStrategiesVerified()` stores all of them;
+  `DpiStrategyStore.verifiedChain()` exposes them in order. `DpiBypass.startIfEnabled()` and
+  `BypassVpnService`'s tunnel start both now try each verified strategy in turn and use the
+  first one whose engine actually starts, instead of giving up after a single attempt.
+- **Download folder still named `YTOffline` on-device.** The in-code default was already
+  `Kinescope`; devices that had the old name explicitly persisted from before the rename
+  kept it. `Settings.getDownloadSubfolder()` now migrates that one specific legacy value to
+  `Kinescope` the next time it is read; a folder the user deliberately renamed to something
+  else is left alone.
+- **Downloaded videos playing as a black screen with no sound.** yt-dlp's `bv*+ba` selector
+  often picks VP9 video / Opus audio for YouTube even when `--merge-output-format mp4` is
+  set, which many Android stock video players cannot decode despite the file being a valid,
+  complete `.mp4`. The three video quality presets now ask for H.264 (`vcodec^=avc`) video
+  and AAC (`acodec^=mp4a`) audio first, falling back to the previous unconstrained selector
+  when a video has no such formats.
+- **Plain-language bypass UI.** Removed "ByeDPI", "DNS", "TCP", "TLS", "HTTP", "engine" and
+  "packets" from user-facing bypass strings in both `values/strings.xml` and
+  `values-ru/strings.xml`; the strings keep their existing names/placeholders, only the
+  wording changed. `bypass_test_first_hint` now describes the automatic first-run test.
+
+### Verification status
+Code-reviewed, unit-tested (`DpiStrategySearchTest` unchanged and passing) and locally
+built; **not yet confirmed on a real device.** See `ROADMAP.md` -> Patch 29 for the specific
+device checks still needed.
+
 ## Patch 27 — In-app network bypass (bundled ByeDPI engine)
 
 User-requested feature: the user's corporate Wi-Fi is believed to restrict YouTube by inspecting connection headers (DPI), and asked for the approach used by [ByeByeDPI](https://github.com/romanvht/ByeByeDPI) / [ByeDPI](https://github.com/hufrea/byedpi) to be built directly into Kinescope, with Settings controls to turn it on, search for and choose a strategy, and update. Full research and design record: `INTEGRATION_PLAN.md` in the project's memory.

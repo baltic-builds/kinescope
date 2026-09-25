@@ -12,30 +12,35 @@ internal data class BypassDiagnosis(
 
 /** Glue between the settings, the engine and the download service. */
 object DpiBypass {
+    /** How many working strategies the search keeps looking for: one primary + fallbacks. */
+    private const val MAX_VERIFIED_STRATEGIES = 4
+
     /**
-     * Starts the engine for a download when the bypass is switched on. Returns null when it is off
-     * or could not start; the download then simply proceeds on the direct connection.
+     * Starts the engine for a download when the bypass is switched on. Tries the verified
+     * strategy, then its verified fallbacks in order, and returns the first one that actually
+     * starts. Returns null when the bypass is off, nothing is verified, or none of the
+     * verified strategies could start; the download then simply proceeds on the direct
+     * connection.
      */
     fun startIfEnabled(context: Context): BypassSession? {
         val requestedByYouTubeJourney = BypassVpnController.state.value.active
         if (!DpiPrefs.isEnabled(context) && !requestedByYouTubeJourney) return null
-        val line = DpiStrategyStore.selected(context)
-        if (!DpiPrefs.isStrategyVerified(context, line)) {
-            AppLog.w("DpiBypass", "Selected strategy is not verified; continuing without bypass")
+        val chain = DpiStrategyStore.verifiedChain(context)
+        if (chain.isEmpty()) {
+            AppLog.w("DpiBypass", "No verified strategy; continuing without bypass")
             return null
         }
-        val parsed = DpiStrategyParser.parse(line) as? DpiStrategyParser.Parsed.Ok
-        if (parsed == null) {
-            AppLog.w("DpiBypass", "Selected strategy is not valid; continuing without bypass")
-            return null
+        for (line in chain) {
+            val parsed = DpiStrategyParser.parse(line) as? DpiStrategyParser.Parsed.Ok ?: continue
+            val session = DpiEngine.start(context, parsed.args)
+            if (session != null) {
+                AppLog.i("DpiBypass", "Engine ready; strategy=\"$line\"")
+                return session
+            }
+            AppLog.w("DpiBypass", "Strategy did not start, trying the next verified one")
         }
-        val session = DpiEngine.start(context, parsed.args)
-        if (session == null) {
-            AppLog.w("DpiBypass", "Engine did not start; continuing without bypass")
-        } else {
-            AppLog.i("DpiBypass", "Engine ready; strategy=\"$line\"")
-        }
-        return session
+        AppLog.w("DpiBypass", "No verified strategy could start; continuing without bypass")
+        return null
     }
 
     /** Direct-only check of every probe host. True when nothing on this network needs bypassing. */
@@ -70,7 +75,12 @@ object DpiBypass {
             startEngine = { args -> DpiEngine.start(context, args) },
             probeHost = { port, host -> check.checkViaBypass(SocksEndpoint(DpiEngine.HOST, port), host).ok }
         )
-        return search.run(DpiStrategyStore.candidates(context), isCancelled, onProgress)
+        return search.run(
+            DpiStrategyStore.candidates(context),
+            isCancelled,
+            onProgress,
+            stopAfterFullPasses = MAX_VERIFIED_STRATEGIES
+        )
     }
 
     private fun <T> inParallel(hosts: List<String>, block: (String) -> T): List<T> {

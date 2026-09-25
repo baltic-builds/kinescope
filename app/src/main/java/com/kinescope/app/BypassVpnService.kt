@@ -107,17 +107,21 @@ class BypassVpnService : VpnService() {
         var tun: ParcelFileDescriptor? = null
         var hevStarted = false
         try {
-            val strategy = DpiStrategyStore.selected(this)
-            if (!DpiPrefs.isStrategyVerified(this, strategy)) {
+            val chain = DpiStrategyStore.verifiedChain(this)
+            if (chain.isEmpty()) {
                 fail(R.string.bypass_vpn_no_verified_strategy)
                 return
             }
             ensureYouTubeInstalled()
-            val parsed = DpiStrategyParser.parse(strategy) as? DpiStrategyParser.Parsed.Ok
-                ?: throw BypassStartException(R.string.bypass_vpn_no_verified_strategy)
 
-            engine = DpiEngine.startForVpn(this, parsed.args)
-                ?: throw BypassStartException(R.string.bypass_vpn_engine_failed)
+            // Try the verified strategy, then its verified fallbacks in order, and keep the
+            // first engine that actually starts.
+            for (line in chain) {
+                val parsed = DpiStrategyParser.parse(line) as? DpiStrategyParser.Parsed.Ok ?: continue
+                engine = DpiEngine.startForVpn(this, parsed.args)
+                if (engine != null) break
+            }
+            if (engine == null) throw BypassStartException(R.string.bypass_vpn_engine_failed)
             if (stopRequested.get()) return
 
             tun = buildYouTubeTunnel()
