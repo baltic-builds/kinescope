@@ -27,6 +27,35 @@ resource check for the same class of mistake, and only records completion after
 roadmap scope changed in this hotfix.
 
 
+### Patch 29-30 / bypass reliability, persistent search and root-cause status
+
+Patch 29 (process guard, auto-run search, verified-strategy fallbacks, folder migration,
+H.264/AAC playback preference, plain-language bypass strings) is implemented in the codebase but
+**not yet device-confirmed** in this project's actual tracked history.
+
+**Discrepancy found and resolved this session:** two further patch scripts,
+`patch_030_persistent_search_service.py` and `patch_031_docs_investigation.py`, existed in the
+repository root, but neither had actually been run -- their target code changes were absent from
+every file they were meant to touch, and `ROADMAP.md`/`CHANGELOG.md`/`HANDOFF.md` still only
+reflected patch 29. Per `AGENTS.md`'s "read the actual current file content, never assume memory
+from earlier in the conversation is still accurate," this session treated the repository's actual
+code as ground truth rather than any prior narrative about patches 30/31 having been applied or
+device-tested. Both stale scripts are removed and superseded by Patch 30 below.
+
+**Patch 30** does two things in one delivery: (1) implements the persistent-search-service design
+those stale scripts were building toward -- `DpiSearchService` (a foreground service) plus a
+`DpiSearchController` `StateFlow`, so the strategy search survives leaving Settings or
+backgrounding the app, with a Stop action on its own notification; and (2) a researched root-cause
+fix for the search finding zero working strategies: `DpiStrategySearch.fullPass` required all
+three probe hosts including `redirector.googlevideo.com` (a CDN redirector) to pass a bare
+synthetic TLS+HTTP/1.1 probe -- now only `www.youtube.com` and `i.ytimg.com` are required, the
+redirector host stays probed for ranking/diagnostics only, per-stage socket timeouts are more
+generous, and every probe now logs its host/stage outcome to the diagnostic journal so a real
+device run leaves actual evidence if this is not sufficient by itself. `POST_NOTIFICATIONS` is now
+requested before the search or the Home-screen YouTube bypass action starts its service, not only
+on the first accepted download. **None of this is device-confirmed yet** -- see `ROADMAP.md`'s
+Patch 30 section for the exact checklist.
+
 ### Patch 28 / YouTube split-tunnel status
 
 The user has now confirmed the two Patch-27 facts that were previously open: GitHub Actions builds successfully and ByeDPI works on the target device/network. Patch 28 builds on that verified base. The bypass Settings flow is now test-first, the Home screen can start a YouTube-only Android `VpnService`, and `hev-socks5-tunnel` bridges the TUN interface into a dedicated ByeDPI SOCKS5 engine hosted in `:dpi_vpn`. The official YouTube package is the only allowed VPN application, so Kinescope and both ByeDPI processes stay outside the TUN and cannot route-loop. Strategy tests/downloads remain in the separate short-lived `:dpi` process; while the YouTube session is active, a shared download automatically uses the same verified strategy without sharing native process state.
@@ -235,6 +264,7 @@ All Kotlin runtime files live under `app/src/main/java/com/kinescope/app/`.
 - `YtOfflineApp.kt` -- background journal restoration, engine readiness/update cadence and crash logging.
 - `Theme.kt` -- Material3 light/dark tokens, Inter/Lora provider typography, shapes and extended success/warning tokens.
 - `DpiNative.kt` / `DpiEngineService.kt` / `DpiEngine.kt` -- bundled DPI-bypass engine (patch 27): JNI binding, `:dpi`-process host service, bind/wait/close client.
+- `DpiSearchService.kt` -- foreground service running the strategy search independently of any screen's lifecycle, plus its `DpiSearchController` state (patch 30).
 - `NetworkCheck.kt` -- direct-vs-bypassed layered reachability probe (DNS/TCP/proxy/CONNECT/TLS/HTTP) with a plain-language `Verdict`.
 - `DpiStrategies.kt` -- allowlist-only parser for the engine's desync CLI syntax + offline built-in strategies.
 - `DpiStrategyStore.kt` -- bypass on/off + selected-strategy preferences, optional community strategy-list download.
@@ -346,14 +376,30 @@ Documentation sources of truth: `CLAUDE.md` (constraints/decisions), `AGENTS.md`
 
 ## Immediate next step for Claude (in a new conversation)
 
-**Run/collect verification for patches 24-25.** The autonomous roadmap work is complete. The exact remaining checks are in `ROADMAP.md`: repeated YouTube recovery/session behavior, process-death + resume, queue stress/dedupe, typed error cases, airplane mode, large/audio downloads and MediaStore cleanup, RU/EN/navigation/logging/icon/notifications, then a fresh signed GitHub Release installed over the prior signed build.
+**Collect device verification for Patch 30 first** -- this is now the single blocking item.
+Exact checklist in `ROADMAP.md`'s Patch 30 section: does the strategy search now find at least
+one working strategy on the restricted network; does it survive minimizing the app / switching
+screens; does the notification (with a working Stop button) actually appear; does the download
+bypass switch and the Home-screen YouTube action become usable once a strategy verifies; does a
+bypass-enabled download and the YouTube VPN tunnel both work end to end. If the search still
+finds zero strategies, read the per-host/per-stage detail Patch 30 now logs to the hidden
+diagnostic journal (five taps on Settings) before guessing at another fix -- do not re-guess
+blind.
 
-**Network-bypass follow-up:** the user has confirmed the Patch-27 engine on the real target path: GitHub Actions builds successfully and ByeDPI works on-device. Do not reopen that old gate unless a regression appears. Patch 28's only remaining network gate is the new YouTube-only Android VPN lifecycle (`ROADMAP.md`).
+Once Patch 30 is confirmed (or fixed again), the pre-existing patch 24/25 device/Actions
+checklist is still open: repeated YouTube recovery/session behavior, process-death + resume,
+queue stress/dedupe, typed error cases, airplane mode, large/audio downloads and MediaStore
+cleanup, RU/EN/navigation/logging/icon/notifications, then a fresh signed GitHub Release
+installed over the prior signed build -- and the patch-28 YouTube VPN lifecycle gate (first-run
+consent, playback under the tunnel, share -> download while the tunnel is active). The Patch-27
+engine question itself (does GitHub Actions build, does ByeDPI work on-device) is already
+confirmed; do not reopen it absent a regression.
 
-Do not mark a device-dependent item done from source inspection or a green compile. If a verification fails, diagnose that concrete failure first and update `CHANGELOG.md` / `HANDOFF.md` in the same patch as the fix.
+The 16 KB page-size item is upstream-dependent with the currently pinned wrapper. Re-check
+upstream before changing `youtubedl-android`; do not vendor a custom native payload as a
+shortcut without a new explicit user decision.
 
-The 16 KB page-size item is upstream-dependent with the currently pinned wrapper. Re-check upstream before changing `youtubedl-android`; do not vendor a custom native payload as a shortcut without a new explicit user decision.
-
-For general repo process (guarded/idempotent patch scripts, verification discipline, English-only code/docs, no machine-specific committed paths) see `AGENTS.md`.
+For general repo process (guarded/idempotent patch scripts, verification discipline,
+English-only code/docs, no machine-specific committed paths) see `AGENTS.md`.
 
 

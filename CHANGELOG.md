@@ -13,6 +13,87 @@ patch's own `.py` script for the exact, idempotent, exact-match-guarded
 edits it makes.
 
 
+<!-- moved to the top of CHANGELOG.md by patch 30 -->
+## Patch 30 — Persistent strategy search + required-host relaxation (bypass root-cause fix)
+
+Two later-numbered scripts, `patch_030_persistent_search_service.py` and
+`patch_031_docs_investigation.py`, already existed in the repository root, but neither had
+actually been run against this codebase: none of their target code changes were present in any
+file they were meant to touch, and `ROADMAP.md` / `HANDOFF.md` still only reflected patch 29.
+Per `AGENTS.md`'s "read the actual current file content ... never assume memory from earlier in
+the conversation is still accurate," this patch treats the repository's real content as ground
+truth rather than any narrative about patches 30/31 already having been applied or device-tested.
+Both stale scripts are superseded and deleted here with a single consolidated delivery covering
+what they were meant to do, plus a researched fix for the root cause patch 31 was investigating.
+
+### Why the strategy search found zero working strategies
+`DpiStrategySearch.fullPass` (`DpiSearch.kt`) required every one of the three probe hosts --
+`www.youtube.com`, `i.ytimg.com`, and `redirector.googlevideo.com` -- to fully pass a bare,
+hand-rolled TLS handshake plus one legacy HTTP/1.1 `HEAD` request, with no ALPN/H2 negotiation and
+no session state. `redirector.googlevideo.com` is a CDN redirector, not a page or image host, and
+is a plausible poor fit for exactly that kind of synthetic probe regardless of whether the DPI
+bypass strategy itself works for real YouTube/yt-dlp traffic. Kinescope's built-in strategy list
+was separately checked against `hufrea/byedpi`'s own documented reference examples
+(`--disorder 1 --auto=torst --tlsrec 1+s` and `--fake -1 --ttl 8`) and already matches them
+verbatim -- the list itself was not the problem.
+
+### Fixed
+- **Required-host relaxation.** `DpiStrategySearch` gained a `requiredHosts` parameter (default:
+  every host, so all 5 existing unit tests are unchanged); `StrategyResult` gained a
+  `requiredPassed` field and `fullPass` now checks that instead of "every probed host passed."
+  `DpiBypass.search()` passes the two core hosts (`www.youtube.com`, `i.ytimg.com`) as
+  `DpiStrategySearch.REQUIRED_HOSTS`; the CDN redirector host stays probed (it still counts
+  toward the `passed`/`total` shown in the UI and toward `DpiStrategySearch.best()`'s ranking)
+  but no longer blocks a strategy from verifying.
+- **More generous search timeouts.** The search's `NetworkCheck` per-stage socket timeout went
+  from 2.5s to 4s (`DpiBypass.SEARCH_STAGE_TIMEOUT_MS`) to reduce false timeouts from a working
+  desync strategy's added round-trip latency. The one-off "Test selected" connection check is
+  unaffected (still `NetworkCheck()`'s own 3s default).
+- **Real diagnostic evidence, not just "0 passed."** `DpiBypass.search()`'s probe callback now
+  logs the host and the exact `CheckStage` (DNS/TCP/PROXY/CONNECT/TLS/HTTP) each probe passed or
+  failed at, via `AppLog` (the existing privacy-redacted, five-taps-on-Settings log journal). If
+  the required-host relaxation above is not sufficient by itself, the next device report can be
+  diagnosed from real per-host, per-stage evidence instead of another guess.
+- **Persistent strategy search (`DpiSearchService`).** The search now runs in a new foreground
+  service instead of `BypassSettingsSection`'s own `rememberCoroutineScope()`, so it survives
+  navigating away from Settings or backgrounding the app -- previously an explicit
+  `DisposableEffect(Unit) { onDispose { searchJob?.cancel() } }` cancelled it the instant that
+  screen left composition. Its state (`running`, current `SearchProgress`, final result) is
+  exposed through a new `DpiSearchController` `StateFlow`, mirroring the existing
+  `BypassVpnController` pattern; `BypassSettingsSection` now observes it via `collectAsState()`
+  instead of owning a `Job`. The service's own notification carries a Stop action, so the search
+  can be stopped from the notification shade as well as from Settings.
+- **`POST_NOTIFICATIONS` requested earlier.** Previously only requested on the first accepted
+  download (patch 25), so `DpiSearchService`'s notification -- and `BypassVpnService`'s, for
+  anyone who tries the YouTube bypass before ever downloading anything -- could silently never
+  display even though the underlying foreground service runs correctly either way
+  (`startForeground()` does not require the notification permission to succeed). Both the
+  Settings strategy-search button and the Home-screen YouTube bypass action now request the
+  permission (if not already granted) before starting their respective service.
+- Fixed the patch-29 auto-run flag being consumed even when the search never actually started
+  (blocked by an active download): now only consumed once `startSearch()` is actually called.
+- Confirmed unchanged (`DpiEngine.kt`): a search running concurrently with a bypass-enabled
+  download is already race-free without new locking -- `DpiEngine`'s existing `regularGate`
+  semaphore makes a second concurrent `DpiEngine.start()` return `null` immediately rather than
+  colliding with the native engine's process-wide C state.
+
+### Verification status
+This session re-read every touched file's actual current content before writing any edit (per
+`AGENTS.md`), rather than trusting the stale scripts' own anchors or any prior session's claims
+about them. The modified `DpiStrategySearch`/`StrategyResult` (`DpiSearch.kt`) was compiled with
+a real `kotlinc 2.1.0` (matching this project's pinned Kotlin version) and exercised against a
+harness reproducing all 5 existing `DpiStrategySearchTest` scenarios verbatim (identical results)
+plus 4 new checks of the `requiredHosts` relaxation and its all-hosts-required default. The
+modified `DpiBypass.kt` was compiled with `kotlinc` against the real, unmodified
+`NetworkCheck.kt`/`DpiSearch.kt`/`DpiStrategies.kt` plus minimal same-signature stubs for the
+purely-Android-context pieces. `DpiSearchService.kt` reuses a design previously reported compiled
+clean against a real API 35 `android.jar`; `BypassSettings.kt`/`MainActivity.kt`'s Compose edits
+were reviewed by hand and by brace-balance check, reusing the `X by Y.state.collectAsState()`
+pattern already working in the same file for `BypassVpnController`. **Not yet confirmed on a real
+device** -- the required-host relaxation in particular is a reasoned hypothesis, not a verified
+fix; see `ROADMAP.md` -> Patch 30 for the exact checklist, including what to check first if the
+search still finds nothing.
+
 <!-- moved to the top of CHANGELOG.md by patch 28 -->
 ## Patch 28 — YouTube split tunnel, verified bypass UX and queue cleanup
 

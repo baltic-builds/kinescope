@@ -32,22 +32,24 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import java.text.DateFormat
 import java.util.Date
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-private enum class BypassBusy { NONE, SEARCHING, UPDATING }
+private enum class BypassBusy { NONE, UPDATING }
 
 @Composable
-fun BypassSettingsSection() {
+fun BypassSettingsSection(requestNotifications: () -> Unit = {}) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val view = LocalView.current
     val vpnState by BypassVpnController.state.collectAsState()
     val queueJobs by DownloadQueueBus.jobs.collectAsState()
+    // The strategy search runs in DpiSearchService (a foreground service), not in this screen's
+    // own coroutine scope, so it keeps testing every candidate when the user leaves this screen
+    // or backgrounds the app instead of being cancelled (see CHANGELOG.md, patch 30).
+    val searchState by DpiSearchController.state.collectAsState()
+    val searching = searchState.running
 
     val initialStrategy = remember { DpiStrategyStore.selected(context) }
     val initialVerified = remember { DpiPrefs.isStrategyVerified(context, initialStrategy) }
@@ -56,78 +58,51 @@ fun BypassSettingsSection() {
     var verifiedAt by remember { mutableStateOf(DpiPrefs.verifiedAt(context)) }
     var listUpdatedAt by remember { mutableStateOf(DpiPrefs.listUpdatedAt(context)) }
     var busy by remember { mutableStateOf(BypassBusy.NONE) }
-    var searchJob by remember { mutableStateOf<Job?>(null) }
-    var progress by remember { mutableStateOf<SearchProgress?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
         if (DpiPrefs.isEnabled(context) && !initialVerified) DpiPrefs.setEnabled(context, false)
     }
-    DisposableEffect(busy) {
-        view.keepScreenOn = busy != BypassBusy.NONE
+    DisposableEffect(busy, searching) {
+        view.keepScreenOn = busy != BypassBusy.NONE || searching
         onDispose { view.keepScreenOn = false }
     }
-    DisposableEffect(Unit) {
-        onDispose { searchJob?.cancel() }
+    // Refreshes the on-screen state once the service-run search finishes -- whether that
+    // happens while this screen is open or the result is just being picked up on return to it.
+    LaunchedEffect(searchState) {
+        // Read once into a local val: searchState is itself a delegated property
+        // (by ...collectAsState()), so Kotlin cannot smart-cast searchState.resultMessageRes
+        // directly (same reason vpnErrorRes is extracted from vpnState.errorRes above).
+        val resultMessageRes = searchState.resultMessageRes
+        if (!searching && resultMessageRes != null) {
+            verified = DpiPrefs.isStrategyVerified(context, DpiStrategyStore.selected(context))
+            verifiedAt = DpiPrefs.verifiedAt(context)
+            enabled = DpiPrefs.isEnabled(context)
+            message = context.getString(resultMessageRes)
+        }
     }
 
     val downloadActive = queueJobs.any {
         it.state in setOf(JobState.PREPARING, JobState.RUNNING, JobState.PROCESSING, JobState.SAVING)
     }
-    val controlsEnabled = busy == BypassBusy.NONE && !vpnState.starting && !vpnState.active && !downloadActive
+    val controlsEnabled = busy == BypassBusy.NONE && !searching && !vpnState.starting && !vpnState.active && !downloadActive
 
     val startSearch: () -> Unit = {
-        busy = BypassBusy.SEARCHING
         message = null
-        progress = null
-        searchJob = scope.launch {
-            try {
-                val directWorks = withContext(Dispatchers.IO) { DpiBypass.directConnectionWorks() }
-                val results = withContext(Dispatchers.IO) {
-                    DpiBypass.search(
-                        context,
-                        isCancelled = { !isActive },
-                        onProgress = { snapshot -> scope.launch { progress = snapshot } }
-                    )
-                }
-                val passes = results.filter { it.fullPass }
-                val working = passes.firstOrNull()
-                if (working != null) {
-                    DpiPrefs.markStrategiesVerified(context, working.line, passes.drop(1).map { it.line })
-                    // The user asked to turn the bypass on manually before; requiring that extra
-                    // tap after a successful test read as "the button does nothing". Turn it on
-                    // as soon as a strategy is verified instead.
-                    DpiPrefs.setEnabled(context, true)
-                    enabled = true
-                    verified = true
-                    verifiedAt = DpiPrefs.verifiedAt(context)
-                    message = context.getString(
-                        if (directWorks) R.string.bypass_search_found_direct else R.string.bypass_search_found
-                    )
-                } else {
-                    message = context.getString(R.string.bypass_search_none)
-                }
-            } catch (e: CancellationException) {
-                message = context.getString(R.string.bypass_search_stopped)
-                throw e
-            } catch (e: Exception) {
-                AppLog.e("BypassSettings", "Strategy search failed", e)
-                message = context.getString(R.string.bypass_operation_failed)
-            } finally {
-                busy = BypassBusy.NONE
-                progress = null
-                searchJob = null
-            }
-        }
+        requestNotifications()
+        DpiSearchService.start(context)
     }
 
     // Runs the strategy search by itself, once, the first time this screen is opened on a
     // device -- so a fresh install/update does not require the user to know to press
     // "Test strategies" before the bypass (or the Home-screen YouTube action) can do anything.
+    // The flag is only consumed once the search actually starts: if the screen first opens
+    // while blocked (a download is active), the one automatic attempt is not silently wasted --
+    // it simply waits for a later visit where controlsEnabled is true.
     LaunchedEffect(Unit) {
-        if (!DpiPrefs.hasRunInitialSearch(context)) {
+        if (!DpiPrefs.hasRunInitialSearch(context) && !initialVerified && controlsEnabled) {
             DpiPrefs.setHasRunInitialSearch(context, true)
-            if (!initialVerified && controlsEnabled) startSearch()
+            startSearch()
         }
     }
 
@@ -204,8 +179,8 @@ fun BypassSettingsSection() {
     }
 
     Spacer(Modifier.height(12.dp))
-    if (busy == BypassBusy.SEARCHING) {
-        val current = progress
+    if (searching) {
+        val current = searchState.progress
         Text(
             stringResource(
                 R.string.bypass_find_progress,
@@ -220,7 +195,7 @@ fun BypassSettingsSection() {
             modifier = Modifier.fillMaxWidth()
         )
         Spacer(Modifier.height(8.dp))
-        OutlinedButton(modifier = Modifier.fillMaxWidth(), onClick = { searchJob?.cancel() }) {
+        OutlinedButton(modifier = Modifier.fillMaxWidth(), onClick = { DpiSearchService.stop(context) }) {
             Text(stringResource(R.string.bypass_stop_search))
         }
     } else {

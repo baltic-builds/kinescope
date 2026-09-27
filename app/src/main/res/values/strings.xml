@@ -209,6 +209,8 @@
 <string name="bypass_notification_title">Kinescope · Bypass</string>
 <string name="bypass_notification_starting">Starting local YouTube routing…</string>
 <string name="bypass_notification_active">YouTube is using the local bypass.</string>
+<string name="bypass_search_notification_title">Kinescope · Testing connection</string>
+<string name="bypass_search_notification_starting">Starting the test…</string>
 <string name="cd_remove_download">Remove download</string>
     <string name="bypass_wait_download">Finish the current download before testing or changing the bypass.</string>
 </resources>

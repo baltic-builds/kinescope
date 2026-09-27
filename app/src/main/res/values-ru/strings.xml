@@ -209,6 +209,8 @@
 <string name="bypass_notification_title">Kinescope · Обход</string>
 <string name="bypass_notification_starting">Запуск локальной маршрутизации YouTube…</string>
 <string name="bypass_notification_active">YouTube работает через локальный обход.</string>
+<string name="bypass_search_notification_title">Kinescope · Проверка соединения</string>
+<string name="bypass_search_notification_starting">Запуск проверки…</string>
 <string name="cd_remove_download">Удалить загрузку</string>
     <string name="bypass_wait_download">Дождитесь окончания текущей загрузки, прежде чем тестировать или менять обход.</string>
 </resources>

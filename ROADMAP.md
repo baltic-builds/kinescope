@@ -89,7 +89,47 @@ Not yet device-verified. Full detail in `CHANGELOG.md`.
 - [x] One-time migration of the pre-rename `YTOffline` folder name to `Kinescope` for devices that still had the old value persisted.
 - [x] Removed ByeDPI/DNS/TCP/TLS/HTTP/"engine" jargon from the bypass UI copy, EN and RU.
 - [x] Video quality presets now prefer H.264 + AAC (falling back to the old unconstrained selector) to fix completed-but-unplayable (black screen, no sound) downloads caused by yt-dlp picking VP9/Opus inside an `.mp4` container.
-- [ ] **Needs a real device to confirm:** the automatic first-run search actually completes and enables the switch; a fallback strategy is actually used when the primary one fails to start; the YouTube VPN tunnel start also cascades through fallbacks; the folder migration takes effect for an existing install; a freshly downloaded video plays with picture and sound.
+- [x] **Superseded by Patch 30 below**, which fixes a researched root cause for the search
+  finding nothing rather than simply re-testing the same behavior.
+
+### Patch 30 persistent strategy search + required-host relaxation (bypass root-cause fix)
+
+Not yet device-verified. Full detail in `CHANGELOG.md`.
+
+Two later-numbered scripts (`patch_030_persistent_search_service.py`,
+`patch_031_docs_investigation.py`) already existed in the repository root but had never actually
+been run against this codebase -- none of their target code changes were present, and these docs
+still only reflected patch 29. This patch supersedes and deletes both stale scripts with a single
+consolidated delivery.
+
+- [x] The strategy search now runs in a new foreground `DpiSearchService` instead of the Settings
+  screen's own coroutine scope, so it keeps running when the user leaves Settings or backgrounds
+  the app -- previously an explicit `onDispose` cancelled it the moment the screen left
+  composition. Its own notification has a Stop button, a second control surface beyond Settings.
+- [x] **Root cause for "the search finds zero working strategies":** `DpiStrategySearch.fullPass`
+  required ALL THREE probe hosts -- including `redirector.googlevideo.com`, a CDN redirector --
+  to fully pass a bare, hand-rolled TLS+HTTP/1.1 probe with no ALPN/H2 negotiation. That host is a
+  plausible false-negative source independent of whether a strategy genuinely works.
+  `www.youtube.com` and `i.ytimg.com` are now the only hosts required for a strategy to verify;
+  the CDN redirector host stays probed for the diagnostic/ranking count but no longer gates
+  pass/fail. (Kinescope's built-in strategy list itself was separately checked and already
+  matches `hufrea/byedpi`'s own documented reference examples verbatim -- it was not the suspect.)
+- [x] The search's per-stage socket timeout is more generous (2.5s -> 4s) to reduce false
+  timeouts from a working strategy's added desync latency.
+- [x] Every probe now logs its host and the exact stage (DNS/TCP/PROXY/CONNECT/TLS/HTTP) it
+  passed or failed at to the hidden diagnostic log journal, so a real run leaves actual evidence
+  behind instead of only a bare "0 passed" count if this relaxation is not sufficient by itself.
+- [x] `POST_NOTIFICATIONS` is now requested (if not already granted) when a strategy search
+  starts and when the Home-screen YouTube bypass action starts the VPN tunnel, not only on the
+  first accepted download -- the most likely reason a foreground service's own notification/Stop
+  button would go unseen even though the service itself still runs.
+- [ ] **Needs a real device to confirm:** the strategy search now finds at least one working
+  strategy on the restricted network; the search survives minimizing the app / switching screens
+  and finishes; the notification appears with a working Stop button; the download bypass switch
+  and the Home-screen YouTube action both become usable once a strategy verifies; a
+  bypass-enabled download and the YouTube VPN tunnel both actually work end to end. If the search
+  still finds zero strategies, read the per-host/per-stage detail now in the log journal (five
+  taps on Settings) before guessing at another fix.
 
 ---
 

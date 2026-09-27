@@ -16,6 +16,15 @@ object DpiBypass {
     private const val MAX_VERIFIED_STRATEGIES = 4
 
     /**
+     * Per-stage socket timeout used only while searching (Patch 30). A working desync strategy
+     * adds real round-trip latency -- fragmented or delayed TCP segments, sometimes a fake
+     * packet -- so the previous 2.5s budget was tight enough to plausibly time out a strategy
+     * that would otherwise have passed. The one-off "Test selected" connection check keeps
+     * NetworkCheck()'s own default budget; this only affects the multi-candidate search.
+     */
+    private const val SEARCH_STAGE_TIMEOUT_MS = 4_000
+
+    /**
      * Starts the engine for a download when the bypass is switched on. Tries the verified
      * strategy, then its verified fallbacks in order, and returns the first one that actually
      * starts. Returns null when the bypass is off, nothing is verified, or none of the
@@ -70,10 +79,18 @@ object DpiBypass {
         isCancelled: () -> Boolean,
         onProgress: (SearchProgress) -> Unit
     ): List<StrategyResult> {
-        val check = NetworkCheck(stageTimeoutMs = 2_500)
+        val check = NetworkCheck(stageTimeoutMs = SEARCH_STAGE_TIMEOUT_MS)
         val search = DpiStrategySearch(
             startEngine = { args -> DpiEngine.start(context, args) },
-            probeHost = { port, host -> check.checkViaBypass(SocksEndpoint(DpiEngine.HOST, port), host).ok }
+            probeHost = { port, host ->
+                val result = check.checkViaBypass(SocksEndpoint(DpiEngine.HOST, port), host)
+                logProbeOutcome(host, result)
+                result.ok
+            },
+            // Patch 30: only the two core hosts gate whether a strategy counts as verified.
+            // redirector.googlevideo.com (a CDN redirector) stays probed for the ranking/
+            // diagnostic count but is no longer required -- see CHANGELOG.md.
+            requiredHosts = DpiStrategySearch.REQUIRED_HOSTS
         )
         return search.run(
             DpiStrategyStore.candidates(context),
@@ -81,6 +98,21 @@ object DpiBypass {
             onProgress,
             stopAfterFullPasses = MAX_VERIFIED_STRATEGIES
         )
+    }
+
+    /**
+     * Logs which stage failed for a probe host during the strategy search, so a real device run
+     * leaves the actual per-host, per-stage detail (DNS/TCP/PROXY/CONNECT/TLS/HTTP) in the hidden
+     * diagnostic log journal instead of only a bare pass/fail count. See CHANGELOG.md's Patch 30
+     * entry: this is exactly the missing evidence the prior investigation asked for.
+     */
+    private fun logProbeOutcome(host: String, result: PathResult) {
+        val failed = result.failed
+        if (failed != null) {
+            AppLog.i("DpiSearch", "probe failed host=$host stage=${failed.stage} detail=${failed.detail}")
+        } else {
+            AppLog.i("DpiSearch", "probe passed host=$host")
+        }
     }
 
     private fun <T> inParallel(hosts: List<String>, block: (String) -> T): List<T> {

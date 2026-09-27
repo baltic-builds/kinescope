@@ -74,6 +74,18 @@
                 android:value="false" />
         </service>
 
+        <!-- Patch 30: runs the strategy search as a foreground service so it survives leaving
+             Settings or backgrounding the app; the notification's Stop button doubles as an
+             additional control surface for it. -->
+        <service
+            android:name=".DpiSearchService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="network-diagnostics" />
+        </service>
+
     </application>
 
 </manifest>

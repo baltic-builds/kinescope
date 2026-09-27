@@ -270,6 +270,10 @@ private fun KinescopeApp(prefillUrl: String, requestNotifications: () -> Unit) {
             return
         }
         if (bypassState.starting) return
+        // Patch 30: request the notification permission (if not already granted) before this
+        // starts BypassVpnService's own foreground-service notification, not only on the first
+        // accepted download (patch 25) -- otherwise that notification can silently never show.
+        requestNotifications()
         val permissionIntent = VpnService.prepare(context)
         if (permissionIntent == null) {
             openYouTubeWhenReady = BypassVpnService.start(context)
@@ -433,7 +437,8 @@ private fun KinescopeApp(prefillUrl: String, requestNotifications: () -> Unit) {
                     isUpdating = isUpdating,
                     lastUpdateTimestamp = lastUpdateTimestamp,
                     onCheckForUpdate = { runUpdate() },
-                    onOpenYouTubeLogin = { section = AppSection.YOUTUBE_AUTH }
+                    onOpenYouTubeLogin = { section = AppSection.YOUTUBE_AUTH },
+                    requestNotifications = requestNotifications
                 )
                 AppSection.LOGS -> LogsScreen()
                 AppSection.YOUTUBE_AUTH -> YouTubeLoginScreen(
@@ -1027,7 +1032,8 @@ private fun SettingsScreen(
     isUpdating: Boolean,
     lastUpdateTimestamp: Long,
     onCheckForUpdate: () -> Unit,
-    onOpenYouTubeLogin: () -> Unit
+    onOpenYouTubeLogin: () -> Unit,
+    requestNotifications: () -> Unit
 ) {
     val context = LocalContext.current
     var defaultQuality by remember { mutableIntStateOf(Settings.getDefaultQualityIndex(context)) }
@@ -1109,7 +1115,7 @@ private fun SettingsScreen(
         }
 
         SettingsDivider()
-        BypassSettingsSection()
+        BypassSettingsSection(requestNotifications = requestNotifications)
 
         SettingsDivider()
         SettingsSectionHeader(stringResource(R.string.settings_youtube_account))

@@ -4,8 +4,21 @@ import java.util.concurrent.Callable
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
-internal data class StrategyResult(val line: String, val started: Boolean, val passed: Int, val total: Int) {
-    val fullPass: Boolean get() = started && total > 0 && passed == total
+internal data class StrategyResult(
+    val line: String,
+    val started: Boolean,
+    val passed: Int,
+    val total: Int,
+    /**
+     * Whether every host in [DpiStrategySearch]'s `requiredHosts` passed -- not necessarily
+     * every probed host. See CHANGELOG.md's Patch 30 entry: requiring the CDN redirector host
+     * (`redirector.googlevideo.com`) to pass a bare synthetic probe alongside the two core hosts
+     * was a likely source of false negatives, so it stays probed for diagnostics/ranking but is
+     * no longer required for [fullPass].
+     */
+    val requiredPassed: Boolean = false
+) {
+    val fullPass: Boolean get() = started && total > 0 && requiredPassed
 }
 
 internal data class SearchProgress(
@@ -25,7 +38,14 @@ internal data class SearchProgress(
 internal class DpiStrategySearch(
     private val startEngine: (List<String>) -> BypassSession?,
     private val probeHost: (port: Int, host: String) -> Boolean,
-    private val hosts: List<String> = DEFAULT_HOSTS
+    private val hosts: List<String> = DEFAULT_HOSTS,
+    /**
+     * Hosts that must pass for [StrategyResult.fullPass]; defaults to every host (the original
+     * "every host must pass" behavior, and what every existing caller/test still gets). A caller
+     * can name a stricter core subset and still probe extra hosts for diagnostic/ranking purposes
+     * only -- see [DpiBypass.search].
+     */
+    private val requiredHosts: Set<String> = hosts.toSet()
 ) {
     /**
      * [stopAfterFullPasses] bounds how many fully-passing strategies to collect before
@@ -67,17 +87,19 @@ internal class DpiStrategySearch(
             ?: return StrategyResult(line, started = false, passed = 0, total = hosts.size)
         val pool = Executors.newFixedThreadPool(hosts.size)
         try {
-            val checks = hosts.map { host -> pool.submit(Callable { probeHost(session.port, host) }) }
-            val passed = checks.count { check ->
-                try {
-                    check.get(PROBE_DEADLINE_SECONDS, TimeUnit.SECONDS)
+            val checks = hosts.map { host -> host to pool.submit(Callable { probeHost(session.port, host) }) }
+            val outcomes = checks.map { (host, future) ->
+                host to try {
+                    future.get(PROBE_DEADLINE_SECONDS, TimeUnit.SECONDS)
                 } catch (e: InterruptedException) {
                     throw e
                 } catch (e: Exception) {
                     false
                 }
             }
-            return StrategyResult(line, started = true, passed = passed, total = hosts.size)
+            val passed = outcomes.count { it.second }
+            val requiredPassed = outcomes.filter { it.first in requiredHosts }.all { it.second }
+            return StrategyResult(line, started = true, passed = passed, total = hosts.size, requiredPassed = requiredPassed)
         } finally {
             pool.shutdownNow()
             session.close()
@@ -87,7 +109,16 @@ internal class DpiStrategySearch(
     companion object {
         /** A site page, an image host and a video host: the three kinds of traffic a download needs. */
         val DEFAULT_HOSTS = listOf("www.youtube.com", "i.ytimg.com", "redirector.googlevideo.com")
-        private const val PROBE_DEADLINE_SECONDS = 20L
+
+        /**
+         * The two hosts required for [StrategyResult.fullPass] in [DpiBypass.search]. Patch 30:
+         * `redirector.googlevideo.com` (a CDN redirector) stays probed for diagnostics/ranking
+         * but is no longer required to pass -- a bare synthetic TLS+HTTP/1.1 probe against a CDN
+         * redirector is a plausible false-negative source independent of whether a strategy
+         * actually works for real YouTube traffic. See CHANGELOG.md's Patch 30 entry.
+         */
+        val REQUIRED_HOSTS = setOf("www.youtube.com", "i.ytimg.com")
+        private const val PROBE_DEADLINE_SECONDS = 25L
 
         /** The result to select: most hosts through wins, earlier candidates win ties. */
         fun best(results: List<StrategyResult>): StrategyResult? =
