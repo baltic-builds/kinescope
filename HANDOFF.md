@@ -27,6 +27,54 @@ resource check for the same class of mistake, and only records completion after
 roadmap scope changed in this hotfix.
 
 
+### Patch 32 / responsive layout, bundled strategies, persistent notification status
+
+Requests after Patch 31: the bottom navbar was covered by Android's three-button navigation bar;
+the whole UI should adapt to device/screen settings; all 72 strategies should be available at cold
+start (only 12 were until "Update"); and the bypass notification should always stay while the bypass
+is active, with a way to update it from there.
+
+- Navbar: root cause is Android 15+ edge-to-edge enforcement (`targetSdk = 35`) plus a hand-built
+  `GlassBottomBar` that reserved no insets. Fixed with `WindowInsets.navigationBars` padding, plus
+  `enableEdgeToEdge()`, keyboard handling, rotation-safe `configChanges`, and a centered 640dp
+  content cap (`ResponsiveContent`).
+- Strategies: the 60-line community list (`assets/dpi_strategies_bundled.txt`) ships in the APK;
+  `DpiStrategyStore.candidates()` = built-ins + bundled + downloaded. All still pass through
+  `DpiStrategyParser`. `DpiBundledStrategiesTest` guards the asset.
+- Notification: `BypassVpnService` re-posts it when dismissed and self-heals; an "Update" action
+  re-tests strategies in-service and reconnects only if the chain changed.
+
+**None of Patch 32 is device-confirmed yet** -- see `ROADMAP.md`'s Patch 32 section.
+
+### Patch 31 / age-restriction fix, Home-screen bypass card, YouTube sign-in status
+
+Patch 30 got a partial device confirmation (2026-09-27): the strategy search finds a working
+strategy on the restricted network and a bypass-enabled download completes end to end. The
+search surviving backgrounding, the notification's Stop button, and the YouTube-app VPN tunnel
+specifically were not exercised in that report and stay open in `ROADMAP.md`.
+
+The same report also surfaced three new issues, all addressed by Patch 31:
+
+1. A download failed with the app reporting "age restricted," but the attached device log showed
+   the real failure was a bypass-proxy "Host unreachable" error, misclassified by a substring
+   collision in `DownloadErrorClassifier` (the phrase "webpage" contains "age"; yt-dlp's generic
+   error trailer contains "confirm"). Fixed the matching (now matches real yt-dlp phrases only)
+   and separately widened the download recovery chain's retry set, since the misclassification's
+   `recoverable=false` status was what let a single bad attempt end the job instead of trying the
+   other 3 client profiles.
+2. For genuinely age-restricted videos, downloading still needs a signed-in session. Two
+   independent, separately-verified fixes to the sign-in `WebView`: it now strips the "; wv"
+   marker from its user agent (Google's sign-in explicitly blocks that marker), and it now loads
+   `accounts.google.com/ServiceLogin` directly instead of the YouTube homepage.
+3. The bypass-enable control was a small top-bar text button, easy to miss. Replaced with a
+   large, centered `BypassHomeCard` at the top of the Home screen. Researched a Tauri-based
+   DPI-bypass GUI ("Zapret GUI") per the user's own suggestion for reference; adopted its
+   "always-visible, one-tap main-screen control" pattern, not any of its Rust/Tauri code (not
+   transferable to this Kotlin/Compose codebase).
+
+**None of Patch 31 is device-confirmed yet** -- see `ROADMAP.md`'s Patch 31 section for the exact
+checklist.
+
 ### Patch 29-30 / bypass reliability, persistent search and root-cause status
 
 Patch 29 (process guard, auto-run search, verified-strategy fallbacks, folder migration,
@@ -270,6 +318,7 @@ All Kotlin runtime files live under `app/src/main/java/com/kinescope/app/`.
 - `DpiStrategyStore.kt` -- bypass on/off + selected-strategy preferences, optional community strategy-list download.
 - `DpiSearch.kt` / `DpiBypass.kt` -- strategy search against real probe hosts; glue used by both the download path and the Settings UI.
 - `BypassSettings.kt` -- the Settings section Compose UI for the bypass feature.
+- `BypassHomeCard` (in `MainActivity.kt`) -- the large, centered Home-screen bypass control (patch 31), replacing a small top-bar text button.
 - `app/src/main/cpp/` -- vendored ByeDPI C engine (`byedpi/`, MIT, unmodified) + Kinescope's own JNI glue (`dpi_jni.c`) and `CMakeLists.txt`.
 
 Tests live under `app/src/test/java/com/kinescope/app/` and currently cover URL parsing, yt-dlp error classification and diagnostic privacy redaction.
@@ -376,24 +425,25 @@ Documentation sources of truth: `CLAUDE.md` (constraints/decisions), `AGENTS.md`
 
 ## Immediate next step for Claude (in a new conversation)
 
-**Collect device verification for Patch 30 first** -- this is now the single blocking item.
-Exact checklist in `ROADMAP.md`'s Patch 30 section: does the strategy search now find at least
-one working strategy on the restricted network; does it survive minimizing the app / switching
-screens; does the notification (with a working Stop button) actually appear; does the download
-bypass switch and the Home-screen YouTube action become usable once a strategy verifies; does a
-bypass-enabled download and the YouTube VPN tunnel both work end to end. If the search still
-finds zero strategies, read the per-host/per-stage detail Patch 30 now logs to the hidden
-diagnostic journal (five taps on Settings) before guessing at another fix -- do not re-guess
-blind.
+**Collect device verification for Patches 31 and 32 first** -- this is now the single blocking
+item (Patch 32's checklist is in `ROADMAP.md` too).
+Exact checklist in `ROADMAP.md`'s Patch 31 section: does the Home screen's new bypass card show
+correctly in all three states; does the YouTube sign-in screen now open on the actual sign-in
+form, and does signing in succeed (this was never confirmed to even be reachable before, since
+Google's WebView block was an independent, previously-unaddressed possible cause); does a real
+age-restricted video download successfully once signed in; does a transient bypass/network error
+now actually retry instead of failing outright. Patch 30's remaining open items (search surviving
+backgrounding, the notification's Stop button, the YouTube-app VPN tunnel end to end) are still
+open too -- see `ROADMAP.md`.
 
-Once Patch 30 is confirmed (or fixed again), the pre-existing patch 24/25 device/Actions
+Once Patch 31 is confirmed (or fixed again), the pre-existing patch 24/25 device/Actions
 checklist is still open: repeated YouTube recovery/session behavior, process-death + resume,
-queue stress/dedupe, typed error cases, airplane mode, large/audio downloads and MediaStore
-cleanup, RU/EN/navigation/logging/icon/notifications, then a fresh signed GitHub Release
-installed over the prior signed build -- and the patch-28 YouTube VPN lifecycle gate (first-run
-consent, playback under the tunnel, share -> download while the tunnel is active). The Patch-27
-engine question itself (does GitHub Actions build, does ByeDPI work on-device) is already
-confirmed; do not reopen it absent a regression.
+queue stress/dedupe, airplane mode, large/audio downloads and MediaStore cleanup,
+RU/EN/navigation/logging/icon/notifications, then a fresh signed GitHub Release installed over
+the prior signed build -- and the patch-28 YouTube VPN lifecycle gate (first-run consent,
+playback under the tunnel, share -> download while the tunnel is active). The Patch-27 engine
+question itself (does GitHub Actions build, does ByeDPI work on-device) is already confirmed; do
+not reopen it absent a regression.
 
 The 16 KB page-size item is upstream-dependent with the currently pinned wrapper. Re-check
 upstream before changing `youtubedl-android`; do not vendor a custom native payload as a

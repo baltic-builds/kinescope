@@ -53,6 +53,13 @@ class BypassVpnService : VpnService() {
     @Volatile private var tunInterface: ParcelFileDescriptor? = null
     @Volatile private var tunnelRunning = false
 
+    // Patch 32: "Update" in the notification re-tests the strategies inside this service and then
+    // reconnects with the best result, without leaving the notification.
+    @Volatile private var updating = false
+    @Volatile private var restarting = false
+    @Volatile private var updateProgress: SearchProgress? = null
+    private val monitorRunning = AtomicBoolean(false)
+
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
@@ -74,6 +81,28 @@ class BypassVpnService : VpnService() {
                     startForegroundCompat(buildNotification(active = false))
                     executor.execute { startTunnel() }
                 }
+            }
+            ACTION_UPDATE -> {
+                val state = BypassVpnController.state.value
+                when {
+                    !state.active && !state.starting -> stopSelf()
+                    state.active && !updating && !restarting && !DpiSearchController.state.value.running -> {
+                        updating = true
+                        postNotification()
+                        // Its own thread: the single-thread executor is occupied by the tunnel
+                        // monitor for as long as the tunnel is up.
+                        Thread({ updateStrategies() }, "kinescope-bypass-update").apply {
+                            isDaemon = true
+                            start()
+                        }
+                    }
+                }
+            }
+            ACTION_REPOST -> {
+                // The user swiped the notification away (Android 14+ allows that for foreground
+                // services): put it straight back while the bypass is running.
+                val state = BypassVpnController.state.value
+                if (state.active || state.starting) postNotification() else stopSelf()
             }
         }
         return START_NOT_STICKY
@@ -153,7 +182,7 @@ class BypassVpnService : VpnService() {
             getSystemService(NotificationManager::class.java)
                 .notify(NOTIFICATION_ID, buildNotification(active = true))
             AppLog.i("BypassVpnService", "YouTube-only bypass active")
-            executor.execute { monitorTunnel() }
+            if (monitorRunning.compareAndSet(false, true)) executor.execute { monitorTunnel() }
         } catch (e: BypassStartException) {
             fail(e.errorRes)
         } catch (e: InterruptedException) {
@@ -179,11 +208,17 @@ class BypassVpnService : VpnService() {
 
     private fun monitorTunnel() {
         try {
+            var ticks = 0
             while (!stopRequested.get()) {
                 Thread.sleep(500L)
+                if (restarting) continue
                 val engineAlive = engineSession?.isAlive == true
                 val bridgeAlive = runCatching { TProxyService.TProxyIsRunning() }.getOrDefault(false)
                 if (!engineAlive || !bridgeAlive) {
+                    // `restarting` is set before the old engine is closed, so seeing a closed
+                    // engine here means this flag is already visible: an update-triggered
+                    // reconnect is not a failure.
+                    if (restarting) continue
                     AppLog.w("BypassVpnService", "YouTube bypass transport stopped unexpectedly")
                     BypassVpnController.failed(
                         if (!engineAlive) R.string.bypass_vpn_engine_failed else R.string.bypass_vpn_tunnel_failed
@@ -191,9 +226,88 @@ class BypassVpnService : VpnService() {
                     stopSelf()
                     return
                 }
+                if (++ticks % NOTIFICATION_CHECK_TICKS == 0) ensureNotificationVisible()
             }
         } catch (e: InterruptedException) {
             Thread.currentThread().interrupt()
+        } finally {
+            monitorRunning.set(false)
+        }
+    }
+
+    /**
+     * Re-tests every strategy while the tunnel keeps running, then reconnects with the new
+     * verified chain -- but only if that chain differs from the current one. Nothing found, or
+     * the same chain: the running connection is left alone.
+     */
+    private fun updateStrategies() {
+        try {
+            val results = DpiBypass.search(
+                applicationContext,
+                isCancelled = { stopRequested.get() },
+                onProgress = { snapshot ->
+                    updateProgress = snapshot
+                    postNotification()
+                }
+            )
+            if (stopRequested.get()) return
+            val passes = results.filter { it.fullPass }
+            val working = passes.firstOrNull()
+            if (working == null) {
+                AppLog.i("BypassVpnService", "Strategy update found nothing; keeping the current connection")
+                return
+            }
+            val previousChain = DpiStrategyStore.verifiedChain(applicationContext)
+            DpiPrefs.markStrategiesVerified(applicationContext, working.line, passes.drop(1).map { it.line })
+            if (DpiStrategyStore.verifiedChain(applicationContext) == previousChain) {
+                AppLog.i("BypassVpnService", "Strategy update found the same methods; keeping the connection")
+                return
+            }
+            restartTunnel()
+        } catch (e: Exception) {
+            AppLog.e("BypassVpnService", "Strategy update failed", e)
+        } finally {
+            updating = false
+            updateProgress = null
+            if (!stopRequested.get() && BypassVpnController.state.value.active) postNotification()
+        }
+    }
+
+    private fun restartTunnel() {
+        restarting = true
+        try {
+            stopTunnelInternal(publishStopped = false)
+            if (stopRequested.get()) {
+                BypassVpnController.stopped()
+                stopSelf()
+                return
+            }
+            BypassVpnController.starting()
+            postNotification()
+            startTunnel()
+        } finally {
+            restarting = false
+        }
+    }
+
+    private fun postNotification() {
+        runCatching {
+            getSystemService(NotificationManager::class.java).notify(
+                NOTIFICATION_ID,
+                buildNotification(
+                    active = BypassVpnController.state.value.active,
+                    progress = updateProgress,
+                    updating = updating
+                )
+            )
+        }
+    }
+
+    /** Self-heal for Android 14+, where users can dismiss a foreground service's notification. */
+    private fun ensureNotificationVisible() {
+        runCatching {
+            val manager = getSystemService(NotificationManager::class.java)
+            if (manager.activeNotifications.none { it.id == NOTIFICATION_ID }) postNotification()
         }
     }
 
@@ -242,7 +356,7 @@ class BypassVpnService : VpnService() {
         return file
     }
 
-    private fun stopTunnelInternal() {
+    private fun stopTunnelInternal(publishStopped: Boolean = true) {
         if (tunnelRunning || runCatching { TProxyService.TProxyIsRunning() }.getOrDefault(false)) {
             runCatching { TProxyService.TProxyStopService() }
         }
@@ -251,7 +365,9 @@ class BypassVpnService : VpnService() {
         tunInterface = null
         runCatching { engineSession?.close() }
         engineSession = null
-        BypassVpnController.stopped()
+        // A reconnect (Update) publishes "starting" itself right after, so it must not flash
+        // "stopped" to the UI in between.
+        if (publishStopped) BypassVpnController.stopped()
         AppLog.i("BypassVpnService", "YouTube-only bypass stopped")
     }
 
@@ -273,7 +389,11 @@ class BypassVpnService : VpnService() {
         }
     }
 
-    private fun buildNotification(active: Boolean): Notification {
+    private fun buildNotification(
+        active: Boolean,
+        progress: SearchProgress? = null,
+        updating: Boolean = false
+    ): Notification {
         val contentIntent = PendingIntent.getActivity(
             this,
             0,
@@ -287,13 +407,42 @@ class BypassVpnService : VpnService() {
             stopIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        return NotificationCompat.Builder(this, CHANNEL_ID)
+        val updatePendingIntent = PendingIntent.getService(
+            this,
+            2,
+            Intent(this, BypassVpnService::class.java).apply { action = ACTION_UPDATE },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        // Fires when the user dismisses the notification; brings it straight back.
+        val repostPendingIntent = PendingIntent.getService(
+            this,
+            3,
+            Intent(this, BypassVpnService::class.java).apply { action = ACTION_REPOST },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val text = when {
+            updating && progress != null -> getString(
+                R.string.bypass_find_progress,
+                (progress.index + 1).coerceAtMost(progress.total.coerceAtLeast(1)),
+                progress.total
+            )
+            updating -> getString(R.string.bypass_search_notification_starting)
+            active -> getString(R.string.bypass_notification_active)
+            else -> getString(R.string.bypass_notification_starting)
+        }
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_download)
             .setContentTitle(getString(R.string.bypass_notification_title))
-            .setContentText(getString(if (active) R.string.bypass_notification_active else R.string.bypass_notification_starting))
+            .setContentText(text)
             .setContentIntent(contentIntent)
+            .setDeleteIntent(repostPendingIntent)
             .setOnlyAlertOnce(true)
             .setOngoing(true)
+        // "Update" only while the tunnel is up and no update is already running.
+        if (active && !updating) {
+            builder.addAction(0, getString(R.string.bypass_notification_update), updatePendingIntent)
+        }
+        return builder
             .addAction(0, getString(R.string.stop), stopPendingIntent)
             .build()
     }
@@ -315,9 +464,14 @@ class BypassVpnService : VpnService() {
         const val YOUTUBE_PACKAGE = "com.google.android.youtube"
         private const val ACTION_START = "com.kinescope.app.ACTION_START_BYPASS_VPN"
         private const val ACTION_STOP = "com.kinescope.app.ACTION_STOP_BYPASS_VPN"
+        private const val ACTION_UPDATE = "com.kinescope.app.ACTION_UPDATE_BYPASS_VPN"
+        private const val ACTION_REPOST = "com.kinescope.app.ACTION_REPOST_BYPASS_VPN_NOTIFICATION"
         private const val CHANNEL_ID = "youtube_bypass"
         private const val NOTIFICATION_ID = 1101
         private const val TUN_MTU = 1500
+
+        /** The tunnel monitor ticks every 500ms; every 6th tick (3s) it checks the notification. */
+        private const val NOTIFICATION_CHECK_TICKS = 6
 
         fun start(context: Context): Boolean {
             val intent = Intent(context, BypassVpnService::class.java).apply { action = ACTION_START }

@@ -13,6 +13,151 @@ patch's own `.py` script for the exact, idempotent, exact-match-guarded
 edits it makes.
 
 
+<!-- moved to the top of CHANGELOG.md by patch 32 -->
+## Patch 32 — Responsive layout, bundled strategies, persistent bypass notification
+
+Requires patches 30 and 31.
+
+### Navigation bar overlap and responsive UI
+- **Root cause of the covered bottom bar.** `targetSdk = 35`: Android 15+ enforces edge-to-edge
+  (per the Android developer documentation, the system draws the app under the system bars and the
+  app must handle insets). Material3's `Scaffold`, `TopAppBar` and `NavigationBar` reserve their
+  insets automatically; `GlassBottomBar` is hand-built and reserved none, so the opaque
+  three-button bar was drawn over it. Gesture navigation's bar is a thin transparent strip, hence
+  "only when gesture navigation is off". `GlassBottomBar` now applies
+  `WindowInsets.navigationBars` padding; `Scaffold` measures the bar, so the content padding
+  grows to match without double counting.
+- **`enableEdgeToEdge()`** in `MainActivity.onCreate`: one model on every supported Android
+  (minSdk 29). The manifest sets no theme, so on Android 15+ status-bar icon colours would not
+  follow the app's light/dark theme (which follows the system dark mode); the default
+  `SystemBarStyle.auto` does.
+- **Keyboard.** Edge-to-edge windows are not resized for the keyboard. Content now uses
+  `consumeWindowInsets(innerPadding).imePadding()` (only the part of the keyboard the Scaffold has
+  not already covered is added) and the activity declares `windowSoftInputMode="adjustResize"`,
+  which Android documents as required for IME insets on API 29.
+- **Rotation / resize.** No `configChanges` were declared, so every rotation or window resize
+  recreated the activity and reset all `remember` state (open screen, typed link, the sign-in
+  WebView page). It now handles `orientation|screenSize|smallestScreenSize|screenLayout|keyboard|
+  keyboardHidden` itself. Locale, dark mode and font size deliberately still recreate it.
+- **`ResponsiveContent`.** Content is centered and capped at 640dp wide, so landscape, tablets
+  and unfolded foldables do not stretch lists and cards into one unreadable column. Identical on
+  a phone in portrait. (`widthIn` is applied before `fillMaxSize`; the reverse order would force
+  the full width first and ignore the cap.)
+
+### All 72 strategies from the first launch
+The list `Update` downloads (ByeByeDPI's `proxytest_strategies.list`) was fetched and run through
+the real `DpiStrategyParser`: 60 lines, all accepted, zero overlap with the 12 built-ins -- exactly
+the 72 seen after updating. A snapshot ships as `assets/dpi_strategies_bundled.txt` (with source and
+capture date in its header) and `DpiStrategyStore.candidates()` is now built-ins, then the bundled
+snapshot, then anything an Update downloaded, de-duplicated. `bundled()` re-validates every line with
+the same strict parser; the allowlist is untouched. `DpiBundledStrategiesTest` fails if any bundled
+line stops parsing (the parser drops bad lines silently) or the total stops being 72. Note for
+`ROADMAP.md`: the first automatic search can now walk up to 72 candidates on a network where nothing
+works; it stops after 4 working ones and runs in the foreground service.
+
+### Persistent bypass notification with Update
+`BypassVpnService`'s notification was ongoing, but Android 14+ lets users dismiss foreground
+service notifications, and it only had "Stop".
+- A delete-intent (`ACTION_REPOST`) re-posts it immediately when dismissed, and the tunnel monitor
+  checks every 3s that it exists and re-posts it if not.
+- **Update** action: re-tests the strategies inside the service (already a foreground service, so
+  no second service has to be started from a notification), shows "Testing N of M" in the
+  notification, and only if the new verified chain differs from the current one restarts the
+  tunnel with it. Nothing found, or the same chain: the connection is untouched. It is skipped
+  while a Settings search is already running.
+- The monitor knows about the reconnect (`restarting`), so it is not reported as a failure; only
+  one monitor is ever queued (`monitorRunning`); `stopTunnelInternal(publishStopped)` avoids a
+  visible "stopped" flash during a reconnect.
+- New string `bypass_notification_update` (EN/RU).
+
+### Verification status
+The bundled list was checked with the real `DpiStrategyParser` under kotlinc 2.1.0 (60/60
+accepted, 72 total). `DpiStrategyStore.bundled`/`candidates` and `BypassVpnService`'s changed
+logic were compiled with kotlinc against minimal same-signature stubs. The patch was applied three
+times to a clean copy after patches 30 and 31: idempotent, diffs reviewed, XML well-formed, EN/RU
+string parity kept. **Not verified on a device:** insets with three-button vs gesture navigation,
+keyboard, rotation, landscape, and all notification behaviour (`ROADMAP.md` -> Patch 32).
+
+<!-- moved to the top of CHANGELOG.md by patch 31 -->
+## Patch 31 — Age-restricted download fix, prominent bypass button, direct YouTube sign-in
+
+Device confirmation on Patch 30: the strategy search now finds a working strategy on the
+restricted network and a bypass-enabled download completes (log evidence: `DpiBypass: Engine
+ready; strategy="-d1 -Atorst -r1+s"` and later a longer fallback strategy, each followed by a
+completed job). Also reported from that same log and a follow-up message: a video download
+failed with the app reporting "age restricted" despite the user never having signed in to
+Google/YouTube; the bypass-enable control is not obvious/prominent; and tapping "sign in to
+YouTube" opens the YouTube homepage rather than the sign-in form.
+
+### Why the "age restricted" failure was not actually age restriction
+The attached device log shows the real failure: a bypass-proxy `<urlopen error [Errno 4] Host
+unreachable>` (a `ProxyError`), immediately followed by yt-dlp's generic boilerplate trailer:
+"...please report this issue on <url>, filling out the appropriate issue template. Confirm you
+are on the latest version using yt-dlp -U." `DownloadErrorClassifier`'s AGE_RESTRICTED match was
+`lower.contains("age") && (lower.contains("confirm") || lower.contains("restrict"))` -- and
+"Unable to download **webpage**" contains "age", while that generic trailer contains "confirm".
+Any ordinary failure mentioning "webpage" (an extremely common yt-dlp phrase) that also hits this
+boilerplate trailer was silently mislabeled as age-restricted. Verified against yt-dlp's own
+GitHub issue tracker that the real, current age-gate message is "Sign in to confirm your age.
+This video may be inappropriate for some users." (already matched by the existing, unrelated
+"sign in to confirm" branch above it) and a newer, separate warning: "This video is
+age-restricted; some formats may be missing without authentication."
+
+### Fixed
+- **Precise age-restriction matching.** `DownloadErrorClassifier`'s AGE_RESTRICTED branch now
+  matches `"age-restricted"`, `"inappropriate for some users"`, or `"confirm your age"` instead
+  of the loose `"age"` + (`"confirm"`/`"restrict"`) combination. All 2 existing
+  `DownloadErrorClassifierTest` cases pass unchanged (the existing age-restriction test text,
+  "Age restricted: confirm your age", still matches via "confirm your age"); a new test,
+  `doesNotMisclassifyGenericNetworkErrorsAsAgeRestricted`, encodes the exact device-log
+  regression plus the two real yt-dlp phrases above.
+- **Wider retry recoverability.** `isRecoverableYoutubeBlock` previously only returned true for
+  `FailureKind.YOUTUBE_VERIFICATION`, so `executeWithRecovery`'s 4-profile chain
+  (`DEFAULT` -> `DEFAULT_AFTER_REFRESH` -> `WEB_SAFARI_IPV4` -> `ANDROID_VR_LOGGED_OUT`) broke
+  out after the very first failed attempt for every other failure kind -- including the
+  misclassified case above, and including any genuine age-restriction error. `AGE_RESTRICTED` and
+  `OTHER` are now also in the recoverable set: `PRIVATE_VIDEO`, `UNAVAILABLE` and `NO_INTERNET`
+  stay excluded because none of them depend on which client profile yt-dlp uses, but a real
+  age-gate now gets a real chance at `ANDROID_VR_LOGGED_OUT` (a known yt-dlp technique that
+  sometimes reaches age-restricted videos without a login) and a transient bypass/network hiccup
+  gets a real chance at a later attempt, possibly through a different verified strategy.
+- **YouTube sign-in WebView user-agent fix.** The sign-in `WebView` now strips the "; wv" token
+  from its user agent (`settings.userAgentString`) before loading anything. Verified against
+  multiple independent, current sources (an Adobe Express Embed SDK guide, a real Kotlin PR doing
+  the identical fix, and Google Account Community threads) that Google's sign-in explicitly
+  detects the stock Android WebView's "; wv" marker and blocks it with "This browser or app may
+  not be secure" / `disallowed_useragent` -- a real, separate, previously-unaddressed reason
+  sign-in could fail no matter which URL was loaded.
+- **Direct sign-in URL.** `YouTubeLoginScreen` now loads
+  `https://accounts.google.com/ServiceLogin?service=youtube&continue=https%3A%2F%2Fwww.youtube.com%2F`
+  instead of `https://www.youtube.com/`. Verified against real, current references (a captured
+  YouTube "Sign in" button URL and a matching Brave Community troubleshooting post) that this is
+  the same `ServiceLogin` entry point youtube.com's own "Sign in" button itself navigates to; the
+  ytdl-org/youtube-dl project's own historical login code used the identical `/ServiceLogin`
+  entry point for the same purpose.
+- **Prominent Home-screen bypass control.** The bypass action moved from a small `TextButton` in
+  the top app bar's corner to a new `BypassHomeCard` -- a large, centered card at the top of the
+  Home screen showing the current state (idle / starting / active / error) with one prominent
+  button, reusing `BypassVpnController`'s existing state. Researched a Tauri-based DPI-bypass GUI
+  ("Zapret GUI", Tauri v2 with automatic strategy selection) per the user's own suggestion: its
+  README describes exactly this UX pattern ("one-click launch...or trust auto-selection", "see
+  the current state on the Home screen") -- an always-visible, one-tap main-screen control, not a
+  toggle tucked into a corner. Reworded `bypass_quick_action` from the bare jargon "Bypass" /
+  "Обход" to "Unblock YouTube" / "Разблокировать YouTube", consistent with patch 29's
+  plain-language rule; added a new idle-state caption string, `bypass_home_hint`.
+
+### Verification status
+`DownloadErrorClassifier.kt` was compiled with a real `kotlinc 2.1.0` against the real
+`FailureKind` enum and exercised against a harness covering both existing
+`DownloadErrorClassifierTest` cases (unchanged results) plus new regression cases built from the
+actual device-log text and the real, current yt-dlp age-gate phrasing (verified against yt-dlp's
+own GitHub issue tracker, not guessed). `MainActivity.kt`'s Compose edits (`BypassHomeCard`, the
+`HomeScreen`/top-bar wiring, the WebView user-agent and URL change) were reviewed by hand and by
+brace-balance check; the WebView user-agent workaround and the sign-in URL are each verified
+against multiple independent, current sources rather than assumed. **None of this is
+device-confirmed yet** -- see `ROADMAP.md`'s Patch 31 section for the exact checklist, including
+what was and was not established by the Patch 30 device report.
+
 <!-- moved to the top of CHANGELOG.md by patch 30 -->
 ## Patch 30 — Persistent strategy search + required-host relaxation (bypass root-cause fix)
 

@@ -22,6 +22,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -29,17 +30,23 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -99,6 +106,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.unit.dp
@@ -119,6 +127,10 @@ class MainActivity : ComponentActivity() {
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Patch 32: one edge-to-edge model on every supported Android version (Android 15+
+        // enforces it for targetSdk 35 anyway) plus system-bar icon contrast that follows the
+        // system dark mode, which is what YtOfflineTheme follows. Must run before super.onCreate.
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         handleIncomingIntent(intent)
 
@@ -345,21 +357,9 @@ private fun KinescopeApp(prefillUrl: String, requestNotifications: () -> Unit) {
                         }
                     }
                 },
-                actions = {
-                    if (section == AppSection.HOME) {
-                        TextButton(enabled = !bypassState.starting, onClick = { openByeDpiYouTube() }) {
-                            Text(
-                                stringResource(
-                                    when {
-                                        bypassState.active -> R.string.bypass_open_youtube
-                                        bypassState.starting -> R.string.bypass_starting_short
-                                        else -> R.string.bypass_quick_action
-                                    }
-                                )
-                            )
-                        }
-                    }
-                },
+                // Patch 31: the small top-bar bypass action was easy to miss (a plain
+                // TextButton tucked in the corner). It moved to a large, centered card at the
+                // top of HomeScreen (BypassHomeCard) instead -- see CHANGELOG.md.
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.background
                 )
@@ -376,16 +376,13 @@ private fun KinescopeApp(prefillUrl: String, requestNotifications: () -> Unit) {
             }
         }
     ) { innerPadding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .padding(horizontal = 20.dp)
-        ) {
+        ResponsiveContent(innerPadding) {
             when (section) {
                 AppSection.HOME -> HomeScreen(
                     jobs = jobs,
                     library = library,
+                    bypassState = bypassState,
+                    onOpenBypass = { openByeDpiYouTube() },
                     onRefreshLibrary = { refreshLibrary() },
                     onPlay = { playItem(context, it) },
                     onShare = { shareItem(context, it) },
@@ -457,6 +454,38 @@ private fun KinescopeApp(prefillUrl: String, requestNotifications: () -> Unit) {
     }
 }
 
+/**
+ * Places screen content inside the Scaffold's insets with the usual 20dp side margins.
+ *
+ * - Width: centered and capped at 640dp, so landscape, tablets and unfolded foldables do not
+ *   stretch lists and cards into one unreadably wide column. On a phone in portrait the cap is
+ *   never reached, so nothing changes there. (`widthIn` must come before `fillMaxSize`: the
+ *   other order forces the full width first and the cap is ignored.)
+ * - Keyboard: edge-to-edge windows are not resized for the keyboard, so `imePadding` lifts the
+ *   content above it. `consumeWindowInsets(innerPadding)` first marks the space the Scaffold
+ *   already reserved (top bar, bottom bar and system bars) as used, so only the remainder of the
+ *   keyboard height is added instead of the whole of it.
+ */
+@Composable
+private fun ResponsiveContent(innerPadding: PaddingValues, content: @Composable BoxScope.() -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(innerPadding)
+            .consumeWindowInsets(innerPadding)
+            .imePadding(),
+        contentAlignment = Alignment.TopCenter
+    ) {
+        Box(
+            modifier = Modifier
+                .widthIn(max = 640.dp)
+                .fillMaxSize()
+                .padding(horizontal = 20.dp),
+            content = content
+        )
+    }
+}
+
 @Composable
 private fun GlassBottomBar(
     section: AppSection,
@@ -464,7 +493,15 @@ private fun GlassBottomBar(
     onQuickAdd: () -> Unit,
     onSettings: () -> Unit
 ) {
-    Surface(color = Color.Transparent) {
+    // Patch 32: on Android 15+ (targetSdk 35) the system draws this app edge-to-edge, so a
+    // hand-built composable like this one -- unlike Material3's NavigationBar/BottomAppBar,
+    // which reserve their own insets -- must reserve space above the navigation bar itself, or
+    // the classic three-button bar (opaque, ~48dp) is drawn over it. Gesture navigation's bar is
+    // a thin transparent strip, which is why this only showed with gestures turned off.
+    Surface(
+        color = Color.Transparent,
+        modifier = Modifier.windowInsetsPadding(WindowInsets.navigationBars)
+    ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -548,9 +585,73 @@ private fun GlassNavIcon(
 }
 
 @Composable
+private fun BypassHomeCard(state: BypassVpnUiState, onClick: () -> Unit) {
+    val errorRes = state.errorRes
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        color = if (state.active) {
+            MaterialTheme.colorScheme.primaryContainer
+        } else {
+            MaterialTheme.colorScheme.surfaceVariant
+        },
+        tonalElevation = 1.dp
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 20.dp, horizontal = 16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = stringResource(
+                    if (state.active) R.string.bypass_youtube_active else R.string.bypass_home_hint
+                ),
+                style = MaterialTheme.typography.titleSmall,
+                textAlign = TextAlign.Center,
+                color = if (state.active) {
+                    MaterialTheme.colorScheme.onPrimaryContainer
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                }
+            )
+            if (errorRes != null) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = stringResource(errorRes),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    textAlign = TextAlign.Center
+                )
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            Button(
+                onClick = onClick,
+                enabled = !state.starting,
+                modifier = Modifier.fillMaxWidth(0.85f),
+                contentPadding = PaddingValues(vertical = 14.dp)
+            ) {
+                Text(
+                    text = stringResource(
+                        when {
+                            state.active -> R.string.bypass_open_youtube
+                            state.starting -> R.string.bypass_starting_short
+                            else -> R.string.bypass_quick_action
+                        }
+                    ),
+                    style = MaterialTheme.typography.titleMedium
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun HomeScreen(
     jobs: List<DownloadJobStatus>,
     library: List<LibraryItem>,
+    bypassState: BypassVpnUiState,
+    onOpenBypass: () -> Unit,
     onRefreshLibrary: () -> Unit,
     onPlay: (LibraryItem) -> Unit,
     onShare: (LibraryItem) -> Unit,
@@ -574,6 +675,12 @@ private fun HomeScreen(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(bottom = 16.dp)
     ) {
+        item {
+            // Patch 31: a large, obvious, centered card -- previously the only bypass control
+            // on Home was a small TextButton tucked into the top bar's corner.
+            BypassHomeCard(state = bypassState, onClick = onOpenBypass)
+            Spacer(modifier = Modifier.height(16.dp))
+        }
         if (networkFailure && !networkBannerDismissed) {
             item {
                 ErrorBanner(
@@ -1153,6 +1260,12 @@ private fun SettingsDivider() {
     Spacer(modifier = Modifier.height(20.dp))
 }
 
+// The same accounts.google.com entry point youtube.com's own "Sign in" button navigates to
+// (verified against YouTube's real sign-in redirect chain), so the WebView opens straight on
+// the sign-in form instead of the homepage.
+private const val YOUTUBE_SIGN_IN_URL =
+    "https://accounts.google.com/ServiceLogin?service=youtube&continue=https%3A%2F%2Fwww.youtube.com%2F"
+
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 private fun YouTubeLoginScreen(onBack: () -> Unit, onSaved: () -> Unit) {
@@ -1206,6 +1319,15 @@ private fun YouTubeLoginScreen(onBack: () -> Unit, onSaved: () -> Unit) {
                     settings.javaScriptEnabled = true
                     settings.domStorageEnabled = true
                     settings.safeBrowsingEnabled = true
+                    // Google rejects sign-in from the stock WebView user agent: it contains a
+                    // "; wv" marker that Google's login explicitly detects and blocks with
+                    // "This browser or app may not be secure" (disallowed_useragent). Stripping
+                    // just that marker -- keeping the real device/Android/Chrome version as-is
+                    // -- is the documented minimal fix (see CHANGELOG.md's Patch 31 entry for
+                    // sources); a made-up user agent would be both less reliable and less honest.
+                    settings.userAgentString = settings.userAgentString
+                        .replace("; wv)", ")")
+                        .replace("; wv ", " ")
                     CookieManager.getInstance().setAcceptCookie(true)
                     CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
                     webChromeClient = WebChromeClient()
@@ -1219,7 +1341,9 @@ private fun YouTubeLoginScreen(onBack: () -> Unit, onSaved: () -> Unit) {
                             return true
                         }
                     }
-                    loadUrl("https://www.youtube.com/")
+                    // Opens straight on Google's sign-in form instead of the YouTube homepage,
+                    // so the user does not have to find "Sign in" themselves.
+                    loadUrl(YOUTUBE_SIGN_IN_URL)
                     webViewRef = this
                 }
             }

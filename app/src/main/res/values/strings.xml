@@ -196,7 +196,8 @@
 <string name="bypass_test_first_hint">Kinescope tests this once by itself the first time you open this screen. You can run it again anytime.</string>
 <string name="bypass_enable_locked">Available once a strategy passes the test.</string>
 <string name="bypass_youtube_active">YouTube bypass active</string>
-<string name="bypass_quick_action">Bypass</string>
+<string name="bypass_home_hint">Watch YouTube even where it’s blocked</string>
+<string name="bypass_quick_action">Unblock YouTube</string>
 <string name="bypass_open_youtube">YouTube</string>
 <string name="bypass_starting_short">Starting…</string>
 <string name="bypass_need_test">Test the bypass in Settings first.</string>
@@ -211,6 +212,7 @@
 <string name="bypass_notification_active">YouTube is using the local bypass.</string>
 <string name="bypass_search_notification_title">Kinescope · Testing connection</string>
 <string name="bypass_search_notification_starting">Starting the test…</string>
+<string name="bypass_notification_update">Update</string>
 <string name="cd_remove_download">Remove download</string>
     <string name="bypass_wait_download">Finish the current download before testing or changing the bypass.</string>
 </resources>

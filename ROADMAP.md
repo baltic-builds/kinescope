@@ -123,13 +123,80 @@ consolidated delivery.
   starts and when the Home-screen YouTube bypass action starts the VPN tunnel, not only on the
   first accepted download -- the most likely reason a foreground service's own notification/Stop
   button would go unseen even though the service itself still runs.
-- [ ] **Needs a real device to confirm:** the strategy search now finds at least one working
-  strategy on the restricted network; the search survives minimizing the app / switching screens
-  and finishes; the notification appears with a working Stop button; the download bypass switch
-  and the Home-screen YouTube action both become usable once a strategy verifies; a
-  bypass-enabled download and the YouTube VPN tunnel both actually work end to end. If the search
-  still finds zero strategies, read the per-host/per-stage detail now in the log journal (five
-  taps on Settings) before guessing at another fix.
+- [x] **Confirmed on device (2026-09-27):** the strategy search finds a working strategy on the
+  restricted network, and a bypass-enabled download completes end to end (device log shows
+  `DpiBypass: Engine ready; strategy=...` followed by a completed job). The search surviving
+  backgrounding, the notification's Stop button, and the YouTube-app VPN tunnel specifically were
+  not exercised in that report, so they stay open.
+- [ ] **Still needs a real device to confirm:** the search surviving minimizing the app /
+  switching screens; the notification appearing with a working Stop button; the YouTube-app VPN
+  tunnel working end to end (as opposed to the download path, which is confirmed above).
+
+### Patch 31 age-restricted download fix, prominent bypass button, direct YouTube sign-in
+
+Not yet device-verified. Full detail in `CHANGELOG.md`.
+
+- [x] **Root cause found for the "age restricted" failure the user hit:** it was not actually an
+  age-restricted video. `DownloadErrorClassifier`'s AGE_RESTRICTED match
+  (`contains("age") && (contains("confirm") || contains("restrict"))`) is a substring collision:
+  the ordinary phrase "Unable to download webpage" contains "age", and yt-dlp's generic "...
+  Confirm you are on the latest version..." trailer (printed on many unrelated errors) contains
+  "confirm" -- so a plain bypass-proxy "Host unreachable" failure got mislabeled as
+  age-restricted. Tightened to match the real yt-dlp phrases only ("age-restricted",
+  "inappropriate for some users", "confirm your age").
+- [x] The 4-profile download recovery chain (DEFAULT -> DEFAULT_AFTER_REFRESH -> WEB_SAFARI_IPV4
+  -> ANDROID_VR_LOGGED_OUT) previously only kept trying another profile for the narrow
+  YOUTUBE_VERIFICATION case; every other failure kind broke out after just the first attempt --
+  exactly what turned the misclassified error above into a hard failure instead of a retry.
+  AGE_RESTRICTED and OTHER are now recoverable too, so a genuinely age-restricted video gets a
+  real chance on `ANDROID_VR_LOGGED_OUT` (a known yt-dlp technique that sometimes works without
+  login) and a transient bypass/network hiccup gets a real chance on a later attempt.
+- [x] Real fix for downloading age-restricted videos once signed in: the YouTube sign-in WebView
+  now strips the "; wv" marker from its user agent. Google's sign-in explicitly detects and
+  blocks that marker with "This browser or app may not be secure" (`disallowed_useragent`), a
+  well-documented, separate reason sign-in could fail no matter which URL was loaded.
+- [x] The sign-in screen now opens directly on Google's sign-in form (the same
+  `accounts.google.com/ServiceLogin` entry point youtube.com's own "Sign in" button uses) instead
+  of the YouTube homepage.
+- [x] The bypass control moved from a small top-bar text button to a large, centered card at the
+  top of the Home screen showing the current state and one prominent button. Researched a
+  Tauri-based DPI-bypass GUI ("Zapret GUI") per the user's suggestion for reference; its pattern
+  is exactly this: an always-visible, one-tap main-screen control rather than a tucked-away
+  toggle.
+- [ ] **Needs a real device to confirm:** the Home screen's new card is visible and centered in
+  all three states (idle, starting, active/error); tapping it behaves the same as the old button
+  did; the YouTube sign-in screen opens on the actual sign-in form and signing in succeeds
+  (previously untested whether Google's WebView block was even the reason sign-in wasn't
+  completing); a real age-restricted video downloads successfully once signed in; a previously
+  misclassified transient bypass error now actually retries and can succeed instead of failing
+  outright.
+
+### Patch 32 responsive layout, bundled strategies, persistent bypass notification
+
+Not yet device-verified. Full detail in `CHANGELOG.md`. Requires patches 30 and 31.
+
+- [x] **Navigation bar overlap fixed at the root:** `targetSdk = 35` makes Android 15+ enforce
+  edge-to-edge; `Scaffold`/`TopAppBar` reserve insets themselves but the hand-built
+  `GlassBottomBar` did not, so the opaque three-button bar was drawn over it. It now applies
+  `WindowInsets.navigationBars` padding.
+- [x] Responsive UI: `enableEdgeToEdge()` (same model on every supported Android, correct
+  system-bar icon contrast), keyboard-aware content (`imePadding` + `adjustResize`), no more state
+  loss on rotation/window resize (`configChanges` declared; locale/dark mode/font size still
+  recreate deliberately), and screen content centered and capped at 640dp wide.
+- [x] All 72 strategies at cold start: a snapshot of the community list (60 lines, all accepted by
+  the strict parser, zero overlap with the 12 built-ins) ships as an APK asset; "Update" still
+  downloads fresh ones on top. A JVM test guards the asset (every line parses, total stays 72).
+- [x] The bypass notification stays up while the tunnel runs (re-posted immediately if dismissed,
+  self-healing check every 3s) and has an "Update" action that re-tests the strategies and
+  reconnects only if a different verified chain is found.
+- [ ] **Needs a real device to confirm:** with three-button navigation the bottom bar sits fully
+  above the system bar, and with gesture navigation it still looks right; the keyboard does not
+  cover the link field; rotating the phone keeps the current screen and typed link; landscape is
+  centered; a fresh install shows 72 candidates before any Update; the notification returns after
+  being swiped away; "Update" runs, shows progress, and either reconnects or leaves the tunnel
+  running; YouTube keeps working after an Update-triggered reconnect. Caveat to check: while an
+  Update search runs, a download that needs the bypass falls back to the direct connection (only
+  one strategy-test engine can run at a time).
 
 ---
 

@@ -13,8 +13,20 @@ object DownloadErrorClassifier {
                 lower.contains("requested format is not available") -> FailureKind.YOUTUBE_VERIFICATION
 
             lower.contains("private video") -> FailureKind.PRIVATE_VIDEO
-            lower.contains("age") && (lower.contains("confirm") || lower.contains("restrict")) ->
-                FailureKind.AGE_RESTRICTED
+
+            // Patch 31: was `lower.contains("age") && (lower.contains("confirm") ||
+            // lower.contains("restrict"))`. "webpage" contains "age", and yt-dlp's generic
+            // "...Confirm you are on the latest version using yt-dlp -U" trailer (printed on
+            // many unrelated extractor errors) contains "confirm" -- so any ordinary failure
+            // that happens to mention "webpage" (a very common phrase: "Unable to download
+            // webpage") was misclassified as age-restricted. Match the real yt-dlp phrases
+            // instead: "Sign in to confirm your age. This video may be inappropriate for some
+            // users." (already caught by "sign in to confirm" above) and the newer
+            // "This video is age-restricted; some formats may be missing without
+            // authentication." warning.
+            lower.contains("age-restricted") ||
+                lower.contains("inappropriate for some users") ||
+                lower.contains("confirm your age") -> FailureKind.AGE_RESTRICTED
 
             lower.contains("unavailable") || lower.contains("video is not available") -> FailureKind.UNAVAILABLE
             lower.contains("unable to resolve host") || lower.contains("unknownhost") ||
@@ -25,5 +37,21 @@ object DownloadErrorClassifier {
     }
 
     fun isRecoverableYoutubeBlock(raw: String?): Boolean =
-        classify(raw) == FailureKind.YOUTUBE_VERIFICATION
+        classify(raw) in RECOVERABLE_KINDS
+
+    // Patch 31: previously only YOUTUBE_VERIFICATION continued the 4-profile recovery chain
+    // (DEFAULT -> DEFAULT_AFTER_REFRESH -> WEB_SAFARI_IPV4 -> ANDROID_VR_LOGGED_OUT); every
+    // other failure kind broke out after the very first attempt. AGE_RESTRICTED and OTHER now
+    // also keep going: a real age-gate can still succeed on a different client profile
+    // (ANDROID_VR_LOGGED_OUT is a known yt-dlp technique for some age-restricted videos without
+    // login), and OTHER covers transient bypass/network hiccups -- like the "Host unreachable"
+    // case that was misclassified as AGE_RESTRICTED above -- that a later attempt, possibly
+    // through a different verified strategy, can genuinely recover from. PRIVATE_VIDEO,
+    // UNAVAILABLE and NO_INTERNET stay non-recoverable: none of them depend on which client
+    // profile is used.
+    private val RECOVERABLE_KINDS = setOf(
+        FailureKind.YOUTUBE_VERIFICATION,
+        FailureKind.AGE_RESTRICTED,
+        FailureKind.OTHER
+    )
 }

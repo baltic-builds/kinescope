@@ -90,9 +90,10 @@ sealed interface StrategyListUpdate {
 }
 
 /**
- * The strategies the user can pick from: the built-in ones plus an optional list downloaded from
- * the ByeByeDPI project. The engine itself is native code inside the APK and is updated with the
- * app; what "Update" refreshes is this list, since which strategies work changes over time.
+ * The strategies the user can pick from: the built-in ones, a bundled snapshot of the ByeByeDPI
+ * community list, and an optional fresher copy of that list downloaded on "Update". The engine
+ * itself is native code inside the APK and is updated with the app; what "Update" refreshes is
+ * this list, since which strategies work changes over time.
  */
 object DpiStrategyStore {
     /** Community-maintained list of ByeDPI command lines. Only ever read, never executed as text. */
@@ -100,12 +101,32 @@ object DpiStrategyStore {
         "https://raw.githubusercontent.com/romanvht/ByeByeDPI/master/app/src/main/assets/proxytest_strategies.list"
 
     private const val LIST_FILE = "dpi-strategies.txt"
+
+    /** Snapshot of the community list shipped inside the APK (see the file's own header). */
+    private const val BUNDLED_LIST_ASSET = "dpi_strategies_bundled.txt"
     private const val MAX_DOWNLOAD_BYTES = 64 * 1024
     private const val TIMEOUT_MS = 8_000
 
-    /** Built-in strategies first (fast to try and offline), then anything the last update added. */
+    /**
+     * Hand-picked built-ins first (fast to try, known good), then the bundled snapshot of the
+     * community list (everything, offline, from the first launch), then whatever the last
+     * "Update" downloaded on top. Duplicates across the three collapse to one entry.
+     */
     fun candidates(context: Context): List<String> =
-        (DpiBuiltInStrategies.lines + downloaded(context)).distinct()
+        (DpiBuiltInStrategies.lines + bundled(context) + downloaded(context)).distinct()
+
+    /** The community-list snapshot shipped in the APK, validated by the same strict parser. */
+    fun bundled(context: Context): List<String> {
+        val text = try {
+            context.applicationContext.assets.open(BUNDLED_LIST_ASSET).use {
+                String(it.readBytes(), Charsets.UTF_8)
+            }
+        } catch (e: IOException) {
+            return emptyList()
+        }
+        // Same gatekeeper as the downloaded file: nothing reaches the engine unparsed.
+        return DpiStrategyParser.parseList(text)
+    }
 
     fun downloaded(context: Context): List<String> {
         val file = listFile(context)

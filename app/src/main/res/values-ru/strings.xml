@@ -196,7 +196,8 @@
 <string name="bypass_test_first_hint">Kinescope сам проверит это один раз при первом открытии этого экрана. Вы можете запустить проверку снова в любой момент.</string>
 <string name="bypass_enable_locked">Станет доступно, когда стратегия пройдёт проверку.</string>
 <string name="bypass_youtube_active">Обход для YouTube активен</string>
-<string name="bypass_quick_action">Обход</string>
+<string name="bypass_home_hint">Смотрите YouTube, даже если он заблокирован</string>
+<string name="bypass_quick_action">Разблокировать YouTube</string>
 <string name="bypass_open_youtube">YouTube</string>
 <string name="bypass_starting_short">Запуск…</string>
 <string name="bypass_need_test">Сначала проверьте обход в настройках.</string>
@@ -211,6 +212,7 @@
 <string name="bypass_notification_active">YouTube работает через локальный обход.</string>
 <string name="bypass_search_notification_title">Kinescope · Проверка соединения</string>
 <string name="bypass_search_notification_starting">Запуск проверки…</string>
+<string name="bypass_notification_update">Обновить</string>
 <string name="cd_remove_download">Удалить загрузку</string>
     <string name="bypass_wait_download">Дождитесь окончания текущей загрузки, прежде чем тестировать или менять обход.</string>
 </resources>
