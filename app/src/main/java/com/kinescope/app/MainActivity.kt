@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.Activity
 import android.annotation.SuppressLint
 import android.content.ActivityNotFoundException
+import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
@@ -1421,6 +1422,19 @@ private fun LogsScreen() {
     var lines by remember { mutableStateOf(AppLog.readLines()) }
 
     Column(modifier = Modifier.fillMaxSize()) {
+        // Patch 34: Copy report / Share put the report header plus the newest lines on the clipboard.
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Button(onClick = { copyReport(context) }) {
+                Text(stringResource(R.string.copy_report))
+            }
+            OutlinedButton(onClick = { shareLogs(context) }) {
+                Text(stringResource(R.string.share_logs))
+            }
+        }
+        Spacer(modifier = Modifier.height(4.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -1433,9 +1447,6 @@ private fun LogsScreen() {
                 lines = emptyList()
             }) {
                 Text(stringResource(R.string.clear_logs))
-            }
-            Button(onClick = { shareLogs(context, lines) }, enabled = lines.isNotEmpty()) {
-                Text(stringResource(R.string.share_logs))
             }
         }
         Spacer(modifier = Modifier.height(8.dp))
@@ -1492,8 +1503,15 @@ private fun shareItem(context: Context, item: LibraryItem) {
     }
 }
 
-private fun shareLogs(context: Context, lines: List<String>) {
-    val payload = lines.joinToString("\n")
+/** Patch 34: header (build, device, network, strategies, legend) plus the newest lines, on the clipboard. */
+private fun copyReport(context: Context) {
+    val manager = context.getSystemService(ClipboardManager::class.java) ?: return
+    manager.setPrimaryClip(ClipData.newPlainText("Kinescope report", DiagnosticReport.build(context)))
+    Toast.makeText(context, R.string.report_copied, Toast.LENGTH_SHORT).show()
+}
+
+private fun shareLogs(context: Context) {
+    val payload = DiagnosticReport.build(context)
     val intent = Intent(Intent.ACTION_SEND).apply {
         type = "text/plain"
         putExtra(Intent.EXTRA_TEXT, payload)

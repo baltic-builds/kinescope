@@ -225,4 +225,8 @@
     <string name="status_trying_another_way">Trying another way (%1$d of %2$d)…</string>
     <string name="status_trying_direct">Trying a direct connection…</string>
     <string name="error_connection_blocked">Couldn’t reach YouTube from this network. Try again, switch networks, or run the check again in Settings.</string>
+    <!-- Patch 34 -->
+    <string name="copy_report">Copy report</string>
+    <string name="report_copied">Report copied</string>
+    <string name="error_verification_vpn">YouTube is asking to confirm you’re not a robot, which often happens over a VPN. Turn the VPN off, use the built-in bypass, and try again.</string>
 </resources>

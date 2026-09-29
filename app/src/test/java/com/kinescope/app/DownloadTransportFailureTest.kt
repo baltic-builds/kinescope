@@ -25,6 +25,19 @@ class DownloadTransportFailureTest {
     }
 
     @Test
+    fun recognisesDnsFailuresAsConnectionFailures() {
+        val samples = listOf(
+            "ERROR: [youtube] O5e9YrptKDk: Unable to download API page: [Errno 7] No address associated " +
+                "with hostname (caused by TransportError('[Errno 7] No address associated with hostname'))",
+            "[Errno -2] Name or service not known",
+            "Temporary failure in name resolution"
+        )
+        for (sample in samples) {
+            assertTrue(sample, DownloadErrorClassifier.isTransportFailure(sample))
+        }
+    }
+
+    @Test
     fun doesNotSwallowRealYoutubeAnswers() {
         assertEquals(FailureKind.PRIVATE_VIDEO, DownloadErrorClassifier.classify("Private video"))
         assertEquals(

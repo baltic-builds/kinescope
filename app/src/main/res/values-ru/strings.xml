@@ -225,4 +225,8 @@
     <string name="status_trying_another_way">Пробуем другой способ (%1$d из %2$d)…</string>
     <string name="status_trying_direct">Пробуем прямое подключение…</string>
     <string name="error_connection_blocked">Не удалось подключиться к YouTube из этой сети. Повторите попытку, смените сеть или запустите проверку заново в настройках.</string>
+    <!-- Patch 34 -->
+    <string name="copy_report">Скопировать отчёт</string>
+    <string name="report_copied">Отчёт скопирован</string>
+    <string name="error_verification_vpn">YouTube просит подтвердить, что вы не робот. Через VPN это случается часто. Отключите VPN, используйте встроенный обход и повторите попытку.</string>
 </resources>

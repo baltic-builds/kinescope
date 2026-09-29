@@ -59,6 +59,12 @@ object DownloadErrorClassifier {
         "eof occurred",
         "unable to connect to proxy",
         "socks",
+        // Patch 34: a name that cannot be resolved is a connection failure too. On a filtered
+        // network the direct route fails exactly like this, and it must end the fallback ladder.
+        "no address associated with hostname",
+        "name or service not known",
+        "temporary failure in name resolution",
+        "nodename nor servname",
         "bypass transport failure"
     )
 

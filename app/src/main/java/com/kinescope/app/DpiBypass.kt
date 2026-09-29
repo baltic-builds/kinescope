@@ -2,7 +2,9 @@ package com.kinescope.app
 
 import android.content.Context
 import java.util.concurrent.Callable
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicInteger
 
 internal data class BypassDiagnosis(
     val strategy: String,
@@ -22,7 +24,11 @@ object DpiBypass {
     private const val MAX_PASSES_TO_RANK = 12
 
     /** Patch 33: per-stage timeout of the quick live check made right before a strategy is used. */
-    private const val HEALTH_STAGE_TIMEOUT_MS = 5_000
+    private const val HEALTH_STAGE_TIMEOUT_MS = 6_000
+
+    /** Patch 34: pause between the two tries of a live check; passing strategies listed per search. */
+    private const val HEALTH_RETRY_PAUSE_MS = 400L
+    private const val MAX_PASS_LINES = 6
 
     /**
      * Per-stage socket timeout used only while searching (Patch 30). A working desync strategy
@@ -73,23 +79,45 @@ object DpiBypass {
         return chain
     }
 
-    /** Patch 33: starts the engine for one specific strategy line; null when it did not start. */
-    fun startLine(context: Context, line: String): BypassSession? {
+    /**
+     * Patch 34: starts the engine for one specific strategy line; null when it did not start.
+     * [label] is the compact route name (`s2/4`) used in the log instead of the long argument
+     * string, which DiagnosticReport lists once in its header.
+     */
+    fun startLine(context: Context, line: String, label: String = ""): BypassSession? {
         val parsed = DpiStrategyParser.parse(line) as? DpiStrategyParser.Parsed.Ok ?: return null
         val session = DpiEngine.start(context, parsed.args)
-        if (session != null) AppLog.i("DpiBypass", "Engine ready; strategy=\"$line\"")
+        AppLog.i("DpiBypass", if (session != null) "up s=$label" else "no-start s=$label")
         return session
     }
 
+    /** Patch 34: outcome of one live connection check; [stage] and [why] are log-sized. */
+    internal data class HealthResult(val ok: Boolean, val stage: String, val why: String, val ms: Long)
+
     /**
-     * Patch 33: one real connection through a running engine. A strategy that merely starts is
-     * not necessarily one that gets through right now, because the network can change between
-     * the search and the moment it is used.
+     * Patch 34: one real connection through a running engine, retried [tries] times. A strategy
+     * that merely starts is not necessarily one that gets through right now, because the network
+     * can change between the search and the moment it is used, and a single handshake can fail
+     * where the next succeeds. The result says which stage failed and why, so a failed check
+     * leaves evidence in the log instead of a bare "failed".
      */
-    internal fun isHealthy(port: Int): Boolean =
-        NetworkCheck(stageTimeoutMs = HEALTH_STAGE_TIMEOUT_MS)
-            .checkViaBypass(SocksEndpoint(DpiEngine.HOST, port), NetworkCheck.DEFAULT_HOST)
-            .ok
+    internal fun checkHealth(port: Int, tries: Int = 2): HealthResult {
+        val check = NetworkCheck(stageTimeoutMs = HEALTH_STAGE_TIMEOUT_MS)
+        val endpoint = SocksEndpoint(DpiEngine.HOST, port)
+        val startedAt = System.nanoTime()
+        var last = HealthResult(false, "?", "?", 0L)
+        val attempts = tries.coerceAtLeast(1)
+        for (attempt in 1..attempts) {
+            val failed = check.checkViaBypass(endpoint, NetworkCheck.DEFAULT_HOST).failed
+            val ms = (System.nanoTime() - startedAt) / 1_000_000L
+            if (failed == null) return HealthResult(true, "ok", "-", ms)
+            last = HealthResult(false, failed.stage.name, LogFormat.shortReason(failed.detail), ms)
+            if (attempt < attempts) Thread.sleep(HEALTH_RETRY_PAUSE_MS)
+        }
+        return last
+    }
+
+    internal fun isHealthy(port: Int): Boolean = checkHealth(port, tries = 1).ok
 
     /**
      * Patch 33: keeps the best [MAX_VERIFIED_STRATEGIES] of a finished search (primary first,
@@ -99,10 +127,7 @@ object DpiBypass {
         val ranked = DpiStrategySearch.ranked(results).take(MAX_VERIFIED_STRATEGIES)
         val primary = ranked.firstOrNull() ?: return false
         DpiPrefs.markStrategiesVerified(context, primary.line, ranked.drop(1).map { it.line })
-        AppLog.i(
-            "DpiBypass",
-            "Search kept ${ranked.size} strategies; primary transfer=${primary.deepOk} speed=${primary.throughputKbps}KB/s"
-        )
+        AppLog.i("DpiBypass", "kept n=${ranked.size} primary xfer=${primary.deepOk} kbps=${primary.throughputKbps}")
         return true
     }
 
@@ -134,12 +159,19 @@ object DpiBypass {
         onProgress: (SearchProgress) -> Unit,
         fullScan: Boolean = false
     ): List<StrategyResult> {
+        val startedAt = System.nanoTime()
         val check = NetworkCheck(stageTimeoutMs = SEARCH_STAGE_TIMEOUT_MS)
+        // Patch 34: failures are counted by host, stage and reason instead of one log line per
+        // probe (about 200 lines per full scan); logSearchSummary prints the totals once.
+        val fails = ConcurrentHashMap<String, AtomicInteger>()
         val search = DpiStrategySearch(
             startEngine = { args -> DpiEngine.start(context, args) },
             probeHost = { port, host ->
                 val result = check.checkViaBypass(SocksEndpoint(DpiEngine.HOST, port), host)
-                logProbeOutcome(host, result)
+                result.failed?.let { failed ->
+                    val key = "${hostTag(host)}:${failed.stage}:${LogFormat.shortReason(failed.detail)}"
+                    fails.computeIfAbsent(key) { AtomicInteger() }.incrementAndGet()
+                }
                 result.ok
             },
             // Patch 30: only the two core hosts gate whether a strategy counts as verified.
@@ -149,27 +181,41 @@ object DpiBypass {
             // Patch 33: rank by a real transfer, not only by the light probe.
             deepProbe = { port -> check.throughputViaBypass(SocksEndpoint(DpiEngine.HOST, port)) }
         )
-        return search.run(
+        val results = search.run(
             DpiStrategyStore.candidates(context),
             isCancelled,
             onProgress,
             stopAfterFullPasses = if (fullScan) Int.MAX_VALUE else MAX_PASSES_TO_RANK
         )
+        logSearchSummary(results, fails, startedAt)
+        return results
     }
 
     /**
-     * Logs which stage failed for a probe host during the strategy search, so a real device run
-     * leaves the actual per-host, per-stage detail (DNS/TCP/PROXY/CONNECT/TLS/HTTP) in the hidden
-     * diagnostic log journal instead of only a bare pass/fail count. See CHANGELOG.md's Patch 30
-     * entry: this is exactly the missing evidence the prior investigation asked for.
+     * Patch 34: the whole search in a handful of lines: totals, the most common failures
+     * (`host:stage:reason=count`) and one line per fully passing strategy. Replaces one line per
+     * probe, which made a single scan about 200 lines long.
      */
-    private fun logProbeOutcome(host: String, result: PathResult) {
-        val failed = result.failed
-        if (failed != null) {
-            AppLog.i("DpiSearch", "probe failed host=$host stage=${failed.stage} detail=${failed.detail}")
-        } else {
-            AppLog.i("DpiSearch", "probe passed host=$host")
+    private fun logSearchSummary(results: List<StrategyResult>, fails: Map<String, AtomicInteger>, startedAt: Long) {
+        val ms = (System.nanoTime() - startedAt) / 1_000_000L
+        val passes = results.filter { it.fullPass }
+        val failText = fails.entries.sortedByDescending { it.value.get() }.take(6)
+            .joinToString(",") { "${it.key}=${it.value.get()}" }
+        AppLog.i(
+            "DpiSearch",
+            "done n=${results.size} pass=${passes.size} nostart=${results.count { !it.started }} ms=$ms fails=[$failText]"
+        )
+        for (pass in passes.take(MAX_PASS_LINES)) {
+            val transfer = if (pass.deepOk) "${pass.throughputKbps}KB/s" else "no"
+            AppLog.i("DpiSearch", "pass h=${pass.passed}/${pass.total} xfer=$transfer s=\"${pass.line}\"")
         }
+    }
+
+    private fun hostTag(host: String): String = when (host) {
+        "www.youtube.com" -> "yt"
+        "i.ytimg.com" -> "img"
+        "redirector.googlevideo.com" -> "gv"
+        else -> host.take(12)
     }
 
     private fun <T> inParallel(hosts: List<String>, block: (String) -> T): List<T> {

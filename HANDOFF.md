@@ -27,9 +27,22 @@ resource check for the same class of mistake, and only records completion after
 roadmap scope changed in this hotfix.
 
 
+### Patch 34 / fallback ladder without a hard gate, DNS-aware routes, compact log status
+
+Not device-confirmed. Read `CHANGELOG.md` "Patch 34" first: it contains the analysis of the two
+2026-09-29 device logs. Map of what moved: `DownloadService` (`executeWithBypassFallback` +
+`runRoute`, watchdog limits, `provenRoutes`), `BypassRoutes` (route order), `NetworkState`
+(third-party VPN detection), `DpiBypass` (`checkHealth`, `startLine` label, search summary log),
+`DownloadErrorClassifier` (DNS markers, `CONNECTION_BLOCKED` no longer recoverable), `LogFormat` +
+`AppLog` + `DiagnosticReport` (compact log, Copy report), manifest + release workflow (Play Protect
+declaration guard). Confirmed on device before this patch: build, and the strategy search keeping
+four ranked strategies. The install-time block is still open and needs the exact dialog text.
+
 ### Patch 33 / first-launch check, ranked bypass, fallback ladder status
 
-Not device-confirmed. Read `CHANGELOG.md` "Patch 33" for the reasoning; the map of what moved:
+Device-confirmed 2026-09-29: the build, and the search keeping four ranked strategies. Everything else
+here is still unconfirmed, and the download half was reworked in patch 34. Read `CHANGELOG.md` "Patch 33"
+for the reasoning; the map of what moved:
 `DpiSearch.kt` (real-transfer field + `ranked()`), `NetworkCheck.throughputViaBypass`,
 `DpiBypass` (`activeChain`, `startLine`, `isHealthy`, `applySearchResults`, `fullScan`),
 `DownloadService` (`executeWithBypassFallback` ladder, watchdog inside `executeAttemptOverBypass`,
@@ -436,9 +449,10 @@ Documentation sources of truth: `CLAUDE.md` (constraints/decisions), `AGENTS.md`
 
 ## Immediate next step for Claude (in a new conversation)
 
-**Collect device verification for Patches 31, 32 and 33 first** -- this is now the single blocking
-item (the Patch 32 and 33 checklists are in `ROADMAP.md` too; Patch 33's first question is whether a
-download now completes, or fails with a plain message, on the restricted network).
+**Collect device verification for Patches 31 to 34 first** -- this is now the single blocking
+item (the checklists are in `ROADMAP.md`; Patch 34's first question is whether a download now
+completes, or fails with a plain message, on the restricted network, with and without a
+third-party VPN, and what the copied report says).
 Exact checklist in `ROADMAP.md`'s Patch 31 section: does the Home screen's new bypass card show
 correctly in all three states; does the YouTube sign-in screen now open on the actual sign-in
 form, and does signing in succeed (this was never confirmed to even be reachable before, since

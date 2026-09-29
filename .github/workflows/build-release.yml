@@ -129,6 +129,17 @@ jobs:
             exit 1
           fi
 
+          # Patch 34: Play Protect's "App blocked to protect your device" dialog is documented for
+          # apps that declare these (developers.google.com/android/play-protect/warning-dev-guidance).
+          # Fail the release if a build ever does, e.g. through a new library.
+          manifest_dump="$("$aapt" dump permissions "$apk"; "$aapt" dump xmltree "$apk" AndroidManifest.xml)"
+          risky="$(grep -oE 'RECEIVE_SMS|READ_SMS|BIND_NOTIFICATION_LISTENER_SERVICE|BIND_ACCESSIBILITY_SERVICE' <<<"$manifest_dump" | sort -u || true)"
+          if [ -n "$risky" ]; then
+            echo "APK declares items Play Protect treats as high risk: $risky" >&2
+            exit 1
+          fi
+          echo "Play Protect high-risk declarations: none" >> "$GITHUB_STEP_SUMMARY"
+
           # Patch 33: the SHA-256 file that used to be published next to the APK is gone.
           # What Android developer verification asks for is the fingerprint of the signing
           # certificate (a different thing), so print that in the run summary only.

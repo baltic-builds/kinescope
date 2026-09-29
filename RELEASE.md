@@ -153,6 +153,27 @@ The registration is tied to the signing key, so keep using the same keystore for
 re-checking when this changes: `developer.android.com/developer-verification/guides/limited-distribution`
 and `developer.android.com/developer-verification/guides/android-developer-console`.
 
+### If the install is still blocked
+
+Which dialog you see decides the fix. The descriptions are Google's own
+(`developers.google.com/android/play-protect/warning-dev-guidance`, last updated 2026-08-18).
+
+| Dialog | What it means | What to do |
+| --- | --- | --- |
+| "This app is unknown to Play Protect ... send it to Google for a security check" (**Send app for security check**), or "Play Protect hasn't seen this app before" (**App scan recommended**) | Normal for an app Play Protect has not seen. It is a question, not a block. | Choose **Send this time** / **Scan app**. The install continues. |
+| "App blocked to protect your device: This app can request access to sensitive data" | Google documents it only for apps installed from a browser, messenger or file manager that declare `RECEIVE_SMS`, `READ_SMS`, a notification listener or an accessibility service, in select markets. | Kinescope declares none of them. The release workflow fails if a build ever does, and prints "Play Protect high-risk declarations: none" in the run summary, so this dialog is not caused by the app's permissions. |
+| "Harmful app blocked" | Play Protect classified the APK. | File an appeal at `support.google.com/googleplay/android-developer/contact/protectappeals`. |
+| "Blocked by Advanced Protection", or Samsung "Auto Blocker" | A device setting, not the app. | Turn the setting off in Android settings, or use adb (below). |
+| A dialog about an unknown or unverified developer | Most likely Android developer verification (see above). | Register the package name; it is free for personal apps. |
+
+Routes that do not depend on the dialog:
+- From a computer with USB debugging on: `adb install -r kinescope-v<version>-arm64-v8a.apk`. adb is not one of the
+  "internet-sideloading" sources Google names for the sensitive-permission block. That is inferred from Google's
+  wording and has not been tested here.
+- Temporarily: Play Store, profile icon, Play Protect, Settings, turn **Scan apps with Play Protect** off, install,
+  turn it back on (Google Help, `support.google.com/googleplay/answer/2812853`).
+Neither of these can be done from the app's code.
+
 ### Android 15 / 16 KB page-size note
 
 The release workflow verifies ordinary zip alignment, but that is **not** a claim that every bundled native library is compatible with Android devices using 16 KB memory pages. The currently pinned `youtubedl-android 0.18.1` has an open upstream report for a bundled ffmpeg/libwebp payload that remains 4 KB-aligned. Keep the release ABI at `arm64-v8a`, but treat 16 KB-device support as upstream-blocked until a published wrapper version is verified. Do not vendor a custom replacement native payload just to make this check green without a separate explicit decision.

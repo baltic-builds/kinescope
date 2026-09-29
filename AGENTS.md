@@ -146,3 +146,12 @@ There is now only one roadmap file: `ROADMAP.md`. The former lowercase
 `roadmap.md` audit was consumed into patch 25 and deleted. Do not
 recreate it or restore its obsolete historical assumptions; add new
 work to `ROADMAP.md` instead.
+
+## Log lines (patch 34)
+
+The device log is read by an AI, so it is compact. `AppLog` stores `HH:mm:ss.d L tag message | err="..."`;
+`LogFormat` shortens job ids and flattens whitespace and `DiagnosticReport` (Settings, Copy report) adds a
+header. When you add a log line: one line, `key=value` tokens, under 220 characters, no URLs, no stack
+traces, no per-item spam inside a loop (log a summary), and put a failure's stage and reason in it
+(`st=TLS why=timeout ms=5001`) so a failed check leaves evidence. New component names get a short tag in
+`LogFormat.tags`. Never log cookies, tokens or full URLs (`DiagnosticSanitizer` redacts, but do not rely on it).

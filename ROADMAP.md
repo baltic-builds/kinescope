@@ -171,9 +171,22 @@ Not yet device-verified. Full detail in `CHANGELOG.md`.
   misclassified transient bypass error now actually retries and can succeed instead of failing
   outright.
 
+### Patch 34 fallback ladder without a hard gate, VPN awareness, compact log
+
+Not yet device-verified. Full detail in `CHANGELOG.md`. Requires patch 33.
+- [ ] No VPN, bypass on: a download starts and completes. The copied report shows a `route ... ok` line; if a strategy failed its check the report shows the stage and reason (`chk ... ok=false st=... why=...`) followed by a real attempt on it.
+- [ ] No VPN, every strategy dead: the row ends with the plain "Couldn't reach YouTube" message after one pass over the routes (no four-attempt loop, no nightly refresh in between).
+- [ ] Third-party VPN on: the direct route is tried first. If YouTube asks for a bot check the row shows the VPN message; report whether any later profile (web_safari IPv4, android_vr) got through.
+- [ ] The queue row shows "Preparing the download…" (never "-1% (ETA -1s)") before real progress starts.
+- [ ] Settings journal: **Copy report** puts a header plus at most 150 lines on the clipboard; a full strategy search adds about a dozen lines, not about two hundred.
+- [ ] Release run: the summary says "Play Protect high-risk declarations: none".
+- [ ] Install on the affected phone: report the exact dialog text (screenshot) and whether "More details" / "Install anyway" is offered. See `RELEASE.md`, "If the install is still blocked".
+
 ### Patch 33 first-launch check, ranked bypass with fallback ladder, compact navbar
 
-Not yet device-verified. Full detail in `CHANGELOG.md`. Requires patches 30-32.
+Partly device-verified on 2026-09-29. Full detail in `CHANGELOG.md`. Requires patches 30-32.
+- [x] Build succeeds, and the strategy search finishes and keeps four ranked strategies (device log: `Search kept 4 strategies; primary transfer=true speed=1249KB/s`).
+- Everything below is still unconfirmed: the popup, the notification icon, the navbar and the missing `.sha256` asset were not reported on. The download items are superseded by Patch 34.
 - [ ] Fresh install: the popup appears at once, in one language only (Russian on a Russian device, English otherwise), and the check of all 72 strategies runs without opening Settings; the status-bar notification shows the small-TV icon (not an arrow) and its Stop button works.
 - [ ] Share a video while that first check is still running on a blocked network: the row says it is waiting for the check, then downloads through the bypass.
 - [ ] With the bypass on, a download completes; the log journal shows which strategy carried it, and that strategy becomes the primary. Force a bad primary (or change networks) and confirm the row moves to "Trying another way", then either finishes or fails with the plain "Couldn't reach YouTube" message instead of sitting on ETA -1.

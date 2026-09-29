@@ -13,6 +13,107 @@ patch's own `.py` script for the exact, idempotent, exact-match-guarded
 edits it makes.
 
 
+## Patch 34 — Fallback ladder without a hard gate, DNS-aware routes, VPN awareness, compact AI-first log, Play Protect hardening
+
+Requires patch 33. Not device-verified.
+
+### Confirmed on device (user report, 2026-09-29)
+- The patch 33 build succeeds.
+- The strategy search runs to the end and keeps four ranked strategies (log line: `Search kept 4
+  strategies; primary transfer=true speed=1249KB/s`).
+- Still reported broken: downloads do not start (four attempts in a circle), the same with a
+  third-party VPN on, the install is still blocked by Play Protect, and the log is too verbose.
+  The popup, the notification icon, the navbar and the missing `.sha256` asset were not mentioned,
+  so they are not confirmed.
+
+### What the two supplied logs show
+- **Log A (no third-party VPN, Kinescope's own YouTube tunnel active since 11:02:14).** The search
+  finished at 11:02:04 and its primary strategy had just passed a real transfer at 1249 KB/s. At
+  11:03:06 a download started: all four strategies started ("Engine ready") but every one failed
+  patch 33's live check, #1 and #2 after 5.0 s (TLS handshake timeout) and #3 and #4 within about
+  35 ms. The ladder then fell back to the direct route, which failed with
+  `[Errno 7] No address associated with hostname`: this network does not resolve YouTube for the
+  device, which is exactly what the bypass exists for. That error was not recognised as a
+  connection failure, so it counted as recoverable and the whole ladder ran again for each of the
+  four recovery profiles, with a yt-dlp nightly refresh in between. That is the "four attempts in a
+  circle".
+- **Root cause in patch 33's own design.** The live check was a hard gate. One failed 5 s check
+  removed a strategy from use, and when all four failed the only route left was the direct one that
+  cannot resolve YouTube. yt-dlp itself never got to try any strategy.
+- **Why the checks failed is not proven.** The same strategies had passed the light probe and a
+  ~200 KB transfer about a minute earlier. Unconfirmed candidates: per-connection flakiness of
+  fake-packet / out-of-band strategies (the search log shows the same host either passing in about
+  0.6 s or timing out, nothing in between), residual blocking after failed handshakes (the two
+  instant failures right after two timeouts), or the tunnel's engine running at the same time. This
+  patch does not guess: every check now logs its stage, reason and duration.
+- **Log B (third-party VPN, inferred from content).** Strategy #1 failed its check in 0.5 s, #2
+  passed, and the download reached YouTube, which answered "Sign in to confirm you're not a bot".
+  The recovery chain kept going and the log ends during attempt 3. YouTube scores the IP address and
+  shared VPN exit addresses are commonly flagged (yt-dlp issues #10128 and #16221, the latter from
+  March 2026, where even the `android_vr` client got LOGIN_REQUIRED on a VPS). Routing cannot fix
+  that, and here routing was working: the request arrived and got an answer.
+
+### Downloads
+- **Ladder without a hard gate** (`DownloadService.executeWithBypassFallback`, `runRoute`). The
+  live check now only decides ORDER. A strategy that fails it is deferred, not dropped, and after
+  every strategy that passed it is tried for real by yt-dlp with a shorter watchdog. The check
+  retries once (`DpiBypass.checkHealth`, two tries, 6 s per stage) and reports the failed stage and
+  reason. A route that finished a download is remembered per job, tried first on the next attempt
+  without another check, and promoted to primary.
+- **Direct route only when it can work.** Last, and only if `DpiBypass.directConnectionWorks()`;
+  first when a third-party VPN is on (`NetworkState.systemVpnActive`, `BypassRoutes.order`).
+- **DNS failures are connection failures** (`No address associated with hostname`, `Name or service
+  not known`, `Temporary failure in name resolution`, ...; they still classify as `NO_INTERNET` where
+  patch 31 already did). When every route failed, the recovery chain ends at once
+  (`BypassTransportException`) instead of repeating the whole ladder for each of the four profiles
+  with a nightly refresh in between: a different yt-dlp client profile cannot fix a connection that
+  does not work. The row shows the plain message and Retry is manual. Without a bypass ladder (bypass
+  off, nothing verified) a connection failure is still retried through the profile chain, as before.
+- **Watchdog** limits are 35 s before the first progress and 45 s after it (20 s / 20 s for a
+  deferred strategy), measured as "no stdout line from yt-dlp". Patch 33 counted only real
+  progress lines; that was too strict because `youtubedl-android` 0.18.1 reports the extraction
+  steps (`[youtube] ... Downloading webpage`) on stdout while the retry warnings go to stderr and
+  never reach the callback, so a stdout line does mean yt-dlp is alive. The row shows "Preparing
+  the download…" instead of "-1% (ETA -1s)" until real progress arrives.
+- **Bot check under a VPN** gets its own message (turn the VPN off and use the built-in bypass,
+  or sign in), instead of the generic sign-in text.
+
+### Log format (AI-first)
+- One line per event: `HH:mm:ss.d L tag message | err="..."`. Job ids shortened to 8 hex digits,
+  `job=`/`profile=`/`quality=` shortened to `j=`/`p=`/`q=`, whitespace collapsed, 220-character cap.
+- Exceptions become a one-line summary (no stack); a failed yt-dlp run becomes its one error plus the
+  retry count and the last unrelated warning. Details in `LogFormat`.
+- The strategy search logs one summary line (totals and the most common failures as
+  `host:stage:reason=count`) plus one line per fully passing strategy, instead of about 200 probe
+  lines. Strategy argument strings appear once, in the report header, as `#s1`..`#s4`.
+- **Copy report** (Settings journal) and Share put a header (build, yt-dlp version, Android,
+  device, language, network, VPN, bypass state, strategy list, legend) plus the newest 150 lines
+  on the clipboard. `DiagnosticReport`.
+- Old log lines stay in the old format until the file rotates; the new lines have a different shape.
+
+### Install (Play Protect)
+- Google's Play Protect guidance (last updated 2026-08-18) describes "App blocked to protect your
+  device" only for internet-sideloaded apps that declare `RECEIVE_SMS`, `READ_SMS`, a notification
+  listener or an accessibility service, in select markets. The manifest declares none of them, and
+  the libraries' own manifests are empty (checked for `youtubedl-android` 0.18.1).
+- Guard added: the release workflow fails if the finished APK declares any of `RECEIVE_SMS`,
+  `READ_SMS`, `BIND_NOTIFICATION_LISTENER_SERVICE` or `BIND_ACCESSIBILITY_SERVICE` (permission list and
+  manifest tree, so a library cannot add one unnoticed), and prints "Play Protect high-risk
+  declarations: none" in the run summary. The manifest itself is unchanged.
+- The dialog wording "unknown developer" is not one of the strings on Google's page. Google's
+  "Send app for security check" and "App scan recommended" dialogs are normal for a new app and only
+  ask to send it for a scan. So this cannot be fixed by the APK; `RELEASE.md` now lists each dialog,
+  what it means and what to do, including the appeal form and the adb route. The exact dialog text,
+  and whether it has "More details" / "Install anyway", is still needed.
+
+### Verification status
+- Sandbox only: the patch script applies cleanly to a copy of the repository and is idempotent; the
+  non-Compose Kotlin sources compile against the API 35 `android.jar` with stubs for the androidx and
+  youtubedl-android APIs; the unit tests pass, including new ones for `LogFormat` (fed the two real
+  logs) and `BypassRoutes`. `MainActivity.kt` (Compose) was checked by brace balance and review only.
+- Not verified: everything on a real device, in particular whether a deferred strategy that failed its
+  check can still carry a real download, and the watchdog limits (chosen by judgement, not measured).
+
 ## Patch 33 — First-launch check, ranked bypass with a real fallback ladder, compact navbar, no checksum file
 
 Requires patches 30-32. Not device-verified.

@@ -369,13 +369,19 @@ class DownloadService : Service() {
     }
 
     /**
-     * Patch 33: one attempt through the verified bypass chain with a real fallback ladder.
-     * Each verified strategy (best first) is started, checked with one live connection, and
-     * used for the download; a strategy that does not start, fails the check, fails at the
-     * connection level or stalls hands over to the next one; when all of them are used up a
-     * direct connection is tried last. A strategy that finishes the download is promoted to
-     * primary. Errors that are not about the connection (private video, verification, ...)
-     * are rethrown untouched for the normal recovery chain.
+     * Patch 34: one attempt through an ordered list of routes, with a real fallback ladder.
+     *
+     * A route is a verified bypass strategy or the direct connection (see [BypassRoutes]). Each
+     * strategy is started and given a live connection check. The check only decides ORDER: a
+     * strategy that fails it is not thrown away (a check that fails once can pass a minute
+     * later, and the old hard gate left nothing but a direct connection that cannot even
+     * resolve YouTube on a filtered network); it is deferred and tried for real, with a shorter
+     * watchdog, after every strategy that passed. The direct route comes first when a
+     * third-party VPN is on, and last, only if the network can resolve YouTube directly,
+     * otherwise. A route that finished a download becomes the primary strategy and is tried
+     * first, without another check, on this job's later attempts. Errors that are not about
+     * the connection (private video, bot check, ...) are rethrown untouched for the normal
+     * recovery chain; when every route failed at the connection level the chain is ended.
      */
     private fun executeWithBypassFallback(
         job: StoredDownloadJob,
@@ -389,50 +395,122 @@ class DownloadService : Service() {
             return
         }
 
-        var lastTransportError = ""
-        for ((position, line) in chain.withIndex()) {
-            requestedControls.remove(job.id)?.let { throw ControlledStop(it) }
-            if (position > 0) {
-                DownloadQueueBus.update(job.id) {
-                    it.copy(progressText = getString(R.string.status_trying_another_way, position + 1, chain.size))
-                }
-            }
-            val session = DpiBypass.startLine(this, line)
-            if (session == null) {
-                AppLog.w("DownloadService", "Strategy ${position + 1}/${chain.size} did not start job=${job.id}")
-                continue
-            }
-            try {
-                if (!DpiBypass.isHealthy(session.port)) {
-                    AppLog.w("DownloadService", "Strategy ${position + 1}/${chain.size} failed the connection check job=${job.id}")
-                    lastTransportError = "connection check failed"
-                    continue
-                }
-                executeAttemptOverBypass(job, preset, outputTemplate, profile, session)
-                DpiPrefs.promoteVerified(this, line)
-                return
+        val vpn = NetworkState.systemVpnActive(this)
+        val proven = provenRoutes[job.id]
+        val order = BypassRoutes.order(chain, vpn, proven)
+        val failures = ArrayList<String>()
+        val deferred = ArrayList<String>()
+        AppLog.i("DownloadService", "ladder j=${job.id} routes=${order.size} vpn=${if (vpn) 1 else 0} proven=${proven != null}")
+
+        for ((index, route) in order.withIndex()) {
+            if (index > 0) announceRoute(job, index + 1, order.size)
+            val ok = runRoute(
+                job, preset, outputTemplate, profile, route, BypassRoutes.label(route, chain),
+                checkFirst = route != proven, limits = NORMAL_LIMITS, failures = failures, deferred = deferred
+            )
+            if (ok) return
+            if (route == proven) provenRoutes.remove(job.id)
+        }
+
+        for ((index, route) in deferred.withIndex()) {
+            announceRoute(job, order.size + index + 1, order.size + deferred.size)
+            val ok = runRoute(
+                job, preset, outputTemplate, profile, route, BypassRoutes.label(route, chain),
+                checkFirst = false, limits = TIGHT_LIMITS, failures = failures, deferred = null
+            )
+            if (ok) return
+        }
+
+        if (!vpn && DpiBypass.directConnectionWorks()) {
+            DownloadQueueBus.update(job.id) { it.copy(progressText = getString(R.string.status_trying_direct)) }
+            val ok = runRoute(
+                job, preset, outputTemplate, profile, BypassRoutes.DIRECT, BypassRoutes.DIRECT,
+                checkFirst = false, limits = NORMAL_LIMITS, failures = failures, deferred = null
+            )
+            if (ok) return
+        }
+
+        AppLog.w("DownloadService", "ladder exhausted j=${job.id} fails=[${failures.joinToString("; ")}]")
+        throw BypassTransportException("bypass transport failure: ${firstLine(failures.lastOrNull().orEmpty())}")
+    }
+
+    private fun announceRoute(job: StoredDownloadJob, position: Int, total: Int) {
+        DownloadQueueBus.update(job.id) {
+            it.copy(progressText = getString(R.string.status_trying_another_way, position, total))
+        }
+    }
+
+    /**
+     * Runs the download once through [route]. True when it finished; false when the route failed
+     * at the connection level (noted in [failures]); anything else is rethrown. With [deferred]
+     * set, a strategy that fails its live check is queued there instead of being run.
+     */
+    private fun runRoute(
+        job: StoredDownloadJob,
+        preset: QualityPreset,
+        outputTemplate: String,
+        profile: RecoveryProfile,
+        route: String,
+        label: String,
+        checkFirst: Boolean,
+        limits: WatchdogLimits,
+        failures: MutableList<String>,
+        deferred: MutableList<String>?
+    ): Boolean {
+        requestedControls.remove(job.id)?.let { throw ControlledStop(it) }
+        val startedAt = SystemClock.elapsedRealtime()
+
+        if (route == BypassRoutes.DIRECT) {
+            return try {
+                executeAttemptOverBypass(job, preset, outputTemplate, profile, null, limits)
+                provenRoutes[job.id] = route
+                AppLog.i("DownloadService", "route j=${job.id} r=$label ok ms=${SystemClock.elapsedRealtime() - startedAt}")
+                true
             } catch (e: BypassStalledException) {
-                lastTransportError = e.message.orEmpty()
-                AppLog.w("DownloadService", "Strategy ${position + 1}/${chain.size} stalled job=${job.id}")
+                failures += "$label stall"
+                AppLog.w("DownloadService", "route j=${job.id} r=$label stall")
+                false
             } catch (e: YoutubeDLException) {
                 if (!DownloadErrorClassifier.isTransportFailure(e.message)) throw e
-                lastTransportError = e.message.orEmpty()
-                AppLog.w("DownloadService", "Strategy ${position + 1}/${chain.size} failed at connection level job=${job.id}")
-            } finally {
-                session.close()
+                failures += "$label ${LogFormat.ytdlpSummary(e.message)}"
+                AppLog.w("DownloadService", "route j=${job.id} r=$label transport | ${LogFormat.ytdlpSummary(e.message)}")
+                false
             }
         }
 
-        // Every strategy is used up: try the plain connection last.
-        requestedControls.remove(job.id)?.let { throw ControlledStop(it) }
-        DownloadQueueBus.update(job.id) { it.copy(progressText = getString(R.string.status_trying_direct)) }
+        val session = DpiBypass.startLine(this, route, label)
+        if (session == null) {
+            failures += "$label no-start"
+            AppLog.w("DownloadService", "route j=${job.id} r=$label no-start")
+            return false
+        }
         try {
-            executeAttemptOverBypass(job, preset, outputTemplate, profile, null)
+            if (checkFirst) {
+                val health = DpiBypass.checkHealth(session.port)
+                val text = "chk j=${job.id} r=$label ok=${health.ok} st=${health.stage} why=${health.why} ms=${health.ms}"
+                if (health.ok) AppLog.i("DownloadService", text) else AppLog.w("DownloadService", text)
+                if (!health.ok && deferred != null) {
+                    failures += "$label chk:${health.stage}:${health.why}"
+                    deferred += route
+                    return false
+                }
+            }
+            executeAttemptOverBypass(job, preset, outputTemplate, profile, session, limits)
+            provenRoutes[job.id] = route
+            DpiPrefs.promoteVerified(this, route)
+            AppLog.i("DownloadService", "route j=${job.id} r=$label ok ms=${SystemClock.elapsedRealtime() - startedAt}")
+            return true
         } catch (e: BypassStalledException) {
-            throw BypassTransportException("bypass transport failure: ${firstLine(lastTransportError)}")
+            failures += "$label stall"
+            AppLog.w("DownloadService", "route j=${job.id} r=$label stall")
+            return false
         } catch (e: YoutubeDLException) {
             if (!DownloadErrorClassifier.isTransportFailure(e.message)) throw e
-            throw BypassTransportException("bypass transport failure: ${firstLine(lastTransportError)}")
+            failures += "$label ${LogFormat.ytdlpSummary(e.message)}"
+            AppLog.w("DownloadService", "route j=${job.id} r=$label transport | ${LogFormat.ytdlpSummary(e.message)}")
+            return false
+        } finally {
+            session.close()
         }
     }
 
@@ -465,7 +543,8 @@ class DownloadService : Service() {
         preset: QualityPreset,
         outputTemplate: String,
         profile: RecoveryProfile,
-        bypass: BypassSession?
+        bypass: BypassSession?,
+        limits: WatchdogLimits? = null
     ) {
         val request = YoutubeDLRequest(job.canonicalUrl).apply {
             addOption("-o", outputTemplate)
@@ -495,28 +574,32 @@ class DownloadService : Service() {
 
         AppLog.i(
             "DownloadService",
-            "Executing job=${job.id} profile=$profile authenticated=${profile.useCookies && YouTubeAuth.hasSavedSession(this)} " +
-                "bypass=${bypass != null}"
+            "run j=${job.id} p=$profile auth=${profile.useCookies && YouTubeAuth.hasSavedSession(this)} " +
+                "bypass=${bypass != null}" + (limits?.let { " wd=${it.firstMs / 1000}/${it.idleMs / 1000}s" } ?: "")
         )
-        // Patch 33: watchdog for a bypass run. A route that accepts the connection but then
-        // carries no data used to leave yt-dlp retrying silently for minutes, with the row
-        // stuck on "ETA -1" and no error. If yt-dlp prints nothing for too long while the
-        // bypass is in use, its process is stopped and the caller moves on to the next
-        // strategy. The clock is paused while nothing needs the network (merging, remuxing).
+        // Patch 34: watchdog. A route can accept the connection and then carry no data; yt-dlp
+        // retries silently for minutes and the row used to sit on "ETA -1" with no error. The
+        // wrapper (youtubedl-android 0.18.1, StreamProcessExtractor) calls the callback below
+        // for every STDOUT line only; yt-dlp's retry warnings go to stderr and never reach it.
+        // So "no stdout line for a while" means stuck: the process is stopped and the caller
+        // moves on to the next route. Before the first real progress line the limit is
+        // limits.firstMs, afterwards limits.idleMs. The clock is paused while nothing needs the
+        // network (merging, remuxing).
         val lastActivity = AtomicLong(SystemClock.elapsedRealtime())
-        val sawOutput = AtomicBoolean(false)
+        val sawProgress = AtomicBoolean(false)
         val quiet = AtomicBoolean(false)
         val stalled = AtomicBoolean(false)
         val finished = AtomicBoolean(false)
-        val watchdog = if (bypass != null) {
+        val watchdog = if (limits != null) {
             Thread({
                 try {
                     while (!finished.get()) {
                         Thread.sleep(WATCHDOG_TICK_MS)
                         val idleMs = SystemClock.elapsedRealtime() - lastActivity.get()
-                        val limitMs = if (sawOutput.get()) BYPASS_IDLE_LIMIT_MS else BYPASS_FIRST_OUTPUT_LIMIT_MS
+                        val limitMs = if (sawProgress.get()) limits.idleMs else limits.firstMs
                         if (!finished.get() && !quiet.get() && idleMs > limitMs) {
                             stalled.set(true)
+                            AppLog.w("DownloadService", "stall j=${job.id} idle=${idleMs / 1000}s progress=${sawProgress.get()}")
                             YoutubeDL.getInstance().destroyProcessById(job.id)
                             break
                         }
@@ -524,7 +607,7 @@ class DownloadService : Service() {
                 } catch (_: InterruptedException) {
                     // The attempt ended; nothing to watch any more.
                 }
-            }, "kinescope-bypass-watchdog").apply {
+            }, "kinescope-watchdog").apply {
                 isDaemon = true
                 start()
             }
@@ -534,16 +617,12 @@ class DownloadService : Service() {
 
         try {
             YoutubeDL.getInstance().execute(request, job.id) { progress, etaInSeconds, line ->
-                // The wrapper (youtubedl-android 0.18.1, StreamProcessExtractor) calls this for
-                // EVERY stdout line and reports progress = -1 and eta = -1 until the first real
-                // "[download] xx.x% ... ETA" line. That is the "ETA -1" the queue used to show
-                // for a whole run whose download never began. Only a real progress value counts
-                // as the download being alive, and only that is shown as a percentage.
+                lastActivity.set(SystemClock.elapsedRealtime())
+                // progress = -1 and eta = -1 until the first real "[download] xx.x% ... ETA" line.
+                // Showing those verbatim is the "ETA -1" the queue used to display for a whole
+                // run whose download never began. Only a real value is shown as a percentage.
                 val hasProgress = progress >= 0f
-                if (hasProgress) {
-                    lastActivity.set(SystemClock.elapsedRealtime())
-                    sawOutput.set(true)
-                }
+                if (hasProgress) sawProgress.set(true)
                 quiet.set(
                     line.contains("[Merger]") ||
                         line.contains("[Fixup") ||
@@ -563,7 +642,6 @@ class DownloadService : Service() {
                     }
                     updateProgressNotification(job.id, progress.toInt())
                 } else {
-                    // Still extracting / choosing formats: say so instead of "-1% (ETA -1s)".
                     DownloadQueueBus.update(job.id) {
                         it.copy(
                             state = JobState.RUNNING,
@@ -703,7 +781,11 @@ class DownloadService : Service() {
     private fun friendlyError(raw: String?): String {
         val message = raw.orEmpty()
         return when (DownloadErrorClassifier.classify(raw)) {
-            FailureKind.YOUTUBE_VERIFICATION -> getString(R.string.error_youtube_verification)
+            FailureKind.YOUTUBE_VERIFICATION -> if (NetworkState.systemVpnActive(this)) {
+                getString(R.string.error_verification_vpn)
+            } else {
+                getString(R.string.error_youtube_verification)
+            }
             FailureKind.PRIVATE_VIDEO -> getString(R.string.error_private_video)
             FailureKind.AGE_RESTRICTED -> getString(R.string.error_age_restricted)
             FailureKind.UNAVAILABLE -> getString(R.string.error_video_unavailable)
@@ -857,6 +939,9 @@ class DownloadService : Service() {
     private class ControlledStop(val action: ControlAction) : RuntimeException()
     private class AlreadyHandledFailure : RuntimeException()
 
+    /** Patch 34: how long yt-dlp may stay silent before its run is stopped. */
+    private data class WatchdogLimits(val firstMs: Long, val idleMs: Long)
+
     /** Patch 33: a bypass run produced no data for too long and was stopped by the watchdog. */
     private class BypassStalledException(message: String) : Exception(message)
 
@@ -892,8 +977,14 @@ class DownloadService : Service() {
 
         // Patch 33: bypass watchdog and first-launch wait.
         private const val WATCHDOG_TICK_MS = 2_000L
-        private const val BYPASS_FIRST_OUTPUT_LIMIT_MS = 90_000L
-        private const val BYPASS_IDLE_LIMIT_MS = 60_000L
+
+        // Patch 34: stall limits, measured as "no stdout line from yt-dlp" (see the watchdog in
+        // executeAttemptOverBypass). A strategy that failed its live check gets the tight ones.
+        private val NORMAL_LIMITS = WatchdogLimits(firstMs = 35_000L, idleMs = 45_000L)
+        private val TIGHT_LIMITS = WatchdogLimits(firstMs = 20_000L, idleMs = 20_000L)
+
+        /** Patch 34: the route that finished a download for a job; tried first on its later attempts. */
+        private val provenRoutes = ConcurrentHashMap<String, String>()
         private const val SEARCH_WAIT_LIMIT_MS = 8L * 60L * 1_000L
         private val INTERMEDIATE_SUFFIXES = listOf(".part", ".ytdl", ".temp", ".ffmpeg")
         private val EXECUTION_STATES = setOf(
