@@ -215,4 +215,14 @@
 <string name="bypass_notification_update">Обновить</string>
 <string name="cd_remove_download">Удалить загрузку</string>
     <string name="bypass_wait_download">Дождитесь окончания текущей загрузки, прежде чем тестировать или менять обход.</string>
+    <!-- Patch 33 -->
+    <string name="first_run_title">Подготовка</string>
+    <string name="first_run_body">Мы ищем доступные в вашей сети варианты обхода блокировки YouTube — оставайтесь на линии. Это делается один раз при первом запуске.</string>
+    <string name="first_run_progress">Проверено %1$d из %2$d</string>
+    <string name="first_run_ok">Понятно</string>
+    <string name="status_waiting_for_check">Ждём окончания проверки сети…</string>
+    <string name="status_preparing_download">Готовим загрузку…</string>
+    <string name="status_trying_another_way">Пробуем другой способ (%1$d из %2$d)…</string>
+    <string name="status_trying_direct">Пробуем прямое подключение…</string>
+    <string name="error_connection_blocked">Не удалось подключиться к YouTube из этой сети. Повторите попытку, смените сеть или запустите проверку заново в настройках.</string>
 </resources>

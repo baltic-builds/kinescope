@@ -16,7 +16,11 @@ internal data class StrategyResult(
      * was a likely source of false negatives, so it stays probed for diagnostics/ranking but is
      * no longer required for [fullPass].
      */
-    val requiredPassed: Boolean = false
+    val requiredPassed: Boolean = false,
+    /** Patch 33: whether a real ~200 KB transfer through this strategy completed. */
+    val deepOk: Boolean = false,
+    /** Patch 33: measured speed of that transfer in KB/s (0 when it was not measured). */
+    val throughputKbps: Int = 0
 ) {
     val fullPass: Boolean get() = started && total > 0 && requiredPassed
 }
@@ -45,7 +49,15 @@ internal class DpiStrategySearch(
      * can name a stricter core subset and still probe extra hosts for diagnostic/ranking purposes
      * only -- see [DpiBypass.search].
      */
-    private val requiredHosts: Set<String> = hosts.toSet()
+    private val requiredHosts: Set<String> = hosts.toSet(),
+    /**
+     * Patch 33: optional real-traffic test, run only for a strategy that already passed the light
+     * probe. Returns the measured speed in KB/s, or null when the transfer failed or stalled. The
+     * light probe (a TLS handshake and one HEAD request) cannot tell a strategy that carries real
+     * traffic from one that dies after the first packets, which is how a strategy that "passed"
+     * could still fail every real download.
+     */
+    private val deepProbe: ((port: Int) -> Int?)? = null
 ) {
     /**
      * [stopAfterFullPasses] bounds how many fully-passing strategies to collect before
@@ -99,7 +111,30 @@ internal class DpiStrategySearch(
             }
             val passed = outcomes.count { it.second }
             val requiredPassed = outcomes.filter { it.first in requiredHosts }.all { it.second }
-            return StrategyResult(line, started = true, passed = passed, total = hosts.size, requiredPassed = requiredPassed)
+            var deepOk = false
+            var throughputKbps = 0
+            if (requiredPassed && deepProbe != null) {
+                val measured = try {
+                    deepProbe.invoke(session.port)
+                } catch (e: InterruptedException) {
+                    throw e
+                } catch (e: Exception) {
+                    null
+                }
+                if (measured != null) {
+                    deepOk = true
+                    throughputKbps = measured
+                }
+            }
+            return StrategyResult(
+                line,
+                started = true,
+                passed = passed,
+                total = hosts.size,
+                requiredPassed = requiredPassed,
+                deepOk = deepOk,
+                throughputKbps = throughputKbps
+            )
         } finally {
             pool.shutdownNow()
             session.close()
@@ -123,5 +158,17 @@ internal class DpiStrategySearch(
         /** The result to select: most hosts through wins, earlier candidates win ties. */
         fun best(results: List<StrategyResult>): StrategyResult? =
             results.filter { it.started && it.passed > 0 }.maxByOrNull { it.passed }
+
+        /**
+         * Patch 33: the fully passing strategies, best first -- those whose real transfer
+         * completed, then more hosts through, then higher measured speed. The sort is stable, so
+         * the search order (hand-picked built-ins first) settles the remaining ties.
+         */
+        fun ranked(results: List<StrategyResult>): List<StrategyResult> =
+            results.filter { it.fullPass }.sortedWith(
+                compareByDescending<StrategyResult> { it.deepOk }
+                    .thenByDescending { it.passed }
+                    .thenByDescending { it.throughputKbps }
+            )
     }
 }

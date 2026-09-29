@@ -31,7 +31,12 @@ class DownloadErrorClassifierTest {
             "<urlopen error [Errno 4] Host unreachable> (caused by ProxyError(...)); please " +
             "report this issue on <url>, filling out the appropriate issue template. Confirm " +
             "you are on the latest version using yt-dlp -U."
-        assertEquals(FailureKind.OTHER, DownloadErrorClassifier.classify(hostUnreachable))
+        // Patch 33: this exact text now has its own kind (CONNECTION_BLOCKED) and a plain
+        // message. With the bypass on it is handled by the per-download fallback ladder (which
+        // ends the profile chain itself once every strategy and the direct route failed); with
+        // the bypass off it stays retryable through the profile chain, as before.
+        assertEquals(FailureKind.CONNECTION_BLOCKED, DownloadErrorClassifier.classify(hostUnreachable))
+        assertTrue(DownloadErrorClassifier.isTransportFailure(hostUnreachable))
         assertTrue(DownloadErrorClassifier.isRecoverableYoutubeBlock(hostUnreachable))
 
         assertEquals(

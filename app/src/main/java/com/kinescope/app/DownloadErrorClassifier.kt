@@ -32,9 +32,35 @@ object DownloadErrorClassifier {
             lower.contains("unable to resolve host") || lower.contains("unknownhost") ||
                 lower.contains("network is unreachable") -> FailureKind.NO_INTERNET
 
+            // Patch 33: the proxy or the socket could not carry the connection (a SOCKS5 "Host
+            // unreachable", a reset, a timeout). Previously this fell through to OTHER and the
+            // user saw a raw yt-dlp line, or nothing at all while the run kept retrying.
+            isTransportFailureLower(lower) -> FailureKind.CONNECTION_BLOCKED
+
             else -> FailureKind.OTHER
         }
     }
+
+    /** True for failures of the connection itself rather than of YouTube's answer. Patch 33. */
+    fun isTransportFailure(raw: String?): Boolean = isTransportFailureLower(raw.orEmpty().lowercase())
+
+    private fun isTransportFailureLower(lower: String): Boolean =
+        TRANSPORT_MARKERS.any { lower.contains(it) }
+
+    private val TRANSPORT_MARKERS = listOf(
+        "proxyerror",
+        "host unreachable",
+        "connection refused",
+        "connection reset",
+        "connection aborted",
+        "remote end closed",
+        "timed out",
+        "timeout",
+        "eof occurred",
+        "unable to connect to proxy",
+        "socks",
+        "bypass transport failure"
+    )
 
     fun isRecoverableYoutubeBlock(raw: String?): Boolean =
         classify(raw) in RECOVERABLE_KINDS
@@ -52,6 +78,10 @@ object DownloadErrorClassifier {
     private val RECOVERABLE_KINDS = setOf(
         FailureKind.YOUTUBE_VERIFICATION,
         FailureKind.AGE_RESTRICTED,
-        FailureKind.OTHER
+        FailureKind.OTHER,
+        // Patch 33: still retried through the profile chain when no bypass ladder ran (a plain
+        // connection dropping is transient). When the ladder ran and every strategy plus the
+        // direct fallback failed, DownloadService stops the chain itself (BypassTransportException).
+        FailureKind.CONNECTION_BLOCKED
     )
 }

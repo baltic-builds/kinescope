@@ -145,10 +145,25 @@ class BypassVpnService : VpnService() {
 
             // Try the verified strategy, then its verified fallbacks in order, and keep the
             // first engine that actually starts.
+            // Patch 33: a strategy that merely starts is not necessarily one that gets through
+            // right now (the network can change between the search and this start), so each
+            // candidate is also checked with one real connection before the tunnel is built on
+            // it. If none passes, the first one that started is used anyway, as before.
+            var firstStarted: String? = null
             for (line in chain) {
                 val parsed = DpiStrategyParser.parse(line) as? DpiStrategyParser.Parsed.Ok ?: continue
-                engine = DpiEngine.startForVpn(this, parsed.args)
-                if (engine != null) break
+                val candidate = DpiEngine.startForVpn(this, parsed.args) ?: continue
+                if (DpiBypass.isHealthy(candidate.port)) {
+                    engine = candidate
+                    break
+                }
+                AppLog.w("BypassVpnService", "Strategy started but failed the connection check; trying the next one")
+                if (firstStarted == null) firstStarted = line
+                candidate.close()
+            }
+            if (engine == null && firstStarted != null) {
+                val parsed = DpiStrategyParser.parse(firstStarted) as? DpiStrategyParser.Parsed.Ok
+                engine = parsed?.let { DpiEngine.startForVpn(this, it.args) }
             }
             if (engine == null) throw BypassStartException(R.string.bypass_vpn_engine_failed)
             if (stopRequested.get()) return
@@ -251,14 +266,12 @@ class BypassVpnService : VpnService() {
                 }
             )
             if (stopRequested.get()) return
-            val passes = results.filter { it.fullPass }
-            val working = passes.firstOrNull()
-            if (working == null) {
+            val previousChain = DpiStrategyStore.verifiedChain(applicationContext)
+            // Patch 33: ranked (real transfer first) instead of the first passes in list order.
+            if (!DpiBypass.applySearchResults(applicationContext, results)) {
                 AppLog.i("BypassVpnService", "Strategy update found nothing; keeping the current connection")
                 return
             }
-            val previousChain = DpiStrategyStore.verifiedChain(applicationContext)
-            DpiPrefs.markStrategiesVerified(applicationContext, working.line, passes.drop(1).map { it.line })
             if (DpiStrategyStore.verifiedChain(applicationContext) == previousChain) {
                 AppLog.i("BypassVpnService", "Strategy update found the same methods; keeping the connection")
                 return
@@ -431,7 +444,7 @@ class BypassVpnService : VpnService() {
             else -> getString(R.string.bypass_notification_starting)
         }
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_download)
+            .setSmallIcon(R.drawable.ic_stat_kinescope)
             .setContentTitle(getString(R.string.bypass_notification_title))
             .setContentText(text)
             .setContentIntent(contentIntent)

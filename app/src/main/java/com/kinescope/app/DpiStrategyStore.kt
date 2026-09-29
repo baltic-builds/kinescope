@@ -17,6 +17,7 @@ object DpiPrefs {
     private const val KEY_VERIFIED_AT = "verified_at"
     private const val KEY_VERIFIED_FALLBACKS = "verified_fallbacks"
     private const val KEY_INITIAL_SEARCH_DONE = "initial_search_done"
+    private const val KEY_FIRST_RUN_NOTICE_SHOWN = "first_run_notice_shown"
     private const val MAX_FALLBACKS = 3
 
     private fun prefs(context: Context) = context.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE)
@@ -74,6 +75,33 @@ object DpiPrefs {
 
     fun setHasRunInitialSearch(context: Context, done: Boolean) {
         prefs(context).edit().putBoolean(KEY_INITIAL_SEARCH_DONE, done).apply()
+    }
+
+    /** Patch 33: the first-launch popup is shown once per install, however often the check restarts. */
+    fun hasShownFirstRunNotice(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_FIRST_RUN_NOTICE_SHOWN, false)
+
+    fun setFirstRunNoticeShown(context: Context) {
+        prefs(context).edit().putBoolean(KEY_FIRST_RUN_NOTICE_SHOWN, true).apply()
+    }
+
+    /**
+     * Patch 33: after a download really completed through [line], make it the primary strategy
+     * (the previous primary and the rest stay behind it as fallbacks). A search only proves a
+     * strategy passes a probe; a finished download proves it carries real traffic right now.
+     */
+    fun promoteVerified(context: Context, line: String) {
+        val store = prefs(context)
+        val primary = store.getString(KEY_VERIFIED_STRATEGY, null) ?: return
+        if (primary == line) return
+        val chain = (listOf(primary) + verifiedFallbacks(context)).distinct()
+        if (line !in chain) return
+        val rest = chain.filter { it != line }.take(MAX_FALLBACKS)
+        store.edit()
+            .putString(KEY_STRATEGY, line)
+            .putString(KEY_VERIFIED_STRATEGY, line)
+            .putString(KEY_VERIFIED_FALLBACKS, rest.joinToString("\n"))
+            .apply()
     }
 
     fun listUpdatedAt(context: Context): Long = prefs(context).getLong(KEY_LIST_UPDATED_AT, 0L)

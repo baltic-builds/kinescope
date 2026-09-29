@@ -332,6 +332,69 @@ internal class NetworkCheck(
         return PathResult(true, stages)
     }
 
+    /**
+     * Patch 33: a real-traffic test used to rank strategies that already passed the light probe.
+     * Opens a TLS connection to [host] through the bypass engine, sends one GET and reads up to
+     * [maxBytes] within [budgetMs]. Returns the measured speed in KB/s, or null when the
+     * transfer failed or stalled before enough data arrived. Reads until the peer closes the
+     * connection, the byte cap or the time budget, whichever comes first.
+     */
+    fun throughputViaBypass(
+        engine: SocksEndpoint,
+        host: String = DEFAULT_HOST,
+        path: String = "/",
+        maxBytes: Int = DEEP_MAX_BYTES,
+        budgetMs: Int = DEEP_BUDGET_MS
+    ): Int? {
+        val socket = Socket()
+        try {
+            socket.connect(InetSocketAddress(engine.host, engine.port), stageTimeoutMs)
+            socket.soTimeout = stageTimeoutMs
+            if (Socks5.greet(socket.getInputStream(), socket.getOutputStream()) != null) return null
+            val connect = Socks5.connectByName(socket.getInputStream(), socket.getOutputStream(), host, HTTPS_PORT)
+            if (!connect.ok) return null
+
+            val factory = SSLSocketFactory.getDefault() as SSLSocketFactory
+            val ssl = factory.createSocket(socket, host, HTTPS_PORT, false) as SSLSocket
+            ssl.soTimeout = stageTimeoutMs
+            ssl.sslParameters = ssl.sslParameters.also { it.endpointIdentificationAlgorithm = "HTTPS" }
+            ssl.startHandshake()
+
+            val request = "GET $path HTTP/1.1\r\nHost: $host\r\nUser-Agent: Kinescope\r\n" +
+                "Accept-Encoding: identity\r\nConnection: close\r\n\r\n"
+            ssl.outputStream.write(request.toByteArray(Charsets.US_ASCII))
+            ssl.outputStream.flush()
+
+            val startedAt = System.nanoTime()
+            val deadline = startedAt + budgetMs * 1_000_000L
+            val buffer = ByteArray(8 * 1024)
+            var total = 0
+            var sawEof = false
+            while (total < maxBytes && System.nanoTime() < deadline) {
+                val read = try {
+                    ssl.inputStream.read(buffer)
+                } catch (e: IOException) {
+                    break // a stall (read timeout) or a cut connection: judge by what arrived
+                }
+                if (read < 0) {
+                    sawEof = true
+                    break
+                }
+                total += read
+            }
+            val elapsedMs = ((System.nanoTime() - startedAt) / 1_000_000L).coerceAtLeast(1L)
+            val enough = total >= DEEP_MIN_BYTES || (sawEof && total >= DEEP_MIN_EOF_BYTES)
+            if (!enough) return null
+            return ((total * 1_000L) / elapsedMs / 1_024L).toInt().coerceAtLeast(1)
+        } catch (e: InterruptedException) {
+            throw e
+        } catch (e: Exception) {
+            return null
+        } finally {
+            closeQuietly(socket)
+        }
+    }
+
     private fun closeQuietly(socket: Socket) {
         try {
             socket.close()
@@ -343,5 +406,11 @@ internal class NetworkCheck(
         const val DEFAULT_HOST = "www.youtube.com"
         private const val HTTPS_PORT = 443
         private const val MAX_ADDRESS_ATTEMPTS = 4
+
+        // Patch 33: the real-transfer test in throughputViaBypass.
+        private const val DEEP_MAX_BYTES = 200_000
+        private const val DEEP_BUDGET_MS = 8_000
+        private const val DEEP_MIN_BYTES = 40_000
+        private const val DEEP_MIN_EOF_BYTES = 2_000
     }
 }

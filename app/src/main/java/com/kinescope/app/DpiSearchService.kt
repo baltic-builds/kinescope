@@ -86,6 +86,8 @@ class DpiSearchService : Service() {
             val directWorks = DpiBypass.directConnectionWorks()
             val results = DpiBypass.search(
                 applicationContext,
+                // Patch 33: the first launch checks all 72; later searches may stop earlier.
+                fullScan = !DpiPrefs.hasRunInitialSearch(applicationContext),
                 isCancelled = { stopRequested.get() },
                 onProgress = { snapshot ->
                     DpiSearchController.progress(snapshot)
@@ -98,10 +100,10 @@ class DpiSearchService : Service() {
             if (stopRequested.get()) {
                 DpiSearchController.finished(R.string.bypass_search_stopped)
             } else {
-                val passes = results.filter { it.fullPass }
-                val working = passes.firstOrNull()
-                if (working != null) {
-                    DpiPrefs.markStrategiesVerified(applicationContext, working.line, passes.drop(1).map { it.line })
+                // Patch 33: a finished (not stopped) search counts as the one-time first check,
+                // and the best strategies win instead of the first four that happened to pass.
+                DpiPrefs.setHasRunInitialSearch(applicationContext, true)
+                if (DpiBypass.applySearchResults(applicationContext, results)) {
                     DpiPrefs.setEnabled(applicationContext, true)
                     DpiSearchController.finished(
                         if (directWorks) R.string.bypass_search_found_direct else R.string.bypass_search_found,
@@ -156,7 +158,7 @@ class DpiSearchService : Service() {
             )
         }
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_download)
+            .setSmallIcon(R.drawable.ic_stat_kinescope)
             .setContentTitle(getString(R.string.bypass_search_notification_title))
             .setContentText(text)
             .setContentIntent(contentIntent)

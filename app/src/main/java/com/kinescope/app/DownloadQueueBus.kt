@@ -19,6 +19,7 @@ enum class JobState {
 
 enum class FailureKind {
     NO_INTERNET,
+    CONNECTION_BLOCKED,
     YOUTUBE_VERIFICATION,
     PRIVATE_VIDEO,
     AGE_RESTRICTED,

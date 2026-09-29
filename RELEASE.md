@@ -115,8 +115,43 @@ then delete the `.txt` file locally -- it's no longer needed once it's
 in GitHub's secret store, and it's an unencrypted copy of your signing
 key while it exists.
 
-Then, under this repo's **Actions** tab, run *Build and Publish Signed Release* (`.github/workflows/build-release.yml`) by hand and supply a version name such as `1.2.0`. The workflow serializes release runs, validates all four secrets, runs `testDebugUnitTest` + `lintDebug`, builds with a monotonic CI versionCode, verifies the APK signature with `apksigner`, verifies zip alignment, checks the application ID / requested version name / arm64-only native payload, creates a SHA-256 checksum, uploads both as a 30-day workflow artifact, and creates a GitHub Release tagged `v<version>` containing the same two files. Optional release notes can be entered at dispatch time; otherwise GitHub generates them. Signing material is deleted in an `if: always()` cleanup step.
+Then, under this repo's **Actions** tab, run *Build and Publish Signed Release* (`.github/workflows/build-release.yml`) by hand and supply a version name such as `1.2.0`. The workflow serializes release runs, validates all four secrets, runs `testDebugUnitTest` + `lintDebug`, builds with a monotonic CI versionCode, verifies the APK signature with `apksigner`, verifies zip alignment, checks the application ID / requested version name / arm64-only native payload, uploads the APK as a 30-day workflow artifact, prints the signing certificate's SHA-256 fingerprint in the run summary (needed for Android developer verification, see below), and creates a GitHub Release tagged `v<version>` containing the APK. Since patch 33 no separate checksum file is built or published. Optional release notes can be entered at dispatch time; otherwise GitHub generates them. Signing material is deleted in an `if: always()` cleanup step.
 
+
+### Installing on a device: Play Protect and Android developer verification
+
+Two different things can stop or interrupt a sideloaded install; only the second needs anything
+from the developer. Nothing in the app's code can skip either dialog.
+
+- **"Send app for security check" / "App scan recommended".** Google Play Protect shows this for
+  any app it has not seen before. Choosing to send or scan the app lets the install continue.
+  This is normal and is not a block.
+- **"App blocked to protect your device".** Google documents one variant of this block for apps
+  installed from a browser, messenger or file manager that declare SMS, notification-listener or
+  accessibility permissions. Kinescope declares none of them (see `AndroidManifest.xml`), so that
+  variant is not the cause.
+- **Android developer verification (the likely cause of an "unknown developer" block).** Per
+  Google's Android developer documentation, from **30 September 2026** a package name that is not
+  registered can no longer be installed on certified Android devices in Brazil, Indonesia,
+  Singapore and Thailand; other regions follow in 2027. The dialog wording alone cannot prove
+  this is what a given phone shows -- confirm it by registering (below) and reinstalling.
+
+Free way to register a personal app (a *limited distribution* account, no government ID; up to
+20 authorised devices):
+
+1. Sign in to the Android Developer Console with a Google Account that has 2-Step Verification
+   turned on, link a Google payments profile and give a contact e-mail. Create the limited
+   distribution account.
+2. Register the package name `com.kinescope.app`. Google asks for the SHA-256 fingerprint of the
+   signing certificate: it is printed in the *Signing certificate* section of every release
+   workflow run summary (or run `apksigner verify --print-certs <apk>` locally). Then upload an
+   APK signed with that same key to prove ownership.
+3. Authorise each phone (up to 20) with the QR-code or link handshake and confirm on the device.
+
+The registration is tied to the signing key, so keep using the same keystore for every release
+(see the keystore section above) or the registration no longer matches. Google's pages, for
+re-checking when this changes: `developer.android.com/developer-verification/guides/limited-distribution`
+and `developer.android.com/developer-verification/guides/android-developer-console`.
 
 ### Android 15 / 16 KB page-size note
 

@@ -202,6 +202,8 @@ private fun KinescopeApp(prefillUrl: String, requestNotifications: () -> Unit) {
     val jobs by DownloadQueueBus.jobs.collectAsState()
     val scope = rememberCoroutineScope()
     val bypassState by BypassVpnController.state.collectAsState()
+    val searchState by DpiSearchController.state.collectAsState()
+    var showFirstRunNotice by remember { mutableStateOf(false) }
 
     var section by remember { mutableStateOf(AppSection.HOME) }
     var url by remember { mutableStateOf("") }
@@ -233,6 +235,26 @@ private fun KinescopeApp(prefillUrl: String, requestNotifications: () -> Unit) {
             urlError = null
             section = AppSection.QUICK_ADD
         }
+    }
+
+    // Patch 33: on a fresh install the check of all bundled strategies starts by itself, with a
+    // popup right away (shown once per install). It counts as done only when a search finishes,
+    // so an interrupted first check simply restarts on the next launch, without the popup.
+    LaunchedEffect(Unit) {
+        if (
+            !DpiPrefs.hasRunInitialSearch(context) &&
+            DpiStrategyStore.verifiedChain(context).isEmpty() &&
+            !DpiSearchController.state.value.running
+        ) {
+            if (!DpiPrefs.hasShownFirstRunNotice(context)) {
+                DpiPrefs.setFirstRunNoticeShown(context)
+                showFirstRunNotice = true
+            }
+            DpiSearchService.start(context)
+        }
+    }
+    LaunchedEffect(searchState.running, searchState.resultMessageRes) {
+        if (!searchState.running && searchState.resultMessageRes != null) showFirstRunNotice = false
     }
 
     suspend fun loadLibrary() {
@@ -326,6 +348,16 @@ private fun KinescopeApp(prefillUrl: String, requestNotifications: () -> Unit) {
             AppSection.LOGS, AppSection.YOUTUBE_AUTH -> AppSection.SETTINGS
             else -> AppSection.HOME
         }
+    }
+
+    if (showFirstRunNotice) {
+        FirstRunNoticeDialog(
+            progress = searchState.progress,
+            onDismiss = {
+                showFirstRunNotice = false
+                requestNotifications()
+            }
+        )
     }
 
     Scaffold(
@@ -486,6 +518,41 @@ private fun ResponsiveContent(innerPadding: PaddingValues, content: @Composable 
     }
 }
 
+/**
+ * Patch 33: shown once on the first launch while the bundled strategies are checked. One language
+ * only: the text comes from values/ (English) or values-ru/ (Russian) by the device language.
+ */
+@Composable
+private fun FirstRunNoticeDialog(progress: SearchProgress?, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.first_run_title)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(stringResource(R.string.first_run_body))
+                if (progress != null && progress.total > 0) {
+                    Text(
+                        stringResource(
+                            R.string.first_run_progress,
+                            (progress.index + 1).coerceAtMost(progress.total),
+                            progress.total
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    LinearProgressIndicator(
+                        progress = progress.index.toFloat() / progress.total,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.first_run_ok)) }
+        }
+    )
+}
+
 @Composable
 private fun GlassBottomBar(
     section: AppSection,
@@ -505,14 +572,13 @@ private fun GlassBottomBar(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 6.dp),
+                .padding(vertical = 4.dp),
             contentAlignment = Alignment.Center
         ) {
+            // Patch 33: the pill wraps its three buttons instead of stretching to a fixed
+            // 330dp, which left a wide empty gap between them.
             Surface(
                 modifier = Modifier
-                    .widthIn(max = 330.dp)
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
                     .border(
                         width = 1.dp,
                         color = MaterialTheme.colorScheme.outline.copy(alpha = 0.42f),
@@ -524,10 +590,8 @@ private fun GlassBottomBar(
                 shadowElevation = 6.dp
             ) {
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 5.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     GlassNavIcon(selected = section == AppSection.HOME, onClick = onHome) {

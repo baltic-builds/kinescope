@@ -36,7 +36,7 @@ before editing anything.
 - Verification build: `./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug`. A plain `assembleDebug` is acceptable only as a quick compile while iterating. Signed releases are built by `.github/workflows/build-release.yml`; see `RELEASE.md`.
 - If `gradlew` is missing or the devcontainer's `postCreateCommand`
   didn't finish, run `bash .devcontainer/setup.sh` manually.
-- CI: `.github/workflows/build-release.yml` only, manually triggered (`workflow_dispatch`) and hand-versioned per run. It publishes the signed APK + checksum to GitHub Releases. Debug CI was deliberately removed in patch 24; `./gradlew assembleDebug` remains the local sanity check.
+- CI: `.github/workflows/build-release.yml` only, manually triggered (`workflow_dispatch`) and hand-versioned per run. It publishes the signed APK to GitHub Releases. Debug CI was deliberately removed in patch 24; `./gradlew assembleDebug` remains the local sanity check.
 - Real-device testing is manual, on the user's own phone, and always
   needs an explicit report back — see "What 'done' means" below.
 

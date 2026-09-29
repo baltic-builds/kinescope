@@ -13,6 +13,100 @@ patch's own `.py` script for the exact, idempotent, exact-match-guarded
 edits it makes.
 
 
+## Patch 33 — First-launch check, ranked bypass with a real fallback ladder, compact navbar, no checksum file
+
+Requires patches 30-32. Not device-verified.
+
+### Downloads that never started ("ETA -1", no error) and a bypass that got worse
+- **What the supplied log shows.** It is dated 2026-09-24, so it predates patches 31 and 32. A
+  strategy chosen by the search (`-o1 -r-5+se -a1`) had passed the search's light probe, yet every
+  yt-dlp connection through it failed with the local proxy's SOCKS5 reply "Host unreachable"
+  (`ProxyError`), three retries per page, and the failure was then shown as age-restricted (that
+  misclassification is the one patch 31 fixed). Earlier the same day a different strategy had
+  completed a download through the bypass. The log ends mid-line and holds no example of the
+  "ETA -1" state itself.
+- **Likely causes, inferred from the code and that log (not device-confirmed):**
+  1. The search kept the *first* four strategies that passed, in list order, not the four best. A
+     bare TLS handshake plus one HEAD request cannot tell a strategy that carries real traffic
+     from one that dies after the first packets.
+  2. Nothing re-checked a strategy right before a download or a tunnel start, so a strategy that
+     merely *started* was used even when it no longer got through.
+  3. A run whose route accepted the connection but carried no data left yt-dlp retrying silently
+     for minutes. **The `ETA -1` is explained** (checked against the `youtubedl-android` 0.18.1
+     source): its `StreamProcessExtractor` calls the progress callback for every stdout line and
+     reports progress `-1` / ETA `-1` until the first real `[download] xx.x% ... ETA` line, and the
+     queue printed those values verbatim ("-1% (ETA -1s)"). A run that never gets past the
+     extraction step therefore looked like a running download with no error. Now the row says
+     "Preparing the download…" until real progress arrives.
+  4. A connection-level failure had no plain error; it fell through to the raw yt-dlp line.
+- **Search.** `NetworkCheck.throughputViaBypass` downloads up to ~200 KB of a real page through the
+  engine (8 s budget). For every strategy that passes the light probe the result (`deepOk`, KB/s)
+  is stored in `StrategyResult`; `DpiStrategySearch.ranked` orders strategies by real transfer,
+  then hosts passed, then speed, with the search order breaking ties. A strategy whose transfer
+  failed stays in the list but ranks below one that worked. `DpiBypass.applySearchResults` keeps
+  the best four (primary + three fallbacks) and is used by both the search service and the
+  tunnel's Update. The first launch scans all 72 candidates; later manual searches stop after 12
+  passes.
+- **Download ladder** (`DownloadService.executeWithBypassFallback`). Each verified strategy, best
+  first, is started, checked with one live connection (`DpiBypass.isHealthy`), and used; one that
+  does not start, fails the check, fails at connection level or stalls hands over to the next, and
+  a direct connection is tried last. A strategy that finishes a download is promoted to primary
+  (`DpiPrefs.promoteVerified`). Errors that are not about the connection are rethrown untouched, so
+  patch 31's recovery chain for real YouTube answers is unchanged. If everything fails the row ends
+  with the new plain message instead of hanging.
+- **Watchdog.** With the bypass in use, a yt-dlp run that shows no real download progress for 90 s
+  (before the first progress line) or 60 s (afterwards) is stopped and the ladder moves on. Only
+  real progress counts as activity, because the `-1` lines above would otherwise keep a dead run
+  looking alive. The clock is paused while nothing needs the network (`[Merger]`, `[Fixup`,
+  `[ExtractAudio]`, `[VideoRemuxer]`, `[Metadata]`), so a long merge is not mistaken for a stall. `--socket-timeout 15` makes a dead route
+  fail sooner on its own.
+- **First launch.** A download queued while the first check is still running on a blocked network
+  waits for it ("Waiting for the network check to finish…") instead of starting without a bypass.
+- **Errors.** New `FailureKind.CONNECTION_BLOCKED` with a plain EN/RU message. It stays retryable
+  through patch 31's profile chain when no bypass ladder ran (a plain connection dropping is
+  transient); when the ladder ran and every strategy plus the direct route failed, the chain is
+  ended at once (`BypassTransportException`), because a different client profile cannot fix a
+  connection that does not work. The patch 31 regression test that pinned the "Host unreachable"
+  text to `OTHER` now expects `CONNECTION_BLOCKED` (still recoverable).
+- **YouTube-app tunnel.** `BypassVpnService.startTunnel` also live-checks each candidate before
+  building the tunnel on it, and falls back to the first strategy that started if none passes.
+
+### First-launch popup and automatic check
+- On a fresh install `MainActivity` starts the check of all bundled strategies by itself and shows
+  a popup at once (once per install, tracked by `first_run_notice_shown`). The check counts as done
+  only when a search finishes, so an interrupted first check restarts on the next launch without
+  repeating the popup.
+- **One language only.** The popup text lives in `values/strings.xml` (English) and
+  `values-ru/strings.xml` (Russian); Android picks one by the device language. The earlier idea of
+  a Russian + Portuguese popup is dropped.
+- The search and bypass notifications use the new `ic_stat_kinescope` (the small old TV, as a
+  single-colour status-bar silhouette) instead of the download arrow. Real download notifications
+  keep the download glyph.
+
+### Navigation bar
+- The pill now wraps its three buttons (fixed 330 dp width removed, 14 dp spacing), so the empty
+  gap between them is gone. The three-button-bar inset handling from patch 32 is unchanged.
+
+### Release pipeline and installing
+- The workflow no longer builds, uploads or publishes a `.sha256` file. It prints the signing
+  certificate's SHA-256 fingerprint in the run summary instead (that fingerprint is what Android
+  developer verification asks for; the APK checksum was not).
+- **The "unknown developer / app blocked" install dialog is not something the app can change.**
+  Google documents the "App blocked" variant only for SMS / notification-listener / accessibility
+  permissions, which Kinescope does not declare. Google's developer-verification pages say that
+  from 2026-09-30 unregistered package names cannot be installed on certified devices in Brazil,
+  Indonesia, Singapore and Thailand (global in 2027) and that a free limited-distribution account
+  (no government ID, up to 20 devices) exists for hobbyists. `RELEASE.md` now has the steps. Whether
+  that is what the user's phone shows is unconfirmed.
+
+### Verification status
+- Sandbox only: the patch script applies cleanly to a copy of the repository, is idempotent, and
+  the touched non-Compose Kotlin sources compile against the API 35 `android.jar` with stubs for the
+  androidx/youtubedl-android APIs; the new and updated unit tests pass. `MainActivity.kt` and other
+  Compose code were checked by brace balance and review, not compiled.
+- Not verified: everything on a real device, including `throughputViaBypass` against real YouTube
+  and the watchdog's 90 s / 60 s limits (chosen by judgement, not measured).
+
 <!-- moved to the top of CHANGELOG.md by patch 32 -->
 ## Patch 32 — Responsive layout, bundled strategies, persistent bypass notification
 

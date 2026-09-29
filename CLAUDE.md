@@ -68,7 +68,7 @@ future sessions don't lose them.)
   GitHub Actions** (`.github/workflows/build-release.yml`), not a
   local `./gradlew assembleRelease` run in the Codespace. The local build path in `RELEASE.md`
   Option A is kept as a working fallback, not removed.
-- **Decision (patch 24): the debug GitHub Actions workflow is removed.** CI distribution is release-only through `.github/workflows/build-release.yml`, which publishes the signed APK and checksum to GitHub Releases. `./gradlew assembleDebug` remains the local Codespace sanity build required by `AGENTS.md`.
+- **Decision (patch 24): the debug GitHub Actions workflow is removed.** CI distribution is release-only through `.github/workflows/build-release.yml`, which publishes the signed APK to GitHub Releases. `./gradlew assembleDebug` remains the local Codespace sanity build required by `AGENTS.md`.
 - **Decision (patch 24): UI localization is English + Russian.** Keep English as the default resource set; `values-ru` is used automatically for Russian locale. New user-visible strings must be added to both locales.
 - **Decision (patch 24): YouTube recovery remains yt-dlp-only.** Nightly updates, cookies, retries and yt-dlp player-client fallbacks are allowed; custom BotGuard/PO-token generation, signature deciphering, or anti-bot bypass code remains forbidden.
 - **Decision (patch 24): first-sprint navigation is Home / Add / Settings.** Five rapid taps on Settings opens the diagnostic log journal. Android Back from Settings/Add returns Home.

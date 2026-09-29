@@ -2,7 +2,7 @@ name: Build and Publish Signed Release
 
 # Manual-only release pipeline. It builds one arm64-v8a signed APK,
 # verifies its signature, keeps a workflow artifact as backup, and
-# publishes the same APK + SHA-256 file to GitHub Releases.
+# publishes the same APK to GitHub Releases.
 on:
   workflow_dispatch:
     inputs:
@@ -94,7 +94,7 @@ jobs:
             -PappVersionName="$VERSION_NAME" \
             -PappVersionCode="$version_code"
 
-      - name: Verify, rename and checksum APK
+      - name: Verify and rename APK
         id: package
         env:
           VERSION_NAME: ${{ inputs.version_name }}
@@ -129,19 +129,23 @@ jobs:
             exit 1
           fi
 
-          sha="${apk}.sha256"
-          sha256sum "$apk" > "$sha"
+          # Patch 33: the SHA-256 file that used to be published next to the APK is gone.
+          # What Android developer verification asks for is the fingerprint of the signing
+          # certificate (a different thing), so print that in the run summary only.
+          cert_sha256="$("$apksigner" verify --print-certs "$apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')"
+          {
+            echo "### Signing certificate"
+            echo
+            echo "SHA-256: \`${cert_sha256:-not found}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
           echo "apk_path=$apk" >> "$GITHUB_OUTPUT"
-          echo "sha_path=$sha" >> "$GITHUB_OUTPUT"
           echo "tag=v${VERSION_NAME}" >> "$GITHUB_OUTPUT"
 
       - name: Upload workflow artifact backup
         uses: actions/upload-artifact@v4
         with:
           name: kinescope-v${{ inputs.version_name }}-release
-          path: |
-            ${{ steps.package.outputs.apk_path }}
-            ${{ steps.package.outputs.sha_path }}
+          path: ${{ steps.package.outputs.apk_path }}
           if-no-files-found: error
           retention-days: 30
 
@@ -150,7 +154,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.package.outputs.tag }}
           APK_PATH: ${{ steps.package.outputs.apk_path }}
-          SHA_PATH: ${{ steps.package.outputs.sha_path }}
           RELEASE_NOTES: ${{ inputs.release_notes }}
         run: |
           set -euo pipefail
@@ -159,7 +162,7 @@ jobs:
             exit 1
           fi
 
-          args=(release create "$TAG" "$APK_PATH" "$SHA_PATH" --target "$GITHUB_SHA" --title "Kinescope $TAG")
+          args=(release create "$TAG" "$APK_PATH" --target "$GITHUB_SHA" --title "Kinescope $TAG")
           if [ -n "$RELEASE_NOTES" ]; then
             notes_file="$RUNNER_TEMP/release-notes.md"
             printf '%s\n' "$RELEASE_NOTES" > "$notes_file"

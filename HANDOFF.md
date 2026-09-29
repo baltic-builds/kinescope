@@ -27,6 +27,17 @@ resource check for the same class of mistake, and only records completion after
 roadmap scope changed in this hotfix.
 
 
+### Patch 33 / first-launch check, ranked bypass, fallback ladder status
+
+Not device-confirmed. Read `CHANGELOG.md` "Patch 33" for the reasoning; the map of what moved:
+`DpiSearch.kt` (real-transfer field + `ranked()`), `NetworkCheck.throughputViaBypass`,
+`DpiBypass` (`activeChain`, `startLine`, `isHealthy`, `applySearchResults`, `fullScan`),
+`DownloadService` (`executeWithBypassFallback` ladder, watchdog inside `executeAttemptOverBypass`,
+`awaitStrategySearch`), `DownloadErrorClassifier` (`CONNECTION_BLOCKED`), `MainActivity`
+(first-launch popup + automatic check, compact navbar), `ic_stat_kinescope.xml` for the search and
+bypass notifications, and no `.sha256` release asset. The install-time "unknown developer" block is
+**not** fixable in code: it is most likely Android developer verification, see `RELEASE.md`.
+
 ### Patch 32 / responsive layout, bundled strategies, persistent notification status
 
 Requests after Patch 31: the bottom navbar was covered by Android's three-button navigation bar;
@@ -425,8 +436,9 @@ Documentation sources of truth: `CLAUDE.md` (constraints/decisions), `AGENTS.md`
 
 ## Immediate next step for Claude (in a new conversation)
 
-**Collect device verification for Patches 31 and 32 first** -- this is now the single blocking
-item (Patch 32's checklist is in `ROADMAP.md` too).
+**Collect device verification for Patches 31, 32 and 33 first** -- this is now the single blocking
+item (the Patch 32 and 33 checklists are in `ROADMAP.md` too; Patch 33's first question is whether a
+download now completes, or fails with a plain message, on the restricted network).
 Exact checklist in `ROADMAP.md`'s Patch 31 section: does the Home screen's new bypass card show
 correctly in all three states; does the YouTube sign-in screen now open on the actual sign-in
 form, and does signing in succeed (this was never confirmed to even be reachable before, since

@@ -215,4 +215,14 @@
 <string name="bypass_notification_update">Update</string>
 <string name="cd_remove_download">Remove download</string>
     <string name="bypass_wait_download">Finish the current download before testing or changing the bypass.</string>
+    <!-- Patch 33 -->
+    <string name="first_run_title">Getting ready</string>
+    <string name="first_run_body">We’re looking for ways around the YouTube block that work on your network — please hold on. This happens once, when you first open the app.</string>
+    <string name="first_run_progress">Checked %1$d of %2$d</string>
+    <string name="first_run_ok">Got it</string>
+    <string name="status_waiting_for_check">Waiting for the network check to finish…</string>
+    <string name="status_preparing_download">Preparing the download…</string>
+    <string name="status_trying_another_way">Trying another way (%1$d of %2$d)…</string>
+    <string name="status_trying_direct">Trying a direct connection…</string>
+    <string name="error_connection_blocked">Couldn’t reach YouTube from this network. Try again, switch networks, or run the check again in Settings.</string>
 </resources>

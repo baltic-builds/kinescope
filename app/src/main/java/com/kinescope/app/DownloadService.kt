@@ -11,6 +11,7 @@ import android.content.pm.ServiceInfo
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.IBinder
+import android.os.SystemClock
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.yausername.youtubedl_android.YoutubeDL
@@ -21,6 +22,8 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.abs
 import kotlin.random.Random
 
@@ -238,6 +241,7 @@ class DownloadService : Service() {
         val preset = qualityPreset(job.qualityId)
 
         try {
+            awaitStrategySearch(job)
             EngineController.withEngine(this) {
                 executeWithRecovery(job, preset, outputTemplate)
             }
@@ -333,6 +337,12 @@ class DownloadService : Service() {
                     e
                 )
                 if (!recoverable || index == attempts.lastIndex) break
+            } catch (e: BypassTransportException) {
+                // Patch 33: the ladder already tried every strategy and a direct connection. A
+                // different yt-dlp client profile cannot fix a connection that does not work.
+                lastError = e.message.orEmpty()
+                AppLog.e("DownloadService", "Attempt ${index + 1}/${attempts.size} could not reach YouTube job=${job.id}", e)
+                break
             }
         }
 
@@ -355,11 +365,98 @@ class DownloadService : Service() {
         // when the user has switched it on in Settings, this starts a fresh engine process for
         // exactly this attempt and always tears it down afterwards, success or failure, so no
         // orphaned ":dpi" process survives a crash or a cancelled attempt.
-        val bypass = DpiBypass.startIfEnabled(this)
+        executeWithBypassFallback(job, preset, outputTemplate, profile)
+    }
+
+    /**
+     * Patch 33: one attempt through the verified bypass chain with a real fallback ladder.
+     * Each verified strategy (best first) is started, checked with one live connection, and
+     * used for the download; a strategy that does not start, fails the check, fails at the
+     * connection level or stalls hands over to the next one; when all of them are used up a
+     * direct connection is tried last. A strategy that finishes the download is promoted to
+     * primary. Errors that are not about the connection (private video, verification, ...)
+     * are rethrown untouched for the normal recovery chain.
+     */
+    private fun executeWithBypassFallback(
+        job: StoredDownloadJob,
+        preset: QualityPreset,
+        outputTemplate: String,
+        profile: RecoveryProfile
+    ) {
+        val chain = DpiBypass.activeChain(this)
+        if (chain.isEmpty()) {
+            executeAttemptOverBypass(job, preset, outputTemplate, profile, null)
+            return
+        }
+
+        var lastTransportError = ""
+        for ((position, line) in chain.withIndex()) {
+            requestedControls.remove(job.id)?.let { throw ControlledStop(it) }
+            if (position > 0) {
+                DownloadQueueBus.update(job.id) {
+                    it.copy(progressText = getString(R.string.status_trying_another_way, position + 1, chain.size))
+                }
+            }
+            val session = DpiBypass.startLine(this, line)
+            if (session == null) {
+                AppLog.w("DownloadService", "Strategy ${position + 1}/${chain.size} did not start job=${job.id}")
+                continue
+            }
+            try {
+                if (!DpiBypass.isHealthy(session.port)) {
+                    AppLog.w("DownloadService", "Strategy ${position + 1}/${chain.size} failed the connection check job=${job.id}")
+                    lastTransportError = "connection check failed"
+                    continue
+                }
+                executeAttemptOverBypass(job, preset, outputTemplate, profile, session)
+                DpiPrefs.promoteVerified(this, line)
+                return
+            } catch (e: BypassStalledException) {
+                lastTransportError = e.message.orEmpty()
+                AppLog.w("DownloadService", "Strategy ${position + 1}/${chain.size} stalled job=${job.id}")
+            } catch (e: YoutubeDLException) {
+                if (!DownloadErrorClassifier.isTransportFailure(e.message)) throw e
+                lastTransportError = e.message.orEmpty()
+                AppLog.w("DownloadService", "Strategy ${position + 1}/${chain.size} failed at connection level job=${job.id}")
+            } finally {
+                session.close()
+            }
+        }
+
+        // Every strategy is used up: try the plain connection last.
+        requestedControls.remove(job.id)?.let { throw ControlledStop(it) }
+        DownloadQueueBus.update(job.id) { it.copy(progressText = getString(R.string.status_trying_direct)) }
         try {
-            executeAttemptOverBypass(job, preset, outputTemplate, profile, bypass)
-        } finally {
-            bypass?.close()
+            executeAttemptOverBypass(job, preset, outputTemplate, profile, null)
+        } catch (e: BypassStalledException) {
+            throw BypassTransportException("bypass transport failure: ${firstLine(lastTransportError)}")
+        } catch (e: YoutubeDLException) {
+            if (!DownloadErrorClassifier.isTransportFailure(e.message)) throw e
+            throw BypassTransportException("bypass transport failure: ${firstLine(lastTransportError)}")
+        }
+    }
+
+    private fun firstLine(text: String): String = text.lineSequence().firstOrNull().orEmpty().take(160)
+
+    /**
+     * Patch 33: while the strategy check is still running (the first launch scans all 72), a
+     * download on a blocked network waits for it instead of starting without a bypass and
+     * failing; the engine only allows one run at a time anyway. On a network that is not
+     * blocked there is nothing to wait for.
+     */
+    private fun awaitStrategySearch(job: StoredDownloadJob) {
+        if (!DpiSearchController.state.value.running) return
+        if (DpiBypass.directConnectionWorks()) return
+        DownloadQueueBus.update(job.id) { it.copy(progressText = getString(R.string.status_waiting_for_check)) }
+        val deadline = SystemClock.elapsedRealtime() + SEARCH_WAIT_LIMIT_MS
+        while (DpiSearchController.state.value.running && SystemClock.elapsedRealtime() < deadline) {
+            requestedControls.remove(job.id)?.let { throw ControlledStop(it) }
+            try {
+                Thread.sleep(1_000L)
+            } catch (e: InterruptedException) {
+                Thread.currentThread().interrupt()
+                throw e
+            }
         }
     }
 
@@ -377,6 +474,9 @@ class DownloadService : Service() {
             addOption("--retries", "5")
             addOption("--fragment-retries", "5")
             addOption("--extractor-retries", "3")
+            // Patch 33: give up on a silent socket after 15 s (the default is 20 s per try)
+            // so a dead route fails, and hands over to the next strategy, quickly.
+            addOption("--socket-timeout", "15")
             addOption("--retry-sleep", "http:exp=1:8")
             addOption("--sleep-requests", "0.75")
             preset.apply(this)
@@ -398,19 +498,89 @@ class DownloadService : Service() {
             "Executing job=${job.id} profile=$profile authenticated=${profile.useCookies && YouTubeAuth.hasSavedSession(this)} " +
                 "bypass=${bypass != null}"
         )
-        YoutubeDL.getInstance().execute(request, job.id) { progress, etaInSeconds, _ ->
-            if (requestedControls[job.id] != null) {
-                YoutubeDL.getInstance().destroyProcessById(job.id)
-            } else {
-                DownloadQueueBus.update(job.id) {
-                    it.copy(
-                        state = JobState.RUNNING,
-                        progressText = getString(R.string.progress_percent_eta, progress, etaInSeconds),
-                        progressFraction = (progress / 100f).coerceIn(0f, 1f)
-                    )
+        // Patch 33: watchdog for a bypass run. A route that accepts the connection but then
+        // carries no data used to leave yt-dlp retrying silently for minutes, with the row
+        // stuck on "ETA -1" and no error. If yt-dlp prints nothing for too long while the
+        // bypass is in use, its process is stopped and the caller moves on to the next
+        // strategy. The clock is paused while nothing needs the network (merging, remuxing).
+        val lastActivity = AtomicLong(SystemClock.elapsedRealtime())
+        val sawOutput = AtomicBoolean(false)
+        val quiet = AtomicBoolean(false)
+        val stalled = AtomicBoolean(false)
+        val finished = AtomicBoolean(false)
+        val watchdog = if (bypass != null) {
+            Thread({
+                try {
+                    while (!finished.get()) {
+                        Thread.sleep(WATCHDOG_TICK_MS)
+                        val idleMs = SystemClock.elapsedRealtime() - lastActivity.get()
+                        val limitMs = if (sawOutput.get()) BYPASS_IDLE_LIMIT_MS else BYPASS_FIRST_OUTPUT_LIMIT_MS
+                        if (!finished.get() && !quiet.get() && idleMs > limitMs) {
+                            stalled.set(true)
+                            YoutubeDL.getInstance().destroyProcessById(job.id)
+                            break
+                        }
+                    }
+                } catch (_: InterruptedException) {
+                    // The attempt ended; nothing to watch any more.
                 }
-                updateProgressNotification(job.id, progress.toInt())
+            }, "kinescope-bypass-watchdog").apply {
+                isDaemon = true
+                start()
             }
+        } else {
+            null
+        }
+
+        try {
+            YoutubeDL.getInstance().execute(request, job.id) { progress, etaInSeconds, line ->
+                // The wrapper (youtubedl-android 0.18.1, StreamProcessExtractor) calls this for
+                // EVERY stdout line and reports progress = -1 and eta = -1 until the first real
+                // "[download] xx.x% ... ETA" line. That is the "ETA -1" the queue used to show
+                // for a whole run whose download never began. Only a real progress value counts
+                // as the download being alive, and only that is shown as a percentage.
+                val hasProgress = progress >= 0f
+                if (hasProgress) {
+                    lastActivity.set(SystemClock.elapsedRealtime())
+                    sawOutput.set(true)
+                }
+                quiet.set(
+                    line.contains("[Merger]") ||
+                        line.contains("[Fixup") ||
+                        line.contains("[ExtractAudio]") ||
+                        line.contains("[VideoRemuxer]") ||
+                        line.contains("[Metadata]")
+                )
+                if (requestedControls[job.id] != null) {
+                    YoutubeDL.getInstance().destroyProcessById(job.id)
+                } else if (hasProgress) {
+                    DownloadQueueBus.update(job.id) {
+                        it.copy(
+                            state = JobState.RUNNING,
+                            progressText = getString(R.string.progress_percent_eta, progress, etaInSeconds),
+                            progressFraction = (progress / 100f).coerceIn(0f, 1f)
+                        )
+                    }
+                    updateProgressNotification(job.id, progress.toInt())
+                } else {
+                    // Still extracting / choosing formats: say so instead of "-1% (ETA -1s)".
+                    DownloadQueueBus.update(job.id) {
+                        it.copy(
+                            state = JobState.RUNNING,
+                            progressText = getString(R.string.status_preparing_download),
+                            progressFraction = null
+                        )
+                    }
+                }
+            }
+        } catch (e: YoutubeDL.CanceledException) {
+            if (stalled.get() && requestedControls[job.id] == null) {
+                throw BypassStalledException("no data from YouTube for a long time")
+            }
+            throw e
+        } finally {
+            finished.set(true)
+            watchdog?.interrupt()
         }
     }
 
@@ -538,6 +708,7 @@ class DownloadService : Service() {
             FailureKind.AGE_RESTRICTED -> getString(R.string.error_age_restricted)
             FailureKind.UNAVAILABLE -> getString(R.string.error_video_unavailable)
             FailureKind.NO_INTERNET -> getString(R.string.error_no_internet)
+            FailureKind.CONNECTION_BLOCKED -> getString(R.string.error_connection_blocked)
             else -> if (message.isBlank()) {
                 getString(R.string.error_unknown)
             } else {
@@ -686,6 +857,12 @@ class DownloadService : Service() {
     private class ControlledStop(val action: ControlAction) : RuntimeException()
     private class AlreadyHandledFailure : RuntimeException()
 
+    /** Patch 33: a bypass run produced no data for too long and was stopped by the watchdog. */
+    private class BypassStalledException(message: String) : Exception(message)
+
+    /** Patch 33: every bypass strategy and the direct fallback failed at the connection level. */
+    private class BypassTransportException(message: String) : Exception(message)
+
     private enum class RecoveryProfile(
         val extractorArgs: String?,
         val forceIpv4: Boolean,
@@ -712,6 +889,12 @@ class DownloadService : Service() {
         private const val EXTRA_JOB_ID = "extra_job_id"
         private const val IDLE_TIMEOUT_MS = 5_000L
         private const val NOTIFICATION_THROTTLE_MS = 750L
+
+        // Patch 33: bypass watchdog and first-launch wait.
+        private const val WATCHDOG_TICK_MS = 2_000L
+        private const val BYPASS_FIRST_OUTPUT_LIMIT_MS = 90_000L
+        private const val BYPASS_IDLE_LIMIT_MS = 60_000L
+        private const val SEARCH_WAIT_LIMIT_MS = 8L * 60L * 1_000L
         private val INTERMEDIATE_SUFFIXES = listOf(".part", ".ytdl", ".temp", ".ffmpeg")
         private val EXECUTION_STATES = setOf(
             JobState.PREPARING,

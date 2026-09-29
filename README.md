@@ -81,9 +81,9 @@ The only GitHub Actions build workflow is `.github/workflows/build-release.yml`,
 2. runs unit tests + Android lint;
 3. builds the signed release APK;
 4. verifies APK signature, zip alignment, application ID, version name and arm64-only native payload;
-5. writes SHA-256;
+5. prints the signing certificate fingerprint in the run summary;
 6. uploads an Actions artifact backup;
-7. creates a versioned GitHub Release containing the APK + checksum.
+7. creates a versioned GitHub Release containing the APK.
 
 See `RELEASE.md` for signing-key setup and the exact release process.
 

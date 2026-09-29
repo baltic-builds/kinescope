@@ -37,7 +37,7 @@ The detailed implementation record lives in `CHANGELOG.md`; this file only track
 - [x] Notification permission request moved to the first accepted download instead of app startup.
 - [x] Privacy-hardened diagnostics: URL/cookie/private-path redaction, bounded stack traces, app backup disabled so cookies/logs/job journal do not enter normal Android backup.
 - [x] Pure JVM tests for URL parsing, yt-dlp error classification and diagnostic privacy redaction.
-- [x] Release CI now runs unit tests + lint before assembly, verifies signature, zip alignment, package/version metadata and arm64-only ABI contents, then publishes APK + SHA-256 to GitHub Releases.
+- [x] Release CI now runs unit tests + lint before assembly, verifies signature, zip alignment, package/version metadata and arm64-only ABI contents, then publishes the APK to GitHub Releases.
 - [x] Android command-line tools are pinned by official URL + SHA-256 in `.devcontainer/setup.sh` instead of being silently scraped from a changing webpage.
 - [x] Light-theme status/action contrast tightened without changing the Kinescope palette; `design.md` is the source of truth.
 - [x] Third-party dependency/licensing inventory added in `THIRD_PARTY_NOTICES.md`.
@@ -67,7 +67,7 @@ These require the user's phone or a real GitHub Actions run. Do not mark them co
 ### Release pipeline
 
 - [ ] Run `.github/workflows/build-release.yml` with a fresh semantic version and confirm `testDebugUnitTest`, `lintDebug`, signature/zip/package/version/ABI checks all pass.
-- [ ] Confirm the resulting GitHub Release contains the signed arm64 APK and matching `.sha256` file.
+- [ ] Confirm the resulting GitHub Release contains the signed arm64 APK and no `.sha256` file (removed in patch 33), and that the run summary shows the signing certificate fingerprint.
 - [ ] Install that signed release over the previous signed build and confirm settings, YouTube session and recoverable job journal survive the app update as expected.
 
 ### Platform limitation to re-check upstream
@@ -170,6 +170,17 @@ Not yet device-verified. Full detail in `CHANGELOG.md`.
   completing); a real age-restricted video downloads successfully once signed in; a previously
   misclassified transient bypass error now actually retries and can succeed instead of failing
   outright.
+
+### Patch 33 first-launch check, ranked bypass with fallback ladder, compact navbar
+
+Not yet device-verified. Full detail in `CHANGELOG.md`. Requires patches 30-32.
+- [ ] Fresh install: the popup appears at once, in one language only (Russian on a Russian device, English otherwise), and the check of all 72 strategies runs without opening Settings; the status-bar notification shows the small-TV icon (not an arrow) and its Stop button works.
+- [ ] Share a video while that first check is still running on a blocked network: the row says it is waiting for the check, then downloads through the bypass.
+- [ ] With the bypass on, a download completes; the log journal shows which strategy carried it, and that strategy becomes the primary. Force a bad primary (or change networks) and confirm the row moves to "Trying another way", then either finishes or fails with the plain "Couldn't reach YouTube" message instead of sitting on ETA -1.
+- [ ] YouTube-app tunnel: starts on the best strategy and playback is no worse than before patch 31.
+- [ ] Bottom navbar is compact and centred, and still clears the three-button Android navigation bar.
+- [ ] Release run: no `.sha256` asset on the GitHub Release; the run summary lists the signing certificate SHA-256.
+- [ ] Install on the affected phone. If Play Protect still blocks it as an unknown developer, follow the developer-verification steps in `RELEASE.md` (free limited distribution account) and report the exact dialog text.
 
 ### Patch 32 responsive layout, bundled strategies, persistent bypass notification
 
