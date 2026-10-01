@@ -6,6 +6,85 @@ doesn't already have repo access, also attach a fresh repomix export
 (or paste `CLAUDE.md`, `AGENTS.md`, `ROADMAP.md`, `CHANGELOG.md`,
 `CJM.md`, `design.md`, `RELEASE.md`, and `THIRD_PARTY_NOTICES.md` directly).
 
+## Session snapshot — read this first (updated by patch 35, 2026-09-30)
+
+Written so a new conversation can continue without the old one. Everything below the divider is the
+longer history; where the two disagree, this section and the code win.
+
+### Working, confirmed on a real device by the user
+- CI builds: unit tests, lint and a signed release APK succeed (user reports, patches 33 and 34).
+- Strategy search: the first-launch check of all bundled strategies runs to the end and keeps four
+  ranked strategies (device log 2026-09-29: `Search kept 4 strategies; primary transfer=true
+  speed=1249KB/s`).
+- Compact log and "Copy report" (patch 34): the user pasted a report with the `#kinescope-report fmt=2`
+  header, so the journal, the header and the new line format all work.
+- Earlier baseline (patch 23 and before, Android 13): install, share/paste, download, play,
+  background persistence. A download through the bypass completed on 2026-09-24 (log line
+  `Completed job` after about 8 minutes) with a strategy from the built-in list.
+
+### Not working, reported by the user on 2026-09-29 (device: OnePlus 5, Android 10, yt-dlp nightly 2026.09.27)
+1. **Downloads through the bypass do not visibly start.** No error, the row never leaves the start
+   state. The patch 34 report shows `chk ok` then `run` and then the user pausing or the log ending
+   50 s later, so the run neither failed nor stalled by the watchdog's rules. It is unknown whether
+   yt-dlp was extracting, solving the JavaScript challenge, or downloading at a crawl.
+2. **YouTube in the official app through Kinescope's tunnel is "very slow, practically does not
+   load"**, worse than before patch 31, even though the chosen strategy passed every synthetic test.
+3. **Play Protect still blocks the install** ("App blocked to protect your device"). Not fixable from
+   code, see `RELEASE.md` ("If the install is still blocked"). The exact dialog text is still unknown.
+4. **A third-party VPN**: YouTube works in the app over it, but Kinescope's downloads fail. Log B
+   (patch 33 era) shows YouTube answering "Sign in to confirm you're not a bot" through the bypass.
+   Routing works there; the IP address is what YouTube scores.
+
+### Unconfirmed (delivered, never reported on)
+Patch 33: the first-launch popup, the compact navbar, the small-TV status-bar icon, no `.sha256`
+asset. Patch 34: the ladder without a hard gate. Patch 35: everything in it.
+
+### What patch 35 changed, and why (details in CHANGELOG.md "Patch 35")
+Two findings from the 2026-09-29 logs drove it. (a) The search result was thrown away: the second
+search was stopped after 21 of 72 strategies, and stopped searches never applied their passes, so the
+chain (and the report header) stayed the old one. (b) The wrapper's progress value stays at -1 for a
+yt-dlp line that says `ETA Unknown`, so a download that is running at a crawl looks like one that has
+not started. Patch 35 therefore: parses yt-dlp's own output (percent, speed) and judges a run by
+output plus received bytes; hops to the next strategy when a route stalls or stays under 80 KB/s;
+quarantines strategies that failed in real use; ranks strategies by simultaneous connections, not one;
+probes the running tunnel every 30 s and rotates strategy after two failed probes; re-checks in the
+background after an update while the last good strategies keep serving; lets the user test and pin a
+strategy in Settings; and logs a heartbeat per run so the next report shows where a run is stuck.
+
+### Facts verified against sources (do not re-derive)
+- `youtubedl-android` 0.18.1 calls the progress callback for **stdout lines only**; yt-dlp's retry
+  warnings and errors go to stderr. Its progress regex needs `ETA mm:ss`; otherwise progress and ETA
+  stay -1. It adds `--js-runtimes quickjs:<path>` itself (bundled QuickJS), so YouTube's JS challenge
+  is solved on the device, CPU-bound and silent, which can be slow on an older phone.
+- The strategy engine keeps C globals, so each engine needs its own process: `:dpi` (searches and
+  downloads, one at a time via `regularGate`) and `:dpi_vpn` (the tunnel). They do not conflict, but a
+  search and a download do, which is why a background search yields to a download.
+- Play Protect's "App blocked" dialog is documented only for internet-sideloaded apps declaring
+  `RECEIVE_SMS`, `READ_SMS`, a notification listener or an accessibility service. Kinescope declares none;
+  CI now fails if that changes. Android developer verification (from 2026-09-30 in Brazil, Indonesia,
+  Singapore, Thailand; global 2027) is the other candidate; a free limited-distribution account exists.
+- Log format: `HH:mm:ss.d L tag message | err="..."`, legend in every report header. Tags: dl, byp, srch,
+  vpn, job, eng, upd, auth, ui, lib, media. Keys: `j` job (8 hex), `p` yt-dlp profile, `r` route
+  (`s2/4` = strategy 2 of 4, listed once as `#s2` in the header), `chk` live check, `hb` heartbeat,
+  `end` run summary, `rotate` tunnel strategy switch.
+
+### How to read the next report (first questions to ask of it)
+1. `srch done ... pass=N` and the `#top` lines: did the search finish, and how good are the best three?
+2. `ladder`, `chk`, `route`, `slow`, `stall`, `hb`, `end` lines for one job: which route carried it,
+   what phase (`ph=start|js|dl|quiet`), what speed (`kbps` from yt-dlp, `rx` from the network).
+   `ph=js` with a long idle means the QuickJS challenge, not the network.
+3. `vpn probe` and `vpn rotate` lines: is the tunnel's strategy holding under load?
+4. `#state vpn=1`: a third-party VPN was on.
+
+### Next steps, in order
+1. Install patch 35 and send a report from one failed download plus one YouTube-app session. Everything
+   else waits for that: patch 35 adds the evidence patches 33 and 34 lacked.
+2. Get the exact Play Protect dialog text (screenshot) and whether "More details" is offered.
+3. Only then decide about deeper work: a different JS strategy (if `ph=js` dominates), yt-dlp client
+   choice under a VPN (if bot checks persist), or a native health probe inside the engine process.
+
+---
+
 ## Project identity
 
 Personal Android app for downloading YouTube videos at home for
@@ -449,7 +528,7 @@ Documentation sources of truth: `CLAUDE.md` (constraints/decisions), `AGENTS.md`
 
 ## Immediate next step for Claude (in a new conversation)
 
-**Collect device verification for Patches 31 to 34 first** -- this is now the single blocking
+**Collect device verification for Patches 31 to 35 first** -- this is now the single blocking
 item (the checklists are in `ROADMAP.md`; Patch 34's first question is whether a download now
 completes, or fails with a plain message, on the restricted network, with and without a
 third-party VPN, and what the copied report says).

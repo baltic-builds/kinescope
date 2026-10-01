@@ -258,6 +258,19 @@ private fun KinescopeApp(prefillUrl: String, requestNotifications: () -> Unit) {
         if (!searchState.running && searchState.resultMessageRes != null) showFirstRunNotice = false
     }
 
+    // Patch 35: the first launch of a new build re-checks all strategies quietly, once. No popup:
+    // the previous strategies keep serving downloads and the tunnel while it runs (see DpiSearchService).
+    LaunchedEffect(Unit) {
+        val version = DpiSearchService.appVersionCode(context)
+        if (
+            DpiPrefs.hasRunInitialSearch(context) &&
+            DpiPrefs.lastSearchVersion(context) != version &&
+            !DpiSearchController.state.value.running
+        ) {
+            DpiSearchService.startBackground(context)
+        }
+    }
+
     suspend fun loadLibrary() {
         library = withContext(Dispatchers.IO) { MediaStorage.listPublished(context) }
     }

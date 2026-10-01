@@ -28,6 +28,7 @@ object DpiBypass {
 
     /** Patch 34: pause between the two tries of a live check; passing strategies listed per search. */
     private const val HEALTH_RETRY_PAUSE_MS = 400L
+    private const val START_WAIT_MS = 30_000L
     private const val MAX_PASS_LINES = 6
 
     /**
@@ -74,7 +75,7 @@ object DpiBypass {
     fun activeChain(context: Context): List<String> {
         val requestedByYouTubeJourney = BypassVpnController.state.value.active
         if (!DpiPrefs.isEnabled(context) && !requestedByYouTubeJourney) return emptyList()
-        val chain = DpiStrategyStore.verifiedChain(context)
+        val chain = DpiStrategyStore.chain(context)
         if (chain.isEmpty()) AppLog.w("DpiBypass", "No verified strategy; continuing without bypass")
         return chain
     }
@@ -86,7 +87,15 @@ object DpiBypass {
      */
     fun startLine(context: Context, line: String, label: String = ""): BypassSession? {
         val parsed = DpiStrategyParser.parse(line) as? DpiStrategyParser.Parsed.Ok ?: return null
-        val session = DpiEngine.start(context, parsed.args)
+        var session = DpiEngine.start(context, parsed.args)
+        // Patch 35: a strategy check may hold the engine for a few seconds; wait for it instead of
+        // reporting a start failure.
+        var waited = 0L
+        while (session == null && DpiEngine.regularBusy() && waited < START_WAIT_MS) {
+            Thread.sleep(500L)
+            waited += 500L
+            session = DpiEngine.start(context, parsed.args)
+        }
         AppLog.i("DpiBypass", if (session != null) "up s=$label" else "no-start s=$label")
         return session
     }
@@ -123,11 +132,33 @@ object DpiBypass {
      * Patch 33: keeps the best [MAX_VERIFIED_STRATEGIES] of a finished search (primary first,
      * the rest as fallbacks). False when nothing fully passed, in which case nothing changes.
      */
-    internal fun applySearchResults(context: Context, results: List<StrategyResult>): Boolean {
-        val ranked = DpiStrategySearch.ranked(results).take(MAX_VERIFIED_STRATEGIES)
-        val primary = ranked.firstOrNull() ?: return false
-        DpiPrefs.markStrategiesVerified(context, primary.line, ranked.drop(1).map { it.line })
-        AppLog.i("DpiBypass", "kept n=${ranked.size} primary xfer=${primary.deepOk} kbps=${primary.throughputKbps}")
+    internal fun applySearchResults(
+        context: Context,
+        results: List<StrategyResult>,
+        keepProven: Boolean = false,
+        partial: Boolean = false
+    ): Boolean {
+        val ranked = DpiStrategySearch.ranked(results)
+        if (ranked.isEmpty()) return false
+        val failed = results.filter { !it.fullPass }.map { it.line }.toSet()
+        val merged = ChainPlanner.merge(
+            ranked = ranked.map { it.line },
+            failed = failed,
+            proven = DpiPrefs.provenLine(context),
+            pinned = DpiPrefs.pinned(context),
+            keepProven = keepProven,
+            max = MAX_VERIFIED_STRATEGIES,
+            // A search that was stopped early only saw part of the list: keep the old chain behind what it found.
+            fill = if (partial) DpiStrategyStore.verifiedChain(context) else emptyList()
+        )
+        val primary = merged.firstOrNull() ?: return false
+        DpiPrefs.markStrategiesVerified(context, primary, merged.drop(1))
+        val best = ranked.first()
+        AppLog.i(
+            "DpiBypass",
+            "kept n=${merged.size} partial=$partial keep=$keepProven pin=${DpiPrefs.pinned(context) != null} " +
+                "top sc=${best.score()} kbps=${best.throughputKbps} load=${best.loadPassed}/${best.loadTotal}"
+        )
         return true
     }
 
@@ -157,7 +188,11 @@ object DpiBypass {
         context: Context,
         isCancelled: () -> Boolean,
         onProgress: (SearchProgress) -> Unit,
-        fullScan: Boolean = false
+        fullScan: Boolean = false,
+        /** Patch 35: test exactly these strategies (Settings "Test") instead of the whole list. */
+        only: List<String>? = null,
+        /** Patch 35: blocks while a download needs the engine. */
+        waitIfPaused: () -> Unit = {}
     ): List<StrategyResult> {
         val startedAt = System.nanoTime()
         val check = NetworkCheck(stageTimeoutMs = SEARCH_STAGE_TIMEOUT_MS)
@@ -165,7 +200,7 @@ object DpiBypass {
         // probe (about 200 lines per full scan); logSearchSummary prints the totals once.
         val fails = ConcurrentHashMap<String, AtomicInteger>()
         val search = DpiStrategySearch(
-            startEngine = { args -> DpiEngine.start(context, args) },
+            startEngine = { args -> startWhenFree(context, args, isCancelled) },
             probeHost = { port, host ->
                 val result = check.checkViaBypass(SocksEndpoint(DpiEngine.HOST, port), host)
                 result.failed?.let { failed ->
@@ -179,13 +214,18 @@ object DpiBypass {
             // diagnostic count but is no longer required -- see CHANGELOG.md.
             requiredHosts = DpiStrategySearch.REQUIRED_HOSTS,
             // Patch 33: rank by a real transfer, not only by the light probe.
-            deepProbe = { port -> check.throughputViaBypass(SocksEndpoint(DpiEngine.HOST, port)) }
+            deepProbe = { port -> check.throughputViaBypass(SocksEndpoint(DpiEngine.HOST, port)) },
+            // Patch 35: and by how it behaves with several connections at once.
+            loadProbe = { port -> check.loadViaBypass(SocksEndpoint(DpiEngine.HOST, port)) }
         )
+        // Patch 35: the current chain goes first, so a re-check confirms or replaces it early.
+        val candidates = only ?: (DpiStrategyStore.verifiedChain(context) + DpiStrategyStore.candidates(context)).distinct()
         val results = search.run(
-            DpiStrategyStore.candidates(context),
+            candidates,
             isCancelled,
             onProgress,
-            stopAfterFullPasses = if (fullScan) Int.MAX_VALUE else MAX_PASSES_TO_RANK
+            stopAfterFullPasses = if (fullScan || only != null) Int.MAX_VALUE else MAX_PASSES_TO_RANK,
+            waitIfPaused = waitIfPaused
         )
         logSearchSummary(results, fails, startedAt)
         return results
@@ -207,9 +247,31 @@ object DpiBypass {
         )
         for (pass in passes.take(MAX_PASS_LINES)) {
             val transfer = if (pass.deepOk) "${pass.throughputKbps}KB/s" else "no"
-            AppLog.i("DpiSearch", "pass h=${pass.passed}/${pass.total} xfer=$transfer s=\"${pass.line}\"")
+            AppLog.i(
+                "DpiSearch",
+                "pass sc=${pass.score()} h=${pass.passed}/${pass.total} xfer=$transfer load=${pass.loadPassed}/${pass.loadTotal} " +
+                    "hs=${pass.handshakeMs}ms s=\"${pass.line.take(60)}\""
+            )
         }
     }
+
+    /** Starts the search engine, waiting while a download holds it; null on a real start failure or a stop. */
+    private fun startWhenFree(context: Context, args: List<String>, isCancelled: () -> Boolean): BypassSession? {
+        while (true) {
+            val session = DpiEngine.start(context, args)
+            if (session != null) return session
+            if (!DpiEngine.regularBusy() || isCancelled()) return null
+            Thread.sleep(500L)
+        }
+    }
+
+    /**
+     * Patch 35: several simultaneous connections through a running engine (the YouTube tunnel's
+     * periodic probe). A lighter version of the search's load test: smaller transfers, fewer connections.
+     */
+    internal fun checkLoad(port: Int, connections: Int = 3): LoadResult =
+        NetworkCheck(stageTimeoutMs = HEALTH_STAGE_TIMEOUT_MS)
+            .loadViaBypass(SocksEndpoint(DpiEngine.HOST, port), connections = connections, maxBytes = 40_000, budgetMs = 4_000)
 
     private fun hostTag(host: String): String = when (host) {
         "www.youtube.com" -> "yt"

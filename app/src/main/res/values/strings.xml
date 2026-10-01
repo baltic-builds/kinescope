@@ -229,4 +229,26 @@
     <string name="copy_report">Copy report</string>
     <string name="report_copied">Report copied</string>
     <string name="error_verification_vpn">YouTube is asking to confirm you’re not a robot, which often happens over a VPN. Turn the VPN off, use the built-in bypass, and try again.</string>
+    <!-- Patch 35 -->
+    <string name="progress_percent_speed">%1$.0f%% · %2$s</string>
+    <string name="progress_percent_only">%1$.0f%%</string>
+    <string name="speed_kb">%d KB/s</string>
+    <string name="speed_mb">%.1f MB/s</string>
+    <string name="bypass_search_partial">Stopped. What it found so far is saved.</string>
+    <string name="bypass_strategy_tested">Test finished. The result is in the list.</string>
+    <string name="strategy_picker_title">Choose strategy manually</string>
+    <string name="strategy_picker_hint">Test a strategy to see how it behaves on this network, then pin the one you want. A pinned strategy is tried first; the app still switches away if it stops working.</string>
+    <string name="strategy_show">Show</string>
+    <string name="strategy_hide">Hide</string>
+    <string name="strategy_test">Test</string>
+    <string name="strategy_use">Use</string>
+    <string name="strategy_pinned">Pinned</string>
+    <string name="strategy_auto">Choose automatically</string>
+    <string name="strategy_untested">Not tested yet</string>
+    <string name="strategy_result_ok">Score %1$d · %2$d KB/s · %3$d of %4$d connections</string>
+    <string name="strategy_result_basic">Score %1$d · %2$d KB/s</string>
+    <string name="strategy_result_failed">Did not get through</string>
+    <string name="strategy_testing">Testing this strategy…</string>
+    <string name="strategy_pinned_done">This strategy is pinned and will be tried first.</string>
+    <string name="strategy_unpinned">Strategies are chosen automatically again.</string>
 </resources>

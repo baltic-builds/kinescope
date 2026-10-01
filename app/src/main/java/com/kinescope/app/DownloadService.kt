@@ -240,6 +240,8 @@ class DownloadService : Service() {
         val outputTemplate = "${workspace.absolutePath}/%(title).150B.%(ext)s"
         val preset = qualityPreset(job.qualityId)
 
+        // Patch 35: a strategy search steps aside between two strategies while a download runs.
+        DpiSearchController.holdForDownload()
         try {
             awaitStrategySearch(job)
             EngineController.withEngine(this) {
@@ -368,20 +370,33 @@ class DownloadService : Service() {
         executeWithBypassFallback(job, preset, outputTemplate, profile)
     }
 
+    /** Patch 35: what one route did. [kbps] is the measured speed for [RouteOutcome.SLOW]. */
+    private enum class RouteOutcome { OK, FAILED, SLOW }
+
+    private class RouteRun(val outcome: RouteOutcome, val kbps: Int = 0)
+
     /**
-     * Patch 34: one attempt through an ordered list of routes, with a real fallback ladder.
+     * Patch 35: one attempt through an ordered list of routes, with a fallback ladder that reacts
+     * to how a route behaves, not only to whether it connects.
      *
-     * A route is a verified bypass strategy or the direct connection (see [BypassRoutes]). Each
-     * strategy is started and given a live connection check. The check only decides ORDER: a
-     * strategy that fails it is not thrown away (a check that fails once can pass a minute
-     * later, and the old hard gate left nothing but a direct connection that cannot even
-     * resolve YouTube on a filtered network); it is deferred and tried for real, with a shorter
-     * watchdog, after every strategy that passed. The direct route comes first when a
-     * third-party VPN is on, and last, only if the network can resolve YouTube directly,
-     * otherwise. A route that finished a download becomes the primary strategy and is tried
-     * first, without another check, on this job's later attempts. Errors that are not about
-     * the connection (private video, bot check, ...) are rethrown untouched for the normal
-     * recovery chain; when every route failed at the connection level the chain is ended.
+     * A route is a verified bypass strategy or the direct connection (see [BypassRoutes]).
+     * - The order is: the route that carried a download in the last ten minutes, then the stored
+     *   chain (pinned strategy first, strategies that failed in real use recently last), with the
+     *   direct route first when a third-party VPN is on.
+     * - Each strategy gets a live check that only decides ORDER: a strategy that fails it is
+     *   deferred, not dropped, and tried for real after the others with a shorter watchdog.
+     * - A route that connects but stalls (no output and no network bytes) is abandoned; one whose
+     *   speed stays under [MIN_ROUTE_KBPS] is abandoned too, at most [MAX_SLOW_HOPS] times: if
+     *   two routes are equally slow the cause is not the route (throttling, a slow network), so
+     *   the better of them is run to the end without a speed limit. The download resumes from the
+     *   part file (`--continue`), so a hop does not start over.
+     * - The direct route is last, and only if the network can resolve YouTube directly.
+     * - The route that finishes is remembered (scoreboard) and stored as proven; routes that
+     *   failed before it are quarantined for ten minutes, so the next download and the YouTube
+     *   tunnel do not start with them.
+     * Errors that are not about the connection (private video, bot check, ...) are rethrown
+     * untouched for the normal recovery chain; when every route failed at the connection level
+     * the chain is ended.
      */
     private fun executeWithBypassFallback(
         job: StoredDownloadJob,
@@ -396,42 +411,77 @@ class DownloadService : Service() {
         }
 
         val vpn = NetworkState.systemVpnActive(this)
-        val proven = provenRoutes[job.id]
-        val order = BypassRoutes.order(chain, vpn, proven)
+        val recent = RouteScoreboard.recentGood(SystemClock.elapsedRealtime())
+            ?.takeIf { it == BypassRoutes.DIRECT || it in chain }
+        val order = BypassRoutes.order(chain, vpn, recent)
         val failures = ArrayList<String>()
+        val hardFailed = ArrayList<String>()
         val deferred = ArrayList<String>()
-        AppLog.i("DownloadService", "ladder j=${job.id} routes=${order.size} vpn=${if (vpn) 1 else 0} proven=${proven != null}")
+        val slow = ArrayList<Pair<String, Int>>()
+        AppLog.i(
+            "DownloadService",
+            "ladder j=${job.id} routes=${order.size} vpn=${if (vpn) 1 else 0} recent=${recent?.let { BypassRoutes.label(it, chain) } ?: "-"}"
+        )
 
         for ((index, route) in order.withIndex()) {
             if (index > 0) announceRoute(job, index + 1, order.size)
-            val ok = runRoute(
+            val judgeSpeed = index < order.lastIndex && slow.size < MAX_SLOW_HOPS
+            val run = runRoute(
                 job, preset, outputTemplate, profile, route, BypassRoutes.label(route, chain),
-                checkFirst = route != proven, limits = NORMAL_LIMITS, failures = failures, deferred = deferred
+                checkFirst = route != recent,
+                limits = if (judgeSpeed) NORMAL_LIMITS.copy(minKbps = MIN_ROUTE_KBPS) else NORMAL_LIMITS,
+                failures = failures, deferred = deferred
             )
-            if (ok) return
-            if (route == proven) provenRoutes.remove(job.id)
+            when (run.outcome) {
+                RouteOutcome.OK -> return finishOnRoute(route, chain, hardFailed)
+                RouteOutcome.SLOW -> slow += route to run.kbps
+                RouteOutcome.FAILED -> if (route !in deferred) hardFailed += route
+            }
         }
 
         for ((index, route) in deferred.withIndex()) {
             announceRoute(job, order.size + index + 1, order.size + deferred.size)
-            val ok = runRoute(
+            val run = runRoute(
                 job, preset, outputTemplate, profile, route, BypassRoutes.label(route, chain),
                 checkFirst = false, limits = TIGHT_LIMITS, failures = failures, deferred = null
             )
-            if (ok) return
+            if (run.outcome == RouteOutcome.OK) return finishOnRoute(route, chain, hardFailed)
+            if (run.outcome == RouteOutcome.FAILED) hardFailed += route
+        }
+
+        val bestSlow = slow.maxByOrNull { it.second }
+        if (bestSlow != null) {
+            AppLog.i("DownloadService", "slow-all j=${job.id} best=${BypassRoutes.label(bestSlow.first, chain)} kbps=${bestSlow.second}")
+            val run = runRoute(
+                job, preset, outputTemplate, profile, bestSlow.first, BypassRoutes.label(bestSlow.first, chain),
+                checkFirst = false, limits = NORMAL_LIMITS, failures = failures, deferred = null
+            )
+            if (run.outcome == RouteOutcome.OK) return finishOnRoute(bestSlow.first, chain, hardFailed)
         }
 
         if (!vpn && DpiBypass.directConnectionWorks()) {
             DownloadQueueBus.update(job.id) { it.copy(progressText = getString(R.string.status_trying_direct)) }
-            val ok = runRoute(
+            val run = runRoute(
                 job, preset, outputTemplate, profile, BypassRoutes.DIRECT, BypassRoutes.DIRECT,
                 checkFirst = false, limits = NORMAL_LIMITS, failures = failures, deferred = null
             )
-            if (ok) return
+            if (run.outcome == RouteOutcome.OK) return finishOnRoute(BypassRoutes.DIRECT, chain, hardFailed)
         }
 
         AppLog.w("DownloadService", "ladder exhausted j=${job.id} fails=[${failures.joinToString("; ")}]")
         throw BypassTransportException("bypass transport failure: ${firstLine(failures.lastOrNull().orEmpty())}")
+    }
+
+    /** Remembers the route that carried the download and quarantines the ones that failed before it. */
+    private fun finishOnRoute(route: String, chain: List<String>, hardFailed: List<String>) {
+        RouteScoreboard.record(route, SystemClock.elapsedRealtime())
+        if (route != BypassRoutes.DIRECT) DpiPrefs.promoteVerified(this, route)
+        for (failed in hardFailed) {
+            if (failed != BypassRoutes.DIRECT && failed != route) DpiPrefs.quarantine(this, failed)
+        }
+        if (hardFailed.isNotEmpty()) {
+            AppLog.i("DownloadService", "quarantined n=${hardFailed.size} kept=${BypassRoutes.label(route, chain)}")
+        }
     }
 
     private fun announceRoute(job: StoredDownloadJob, position: Int, total: Int) {
@@ -441,9 +491,10 @@ class DownloadService : Service() {
     }
 
     /**
-     * Runs the download once through [route]. True when it finished; false when the route failed
-     * at the connection level (noted in [failures]); anything else is rethrown. With [deferred]
-     * set, a strategy that fails its live check is queued there instead of being run.
+     * Runs the download once through [route]. The outcome is OK when it finished, SLOW when the
+     * speed limit in [limits] tripped, FAILED when the route failed at the connection level
+     * (noted in [failures]); anything else is rethrown. With [deferred] set, a strategy that fails
+     * its live check is queued there instead of being run.
      */
     private fun runRoute(
         job: StoredDownloadJob,
@@ -453,68 +504,57 @@ class DownloadService : Service() {
         route: String,
         label: String,
         checkFirst: Boolean,
-        limits: WatchdogLimits,
+        limits: MonitorLimits,
         failures: MutableList<String>,
         deferred: MutableList<String>?
-    ): Boolean {
+    ): RouteRun {
         requestedControls.remove(job.id)?.let { throw ControlledStop(it) }
         val startedAt = SystemClock.elapsedRealtime()
-
-        if (route == BypassRoutes.DIRECT) {
-            return try {
-                executeAttemptOverBypass(job, preset, outputTemplate, profile, null, limits)
-                provenRoutes[job.id] = route
-                AppLog.i("DownloadService", "route j=${job.id} r=$label ok ms=${SystemClock.elapsedRealtime() - startedAt}")
-                true
-            } catch (e: BypassStalledException) {
-                failures += "$label stall"
-                AppLog.w("DownloadService", "route j=${job.id} r=$label stall")
-                false
-            } catch (e: YoutubeDLException) {
-                if (!DownloadErrorClassifier.isTransportFailure(e.message)) throw e
-                failures += "$label ${LogFormat.ytdlpSummary(e.message)}"
-                AppLog.w("DownloadService", "route j=${job.id} r=$label transport | ${LogFormat.ytdlpSummary(e.message)}")
-                false
-            }
-        }
-
-        val session = DpiBypass.startLine(this, route, label)
-        if (session == null) {
-            failures += "$label no-start"
-            AppLog.w("DownloadService", "route j=${job.id} r=$label no-start")
-            return false
-        }
+        var session: BypassSession? = null
         try {
-            if (checkFirst) {
-                val health = DpiBypass.checkHealth(session.port)
-                val text = "chk j=${job.id} r=$label ok=${health.ok} st=${health.stage} why=${health.why} ms=${health.ms}"
-                if (health.ok) AppLog.i("DownloadService", text) else AppLog.w("DownloadService", text)
-                if (!health.ok && deferred != null) {
-                    failures += "$label chk:${health.stage}:${health.why}"
-                    deferred += route
-                    return false
+            if (route != BypassRoutes.DIRECT) {
+                session = DpiBypass.startLine(this, route, label)
+                if (session == null) {
+                    failures += "$label no-start"
+                    AppLog.w("DownloadService", "route j=${job.id} r=$label no-start")
+                    return RouteRun(RouteOutcome.FAILED)
+                }
+                if (checkFirst) {
+                    val health = DpiBypass.checkHealth(session.port)
+                    val text = "chk j=${job.id} r=$label ok=${health.ok} st=${health.stage} why=${health.why} ms=${health.ms}"
+                    if (health.ok) AppLog.i("DownloadService", text) else AppLog.w("DownloadService", text)
+                    if (!health.ok && deferred != null) {
+                        failures += "$label chk:${health.stage}:${health.why}"
+                        deferred += route
+                        return RouteRun(RouteOutcome.FAILED)
+                    }
                 }
             }
             executeAttemptOverBypass(job, preset, outputTemplate, profile, session, limits)
-            provenRoutes[job.id] = route
-            DpiPrefs.promoteVerified(this, route)
             AppLog.i("DownloadService", "route j=${job.id} r=$label ok ms=${SystemClock.elapsedRealtime() - startedAt}")
-            return true
+            return RouteRun(RouteOutcome.OK)
+        } catch (e: BypassSlowException) {
+            failures += "$label slow ${e.kbps}KB/s"
+            AppLog.w("DownloadService", "route j=${job.id} r=$label slow kbps=${e.kbps}")
+            return RouteRun(RouteOutcome.SLOW, e.kbps)
         } catch (e: BypassStalledException) {
             failures += "$label stall"
             AppLog.w("DownloadService", "route j=${job.id} r=$label stall")
-            return false
+            return RouteRun(RouteOutcome.FAILED)
         } catch (e: YoutubeDLException) {
             if (!DownloadErrorClassifier.isTransportFailure(e.message)) throw e
             failures += "$label ${LogFormat.ytdlpSummary(e.message)}"
             AppLog.w("DownloadService", "route j=${job.id} r=$label transport | ${LogFormat.ytdlpSummary(e.message)}")
-            return false
+            return RouteRun(RouteOutcome.FAILED)
         } finally {
-            session.close()
+            session?.close()
         }
     }
 
     private fun firstLine(text: String): String = text.lineSequence().firstOrNull().orEmpty().take(160)
+
+    private fun speedText(kbps: Int): String =
+        if (kbps >= 1024) getString(R.string.speed_mb, kbps / 1024.0) else getString(R.string.speed_kb, kbps)
 
     /**
      * Patch 33: while the strategy check is still running (the first launch scans all 72), a
@@ -524,10 +564,16 @@ class DownloadService : Service() {
      */
     private fun awaitStrategySearch(job: StoredDownloadJob) {
         if (!DpiSearchController.state.value.running) return
-        if (DpiBypass.directConnectionWorks()) return
+        // Patch 35: with verified strategies already in place the download does not wait for the
+        // whole check; it only waits for the strategy the check is testing right now, and the
+        // check pauses before the next one (see holdForDownload). With none, it waits as before.
+        val haveChain = DpiStrategyStore.chain(this).isNotEmpty()
+        if (!haveChain && DpiBypass.directConnectionWorks()) return
         DownloadQueueBus.update(job.id) { it.copy(progressText = getString(R.string.status_waiting_for_check)) }
-        val deadline = SystemClock.elapsedRealtime() + SEARCH_WAIT_LIMIT_MS
-        while (DpiSearchController.state.value.running && SystemClock.elapsedRealtime() < deadline) {
+        val deadline = SystemClock.elapsedRealtime() + if (haveChain) ENGINE_WAIT_LIMIT_MS else SEARCH_WAIT_LIMIT_MS
+        while (SystemClock.elapsedRealtime() < deadline &&
+            (if (haveChain) DpiEngine.regularBusy() else DpiSearchController.state.value.running)
+        ) {
             requestedControls.remove(job.id)?.let { throw ControlledStop(it) }
             try {
                 Thread.sleep(1_000L)
@@ -544,7 +590,7 @@ class DownloadService : Service() {
         outputTemplate: String,
         profile: RecoveryProfile,
         bypass: BypassSession?,
-        limits: WatchdogLimits? = null
+        limits: MonitorLimits? = null
     ) {
         val request = YoutubeDLRequest(job.canonicalUrl).apply {
             addOption("-o", outputTemplate)
@@ -572,76 +618,103 @@ class DownloadService : Service() {
             bypass?.let { addOption("--proxy", "socks5h://${DpiEngine.HOST}:${it.port}") }
         }
 
+        val monitorLimits = limits ?: UNJUDGED_LIMITS
         AppLog.i(
             "DownloadService",
             "run j=${job.id} p=$profile auth=${profile.useCookies && YouTubeAuth.hasSavedSession(this)} " +
-                "bypass=${bypass != null}" + (limits?.let { " wd=${it.firstMs / 1000}/${it.idleMs / 1000}s" } ?: "")
+                "bypass=${bypass != null}" +
+                (limits?.let { " wd=${it.startMs / 1000}/${it.jsMs / 1000}/${it.idleMs / 1000}s min=${it.minKbps}KB/s" } ?: "")
         )
-        // Patch 34: watchdog. A route can accept the connection and then carry no data; yt-dlp
-        // retries silently for minutes and the row used to sit on "ETA -1" with no error. The
-        // wrapper (youtubedl-android 0.18.1, StreamProcessExtractor) calls the callback below
-        // for every STDOUT line only; yt-dlp's retry warnings go to stderr and never reach it.
-        // So "no stdout line for a while" means stuck: the process is stopped and the caller
-        // moves on to the next route. Before the first real progress line the limit is
-        // limits.firstMs, afterwards limits.idleMs. The clock is paused while nothing needs the
-        // network (merging, remuxing).
-        val lastActivity = AtomicLong(SystemClock.elapsedRealtime())
-        val sawProgress = AtomicBoolean(false)
-        val quiet = AtomicBoolean(false)
-        val stalled = AtomicBoolean(false)
+        // Patch 35: the monitor. yt-dlp is judged by what it prints and by the bytes the app
+        // receives (TrafficStats, our uid: the engine process counts too), not only by silence:
+        //   - stalled: no stdout line AND no network bytes for a phase-dependent time (extraction
+        //     60 s, the CPU-bound QuickJS challenge 180 s, downloading 40 s);
+        //   - slow: the average speed printed by yt-dlp stayed under limits.minKbps for the whole
+        //     window (only when the caller asks for it).
+        // Only stdout reaches the wrapper's callback; yt-dlp's retry warnings go to stderr, so a
+        // stdout line does mean yt-dlp is alive. The wrapper's own progress value only updates when
+        // a line ends in "ETA mm:ss" and stays at -1 for "ETA Unknown", so the line is parsed here.
+        val monitor = RunMonitor(monitorLimits, SystemClock::elapsedRealtime)
+        val stalledReason = java.util.concurrent.atomic.AtomicReference<String?>(null)
+        val slowKbps = AtomicLong(-1L)
         val finished = AtomicBoolean(false)
-        val watchdog = if (limits != null) {
-            Thread({
-                try {
-                    while (!finished.get()) {
-                        Thread.sleep(WATCHDOG_TICK_MS)
-                        val idleMs = SystemClock.elapsedRealtime() - lastActivity.get()
-                        val limitMs = if (sawProgress.get()) limits.idleMs else limits.firstMs
-                        if (!finished.get() && !quiet.get() && idleMs > limitMs) {
-                            stalled.set(true)
-                            AppLog.w("DownloadService", "stall j=${job.id} idle=${idleMs / 1000}s progress=${sawProgress.get()}")
+        val judged = limits != null
+        val watchdog = Thread({
+            val uid = android.os.Process.myUid()
+            var lastRx = android.net.TrafficStats.getUidRxBytes(uid)
+            var lastBeat = SystemClock.elapsedRealtime()
+            var rxRateKbps = 0L
+            try {
+                while (!finished.get()) {
+                    Thread.sleep(WATCHDOG_TICK_MS)
+                    val rx = android.net.TrafficStats.getUidRxBytes(uid)
+                    if (rx >= 0 && lastRx >= 0) {
+                        monitor.onNetworkBytes(rx - lastRx)
+                        rxRateKbps = (rx - lastRx) * 1_000L / WATCHDOG_TICK_MS / 1_024L
+                    }
+                    lastRx = rx
+                    val now = SystemClock.elapsedRealtime()
+                    if (now - lastBeat >= HEARTBEAT_MS) {
+                        lastBeat = now
+                        val s = monitor.snapshot()
+                        AppLog.i(
+                            "DownloadService",
+                            "hb j=${job.id} ph=${s.phase.tag} pct=${"%.1f".format(java.util.Locale.US, s.percent)} " +
+                                "kbps=${s.kbps} rx=${rxRateKbps} lines=${s.lines} idle=${s.idleMs / 1000}s last=\"${s.lastLine.take(70)}\""
+                        )
+                    }
+                    if (finished.get() || !judged) continue
+                    when (val verdict = monitor.verdict()) {
+                        is RunVerdict.Stalled -> {
+                            stalledReason.set("no data from YouTube for ${verdict.idleMs / 1000}s in phase ${verdict.phase}")
+                            AppLog.w("DownloadService", "stall j=${job.id} ph=${verdict.phase} idle=${verdict.idleMs / 1000}s")
                             YoutubeDL.getInstance().destroyProcessById(job.id)
                             break
                         }
+                        is RunVerdict.Slow -> {
+                            slowKbps.set(verdict.kbps.toLong())
+                            AppLog.w("DownloadService", "slow j=${job.id} kbps=${verdict.kbps}")
+                            YoutubeDL.getInstance().destroyProcessById(job.id)
+                            break
+                        }
+                        RunVerdict.Ok -> Unit
                     }
-                } catch (_: InterruptedException) {
-                    // The attempt ended; nothing to watch any more.
                 }
-            }, "kinescope-watchdog").apply {
-                isDaemon = true
-                start()
+            } catch (_: InterruptedException) {
+                // The attempt ended; nothing to watch any more.
             }
-        } else {
-            null
+        }, "kinescope-watchdog").apply {
+            isDaemon = true
+            start()
         }
 
+        var result = "ok"
+        val startedAt = SystemClock.elapsedRealtime()
         try {
             YoutubeDL.getInstance().execute(request, job.id) { progress, etaInSeconds, line ->
-                lastActivity.set(SystemClock.elapsedRealtime())
-                // progress = -1 and eta = -1 until the first real "[download] xx.x% ... ETA" line.
-                // Showing those verbatim is the "ETA -1" the queue used to display for a whole
-                // run whose download never began. Only a real value is shown as a percentage.
-                val hasProgress = progress >= 0f
-                if (hasProgress) sawProgress.set(true)
-                quiet.set(
-                    line.contains("[Merger]") ||
-                        line.contains("[Fixup") ||
-                        line.contains("[ExtractAudio]") ||
-                        line.contains("[VideoRemuxer]") ||
-                        line.contains("[Metadata]")
-                )
+                monitor.onLine(line)
+                val snapshot = monitor.snapshot()
+                val percent = YtdlpLine.parse(line).percent
+                    ?: snapshot.percent.takeIf { it >= 0f }
+                    ?: progress.takeIf { it >= 0f }
                 if (requestedControls[job.id] != null) {
                     YoutubeDL.getInstance().destroyProcessById(job.id)
-                } else if (hasProgress) {
+                } else if (percent != null) {
+                    val text = when {
+                        etaInSeconds >= 0 -> getString(R.string.progress_percent_eta, percent, etaInSeconds)
+                        snapshot.kbps > 0 -> getString(R.string.progress_percent_speed, percent, speedText(snapshot.kbps))
+                        else -> getString(R.string.progress_percent_only, percent)
+                    }
                     DownloadQueueBus.update(job.id) {
                         it.copy(
                             state = JobState.RUNNING,
-                            progressText = getString(R.string.progress_percent_eta, progress, etaInSeconds),
-                            progressFraction = (progress / 100f).coerceIn(0f, 1f)
+                            progressText = text,
+                            progressFraction = (percent / 100f).coerceIn(0f, 1f)
                         )
                     }
-                    updateProgressNotification(job.id, progress.toInt())
+                    updateProgressNotification(job.id, percent.toInt())
                 } else {
+                    // Still extracting / solving the challenge / choosing formats.
                     DownloadQueueBus.update(job.id) {
                         it.copy(
                             state = JobState.RUNNING,
@@ -651,14 +724,29 @@ class DownloadService : Service() {
                     }
                 }
             }
-        } catch (e: YoutubeDL.CanceledException) {
-            if (stalled.get() && requestedControls[job.id] == null) {
-                throw BypassStalledException("no data from YouTube for a long time")
+        } catch (e: Exception) {
+            val userControl = requestedControls[job.id] != null
+            val stalled = stalledReason.get()
+            result = when {
+                userControl -> "cancel"
+                stalled != null -> "stall"
+                slowKbps.get() >= 0 -> "slow"
+                else -> "err"
+            }
+            if (!userControl && (e is YoutubeDL.CanceledException || e is YoutubeDLException)) {
+                if (stalled != null) throw BypassStalledException(stalled)
+                if (slowKbps.get() >= 0) throw BypassSlowException(slowKbps.get().toInt())
             }
             throw e
         } finally {
             finished.set(true)
-            watchdog?.interrupt()
+            watchdog.interrupt()
+            val s = monitor.snapshot()
+            AppLog.i(
+                "DownloadService",
+                "end j=${job.id} res=$result dur=${(SystemClock.elapsedRealtime() - startedAt) / 1000}s ph=${s.phase.tag} " +
+                    "pct=${"%.1f".format(java.util.Locale.US, s.percent)} kbps=${s.kbps} lines=${s.lines} last=\"${s.lastLine.take(70)}\""
+            )
         }
     }
 
@@ -939,8 +1027,8 @@ class DownloadService : Service() {
     private class ControlledStop(val action: ControlAction) : RuntimeException()
     private class AlreadyHandledFailure : RuntimeException()
 
-    /** Patch 34: how long yt-dlp may stay silent before its run is stopped. */
-    private data class WatchdogLimits(val firstMs: Long, val idleMs: Long)
+    /** Patch 35: a route stayed under the minimum speed and was abandoned for the next one. */
+    private class BypassSlowException(val kbps: Int) : Exception("slow route")
 
     /** Patch 33: a bypass run produced no data for too long and was stopped by the watchdog. */
     private class BypassStalledException(message: String) : Exception(message)
@@ -978,13 +1066,19 @@ class DownloadService : Service() {
         // Patch 33: bypass watchdog and first-launch wait.
         private const val WATCHDOG_TICK_MS = 2_000L
 
-        // Patch 34: stall limits, measured as "no stdout line from yt-dlp" (see the watchdog in
-        // executeAttemptOverBypass). A strategy that failed its live check gets the tight ones.
-        private val NORMAL_LIMITS = WatchdogLimits(firstMs = 35_000L, idleMs = 45_000L)
-        private val TIGHT_LIMITS = WatchdogLimits(firstMs = 20_000L, idleMs = 20_000L)
-
-        /** Patch 34: the route that finished a download for a job; tried first on its later attempts. */
-        private val provenRoutes = ConcurrentHashMap<String, String>()
+        // Patch 35: run limits, see RunMonitor. Extraction 60 s, the CPU-bound QuickJS challenge
+        // 180 s, downloading 40 s (silence AND no network bytes); a strategy that failed its live
+        // check gets tighter ones. A route slower than MIN_ROUTE_KBPS over 25 s is abandoned, at
+        // most MAX_SLOW_HOPS times per attempt.
+        private val NORMAL_LIMITS = MonitorLimits(startMs = 60_000L, jsMs = 180_000L, idleMs = 40_000L)
+        private val TIGHT_LIMITS = MonitorLimits(startMs = 30_000L, jsMs = 120_000L, idleMs = 20_000L)
+        private val UNJUDGED_LIMITS = MonitorLimits(
+            startMs = Long.MAX_VALUE / 4, jsMs = Long.MAX_VALUE / 4, idleMs = Long.MAX_VALUE / 4
+        )
+        private const val MIN_ROUTE_KBPS = 80
+        private const val MAX_SLOW_HOPS = 2
+        private const val HEARTBEAT_MS = 15_000L
+        private const val ENGINE_WAIT_LIMIT_MS = 45_000L
         private const val SEARCH_WAIT_LIMIT_MS = 8L * 60L * 1_000L
         private val INTERMEDIATE_SUFFIXES = listOf(".part", ".ytdl", ".temp", ".ffmpeg")
         private val EXECUTION_STATES = setOf(

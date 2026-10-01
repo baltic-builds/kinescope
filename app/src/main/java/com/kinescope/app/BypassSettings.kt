@@ -247,6 +247,18 @@ fun BypassSettingsSection(requestNotifications: () -> Unit = {}) {
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant
     )
+
+    // Patch 35: test one strategy, or pin one, like the strategy list in ByeByeDPI.
+    StrategyPicker(
+        enabled = controlsEnabled,
+        refreshKey = searchState.resultMessageRes,
+        onMessage = { message = it },
+        onChanged = {
+            verified = DpiPrefs.isStrategyVerified(context, DpiStrategyStore.selected(context))
+            verifiedAt = DpiPrefs.verifiedAt(context)
+            enabled = DpiPrefs.isEnabled(context)
+        }
+    )
 }
 
 private fun formatBypassTimestamp(timestamp: Long): String =

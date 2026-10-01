@@ -148,6 +148,15 @@ internal fun isPortOpen(endpoint: SocksEndpoint, timeoutMs: Int = 200): Boolean 
     }
 }
 
+/** Patch 35: outcome of one fetch made by [NetworkCheck.fetchViaBypass]. */
+internal data class Fetch(val bytes: Int, val handshakeMs: Int, val elapsedMs: Long)
+
+/** Patch 35: outcome of [NetworkCheck.loadViaBypass]; [medianHandshakeMs] is 0 when nothing completed. */
+internal data class LoadResult(val total: Int, val passed: Int, val medianHandshakeMs: Int, val kbps: Int) {
+    /** At least four in five connections completed. */
+    val ok: Boolean get() = total > 0 && passed * 5 >= total * 4
+}
+
 internal enum class CheckStage { DNS, TCP, PROXY, CONNECT, TLS, HTTP }
 
 internal data class StageResult(
@@ -395,6 +404,116 @@ internal class NetworkCheck(
         }
     }
 
+    /**
+     * Patch 35: one complete HTTPS fetch through the bypass engine, used by [loadViaBypass].
+     * Returns null when the connection, the handshake or the response failed. A response counts
+     * only if it starts with an HTTP status line and either carries at least [LOAD_MIN_BYTES] or
+     * ends cleanly, so a stalled or cut connection does not pass.
+     */
+    fun fetchViaBypass(
+        engine: SocksEndpoint,
+        host: String,
+        path: String,
+        maxBytes: Int,
+        budgetMs: Int
+    ): Fetch? {
+        val socket = Socket()
+        try {
+            val begun = System.nanoTime()
+            socket.connect(InetSocketAddress(engine.host, engine.port), stageTimeoutMs)
+            socket.soTimeout = stageTimeoutMs
+            if (Socks5.greet(socket.getInputStream(), socket.getOutputStream()) != null) return null
+            val connect = Socks5.connectByName(socket.getInputStream(), socket.getOutputStream(), host, HTTPS_PORT)
+            if (!connect.ok) return null
+
+            val factory = SSLSocketFactory.getDefault() as SSLSocketFactory
+            val ssl = factory.createSocket(socket, host, HTTPS_PORT, false) as SSLSocket
+            ssl.soTimeout = stageTimeoutMs
+            ssl.sslParameters = ssl.sslParameters.also { it.endpointIdentificationAlgorithm = "HTTPS" }
+            ssl.startHandshake()
+            val handshakeMs = ((System.nanoTime() - begun) / 1_000_000L).toInt()
+
+            val request = "GET $path HTTP/1.1\r\nHost: $host\r\nUser-Agent: Kinescope\r\n" +
+                "Accept-Encoding: identity\r\nConnection: close\r\n\r\n"
+            ssl.outputStream.write(request.toByteArray(Charsets.US_ASCII))
+            ssl.outputStream.flush()
+
+            val startedAt = System.nanoTime()
+            val deadline = startedAt + budgetMs * 1_000_000L
+            val buffer = ByteArray(8 * 1024)
+            var total = 0
+            var sawEof = false
+            var statusOk = false
+            while (total < maxBytes && System.nanoTime() < deadline) {
+                val read = try {
+                    ssl.inputStream.read(buffer)
+                } catch (e: IOException) {
+                    break
+                }
+                if (read < 0) {
+                    sawEof = true
+                    break
+                }
+                if (total == 0 && read >= 7) statusOk = String(buffer, 0, 7, Charsets.US_ASCII).startsWith("HTTP/1.")
+                total += read
+            }
+            val elapsedMs = ((System.nanoTime() - startedAt) / 1_000_000L).coerceAtLeast(1L)
+            if (!statusOk) return null
+            if (total < LOAD_MIN_BYTES && !(sawEof && total >= LOAD_MIN_EOF_BYTES)) return null
+            return Fetch(total, handshakeMs, elapsedMs)
+        } catch (e: InterruptedException) {
+            throw e
+        } catch (e: Exception) {
+            return null
+        } finally {
+            closeQuietly(socket)
+        }
+    }
+
+    /**
+     * Patch 35: several connections at once through the bypass engine, the way the YouTube app
+     * uses it. One connection at a time (what the search measured until now) says little about
+     * a strategy that opens dozens of connections and pays its per-connection cost, a fake
+     * packet or a delayed split, every time. Reports how many completed, the median time to
+     * finish the TLS handshake and the combined speed.
+     */
+    fun loadViaBypass(
+        engine: SocksEndpoint,
+        connections: Int = LOAD_CONNECTIONS,
+        maxBytes: Int = LOAD_MAX_BYTES,
+        budgetMs: Int = LOAD_BUDGET_MS
+    ): LoadResult {
+        val count = connections.coerceAtLeast(1)
+        val pool = java.util.concurrent.Executors.newFixedThreadPool(count) { runnable ->
+            Thread(runnable, "kinescope-load").apply { isDaemon = true }
+        }
+        try {
+            val futures = (0 until count).map { index ->
+                val target = LOAD_TARGETS[index % LOAD_TARGETS.size]
+                pool.submit(Callable { fetchViaBypass(engine, target.first, target.second, maxBytes, budgetMs) })
+            }
+            val waitMs = (stageTimeoutMs * 2L + budgetMs + 2_000L)
+            val fetches = futures.map { future ->
+                try {
+                    future.get(waitMs, TimeUnit.MILLISECONDS)
+                } catch (e: InterruptedException) {
+                    throw e
+                } catch (e: Exception) {
+                    null
+                }
+            }
+            val done = fetches.filterNotNull()
+            val handshakes = done.map { it.handshakeMs }.sorted()
+            val median = if (handshakes.isEmpty()) 0 else handshakes[handshakes.size / 2]
+            val bytes = done.sumOf { it.bytes.toLong() }
+            val spanMs = (done.maxOfOrNull { it.elapsedMs } ?: 1L).coerceAtLeast(1L)
+            val kbps = if (bytes < LOAD_MIN_BYTES) 0 else ((bytes * 1_000L) / spanMs / 1_024L).toInt()
+            return LoadResult(total = count, passed = done.size, medianHandshakeMs = median, kbps = kbps)
+        } finally {
+            pool.shutdownNow()
+        }
+    }
+
     private fun closeQuietly(socket: Socket) {
         try {
             socket.close()
@@ -412,5 +531,18 @@ internal class NetworkCheck(
         private const val DEEP_BUDGET_MS = 8_000
         private const val DEEP_MIN_BYTES = 40_000
         private const val DEEP_MIN_EOF_BYTES = 2_000
+
+        // Patch 35: the simultaneous-connection test (loadViaBypass): two connections each to the
+        // three hosts the YouTube app depends on.
+        private const val LOAD_CONNECTIONS = 6
+        private const val LOAD_MAX_BYTES = 100_000
+        private const val LOAD_BUDGET_MS = 6_000
+        private const val LOAD_MIN_BYTES = 20_000
+        private const val LOAD_MIN_EOF_BYTES = 100
+        private val LOAD_TARGETS = listOf(
+            "www.youtube.com" to "/",
+            "i.ytimg.com" to "/vi/dQw4w9WgXcQ/hqdefault.jpg",
+            "redirector.googlevideo.com" to "/generate_204"
+        )
     }
 }

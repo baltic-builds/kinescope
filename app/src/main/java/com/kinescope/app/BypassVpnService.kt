@@ -11,6 +11,7 @@ import android.content.pm.ServiceInfo
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
+import android.os.SystemClock
 import androidx.annotation.StringRes
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
@@ -59,6 +60,13 @@ class BypassVpnService : VpnService() {
     @Volatile private var restarting = false
     @Volatile private var updateProgress: SearchProgress? = null
     private val monitorRunning = AtomicBoolean(false)
+
+    // Patch 35: the tunnel probes its own engine and switches strategy when it stops carrying traffic.
+    @Volatile private var currentLine: String? = null
+    @Volatile private var nextProbeAt = 0L
+    @Volatile private var failStreak = 0
+    @Volatile private var probeOkCount = 0
+    private val rotations = ArrayDeque<Long>()
 
     override fun onCreate() {
         super.onCreate()
@@ -136,7 +144,7 @@ class BypassVpnService : VpnService() {
         var tun: ParcelFileDescriptor? = null
         var hevStarted = false
         try {
-            val chain = DpiStrategyStore.verifiedChain(this)
+            val chain = DpiStrategyStore.chain(this)
             if (chain.isEmpty()) {
                 fail(R.string.bypass_vpn_no_verified_strategy)
                 return
@@ -150,20 +158,27 @@ class BypassVpnService : VpnService() {
             // candidate is also checked with one real connection before the tunnel is built on
             // it. If none passes, the first one that started is used anyway, as before.
             var firstStarted: String? = null
-            for (line in chain) {
+            var chosenLine: String? = null
+            for ((position, line) in chain.withIndex()) {
                 val parsed = DpiStrategyParser.parse(line) as? DpiStrategyParser.Parsed.Ok ?: continue
                 val candidate = DpiEngine.startForVpn(this, parsed.args) ?: continue
-                if (DpiBypass.isHealthy(candidate.port)) {
+                val health = DpiBypass.checkHealth(candidate.port)
+                AppLog.i(
+                    "BypassVpnService",
+                    "chk s=${position + 1}/${chain.size} ok=${health.ok} st=${health.stage} why=${health.why} ms=${health.ms}"
+                )
+                if (health.ok) {
                     engine = candidate
+                    chosenLine = line
                     break
                 }
-                AppLog.w("BypassVpnService", "Strategy started but failed the connection check; trying the next one")
                 if (firstStarted == null) firstStarted = line
                 candidate.close()
             }
             if (engine == null && firstStarted != null) {
                 val parsed = DpiStrategyParser.parse(firstStarted) as? DpiStrategyParser.Parsed.Ok
                 engine = parsed?.let { DpiEngine.startForVpn(this, it.args) }
+                chosenLine = firstStarted
             }
             if (engine == null) throw BypassStartException(R.string.bypass_vpn_engine_failed)
             if (stopRequested.get()) return
@@ -190,6 +205,9 @@ class BypassVpnService : VpnService() {
             engineSession = engine
             tunInterface = tun
             tunnelRunning = true
+            currentLine = chosenLine
+            failStreak = 0
+            nextProbeAt = SystemClock.elapsedRealtime() + FIRST_PROBE_DELAY_MS
             engine = null
             tun = null
             hevStarted = false
@@ -242,6 +260,7 @@ class BypassVpnService : VpnService() {
                     return
                 }
                 if (++ticks % NOTIFICATION_CHECK_TICKS == 0) ensureNotificationVisible()
+                if (!updating && !restarting && SystemClock.elapsedRealtime() >= nextProbeAt) probeTunnel()
             }
         } catch (e: InterruptedException) {
             Thread.currentThread().interrupt()
@@ -284,6 +303,50 @@ class BypassVpnService : VpnService() {
             updateProgress = null
             if (!stopRequested.get() && BypassVpnController.state.value.active) postNotification()
         }
+    }
+
+    /**
+     * Patch 35: every 30 s, three simultaneous connections through the tunnel's own engine (not
+     * through the TUN, so the YouTube app's traffic is not disturbed). Fewer than two completing,
+     * twice in a row, means the strategy has stopped carrying traffic.
+     */
+    private fun probeTunnel() {
+        nextProbeAt = SystemClock.elapsedRealtime() + PROBE_INTERVAL_MS
+        val session = engineSession ?: return
+        val line = currentLine ?: return
+        if (NetworkState.snapshot(this).kind == "none") return
+        val load = DpiBypass.checkLoad(session.port, PROBE_CONNECTIONS)
+        if (load.passed * 3 >= load.total * 2) {
+            failStreak = 0
+            probeOkCount++
+            if (probeOkCount == 1 || probeOkCount % 10 == 0) {
+                AppLog.i("BypassVpnService", "probe ok n=$probeOkCount ${load.passed}/${load.total} hs=${load.medianHandshakeMs}ms")
+            }
+            return
+        }
+        failStreak++
+        AppLog.w("BypassVpnService", "probe fail streak=$failStreak ${load.passed}/${load.total} hs=${load.medianHandshakeMs}ms")
+        if (failStreak >= FAILS_BEFORE_ROTATE) rotateStrategy(line)
+    }
+
+    /** Quarantines the failing strategy and reconnects on the next one; rate-limited so a dead network cannot thrash it. */
+    private fun rotateStrategy(line: String) {
+        val now = SystemClock.elapsedRealtime()
+        while (rotations.isNotEmpty() && now - rotations.first() > ROTATION_WINDOW_MS) rotations.removeFirst()
+        val tooSoon = rotations.isNotEmpty() && now - rotations.last() < MIN_ROTATION_GAP_MS
+        val tooMany = rotations.size >= MAX_ROTATIONS
+        val alternatives = DpiStrategyStore.chain(this).filter { it != line }
+        if (tooSoon || tooMany || alternatives.isEmpty()) {
+            AppLog.w("BypassVpnService", "rotate skipped soon=$tooSoon many=$tooMany alternatives=${alternatives.size}")
+            failStreak = 0
+            nextProbeAt = now + if (tooMany) ROTATION_WINDOW_MS / 2 else PROBE_INTERVAL_MS
+            return
+        }
+        rotations.addLast(now)
+        DpiPrefs.quarantine(this, line)
+        AppLog.w("BypassVpnService", "rotate quarantined=1 alternatives=${alternatives.size}")
+        failStreak = 0
+        restartTunnel()
     }
 
     private fun restartTunnel() {
@@ -485,6 +548,15 @@ class BypassVpnService : VpnService() {
 
         /** The tunnel monitor ticks every 500ms; every 6th tick (3s) it checks the notification. */
         private const val NOTIFICATION_CHECK_TICKS = 6
+
+        // Patch 35: periodic probe and strategy rotation.
+        private const val PROBE_INTERVAL_MS = 30_000L
+        private const val FIRST_PROBE_DELAY_MS = 45_000L
+        private const val PROBE_CONNECTIONS = 3
+        private const val FAILS_BEFORE_ROTATE = 2
+        private const val MIN_ROTATION_GAP_MS = 90_000L
+        private const val ROTATION_WINDOW_MS = 10L * 60L * 1000L
+        private const val MAX_ROTATIONS = 3
 
         fun start(context: Context): Boolean {
             val intent = Intent(context, BypassVpnService::class.java).apply { action = ACTION_START }

@@ -22,7 +22,9 @@ internal data class DpiSearchUiState(
     val running: Boolean = false,
     val progress: SearchProgress? = null,
     @StringRes val resultMessageRes: Int? = null,
-    val resultDirectWorks: Boolean = false
+    val resultDirectWorks: Boolean = false,
+    /** Patch 35: a quiet re-check after an update; downloads keep using the previous strategies. */
+    val background: Boolean = false
 )
 
 /**
@@ -35,9 +37,22 @@ internal object DpiSearchController {
     private val mutableState = MutableStateFlow(DpiSearchUiState())
     val state = mutableState.asStateFlow()
 
-    internal fun starting() {
-        mutableState.value = DpiSearchUiState(running = true)
+    internal fun starting(background: Boolean = false) {
+        mutableState.value = DpiSearchUiState(running = true, background = background)
     }
+
+    // Patch 35: a running download needs the engine, so a search steps aside between two strategies.
+    private val downloadHolds = java.util.concurrent.atomic.AtomicInteger(0)
+
+    fun holdForDownload() {
+        downloadHolds.incrementAndGet()
+    }
+
+    fun releaseDownload() {
+        downloadHolds.updateAndGet { (it - 1).coerceAtLeast(0) }
+    }
+
+    fun isHeld(): Boolean = downloadHolds.get() > 0
 
     internal fun progress(progress: SearchProgress) {
         mutableState.value = mutableState.value.copy(running = true, progress = progress)
@@ -71,24 +86,32 @@ class DpiSearchService : Service() {
             ACTION_STOP -> stopRequested.set(true)
             ACTION_START -> {
                 if (!DpiSearchController.state.value.running) {
+                    val mode = intent?.getStringExtra(EXTRA_MODE) ?: MODE_MANUAL
+                    val only = intent?.getStringArrayExtra(EXTRA_ONLY)?.toList()
                     stopRequested.set(false)
-                    DpiSearchController.starting()
+                    DpiSearchController.starting(background = mode == MODE_BACKGROUND)
                     startForegroundCompat(buildNotification(null))
-                    executor.execute { runSearch() }
+                    executor.execute { runSearch(mode, only) }
                 }
             }
         }
         return START_NOT_STICKY
     }
 
-    private fun runSearch() {
+    /** Patch 35: one strategy search. [mode] is manual, background (after an update) or test (one strategy, [only]). */
+    private fun runSearch(mode: String, only: List<String>?) {
+        val context = applicationContext
+        val testOnly = only != null
+        val background = mode == MODE_BACKGROUND
         try {
             val directWorks = DpiBypass.directConnectionWorks()
             val results = DpiBypass.search(
-                applicationContext,
-                // Patch 33: the first launch checks all 72; later searches may stop earlier.
-                fullScan = !DpiPrefs.hasRunInitialSearch(applicationContext),
+                context,
+                // The first launch, a re-check after an update and a strategy test look at everything.
+                fullScan = testOnly || background || !DpiPrefs.hasRunInitialSearch(context),
+                only = only,
                 isCancelled = { stopRequested.get() },
+                waitIfPaused = { awaitDownloadsIdle() },
                 onProgress = { snapshot ->
                     DpiSearchController.progress(snapshot)
                     runCatching {
@@ -97,20 +120,31 @@ class DpiSearchService : Service() {
                     }
                 }
             )
-            if (stopRequested.get()) {
-                DpiSearchController.finished(R.string.bypass_search_stopped)
-            } else {
-                // Patch 33: a finished (not stopped) search counts as the one-time first check,
-                // and the best strategies win instead of the first four that happened to pass.
-                DpiPrefs.setHasRunInitialSearch(applicationContext, true)
-                if (DpiBypass.applySearchResults(applicationContext, results)) {
-                    DpiPrefs.setEnabled(applicationContext, true)
-                    DpiSearchController.finished(
-                        if (directWorks) R.string.bypass_search_found_direct else R.string.bypass_search_found,
-                        directWorks
-                    )
-                } else {
-                    DpiSearchController.finished(R.string.bypass_search_none)
+            DpiResultsStore.save(context, results)
+            when {
+                testOnly -> DpiSearchController.finished(R.string.bypass_strategy_tested)
+                stopRequested.get() -> {
+                    // Patch 35: a stopped search used to throw away everything it had found. Keep the
+                    // passes (the old chain stays behind them), as long as something really carried traffic.
+                    val kept = results.any { it.fullPass && it.deepOk } &&
+                        DpiBypass.applySearchResults(context, results, keepProven = background, partial = true)
+                    if (kept && !background) DpiPrefs.setEnabled(context, true)
+                    DpiSearchController.finished(if (kept) R.string.bypass_search_partial else R.string.bypass_search_stopped)
+                }
+                else -> {
+                    // A finished (not stopped) search counts as the one-time first check.
+                    DpiPrefs.setHasRunInitialSearch(context, true)
+                    DpiPrefs.setLastSearchVersion(context, appVersionCode(context))
+                    if (DpiBypass.applySearchResults(context, results, keepProven = background)) {
+                        // A quiet re-check must not switch a bypass the user turned off back on.
+                        if (!background) DpiPrefs.setEnabled(context, true)
+                        DpiSearchController.finished(
+                            if (directWorks) R.string.bypass_search_found_direct else R.string.bypass_search_found,
+                            directWorks
+                        )
+                    } else {
+                        DpiSearchController.finished(R.string.bypass_search_none)
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -119,6 +153,10 @@ class DpiSearchService : Service() {
         } finally {
             stopSelf()
         }
+    }
+
+    private fun awaitDownloadsIdle() {
+        while (DpiSearchController.isHeld() && !stopRequested.get()) Thread.sleep(300L)
     }
 
     override fun onDestroy() {
@@ -185,11 +223,33 @@ class DpiSearchService : Service() {
         private const val CHANNEL_ID = "youtube_bypass"
         private const val NOTIFICATION_ID = 1102
 
-        fun start(context: Context) {
-            val intent = Intent(context, DpiSearchService::class.java).apply { action = ACTION_START }
+        private const val EXTRA_MODE = "mode"
+        private const val EXTRA_ONLY = "only"
+        private const val MODE_MANUAL = "manual"
+        private const val MODE_BACKGROUND = "background"
+        private const val MODE_TEST = "test"
+
+        fun start(context: Context) = dispatch(context, MODE_MANUAL, null)
+
+        /** Patch 35: a quiet full re-check after an update; the previous strategies keep working meanwhile. */
+        fun startBackground(context: Context) = dispatch(context, MODE_BACKGROUND, null)
+
+        /** Patch 35: tests one strategy from Settings; the chain is not changed. */
+        fun startTest(context: Context, line: String) = dispatch(context, MODE_TEST, listOf(line))
+
+        private fun dispatch(context: Context, mode: String, only: List<String>?) {
+            val intent = Intent(context, DpiSearchService::class.java).apply {
+                action = ACTION_START
+                putExtra(EXTRA_MODE, mode)
+                if (only != null) putExtra(EXTRA_ONLY, only.toTypedArray())
+            }
             runCatching { ContextCompat.startForegroundService(context, intent) }
                 .onFailure { AppLog.e("DpiSearchService", "Could not dispatch start", it) }
         }
+
+        fun appVersionCode(context: Context): Long = runCatching {
+            context.packageManager.getPackageInfo(context.packageName, 0).longVersionCode
+        }.getOrDefault(0L)
 
         fun stop(context: Context) {
             val intent = Intent(context, DpiSearchService::class.java).apply { action = ACTION_STOP }

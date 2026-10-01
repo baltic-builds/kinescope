@@ -1,5 +1,13 @@
 # Roadmap
 
+## Status after patch 35 (2026-09-30)
+
+Confirmed on a device: builds, the strategy search and its ranking, the compact log and Copy report.
+Reported broken and addressed by patch 35 (not yet confirmed): downloads that never visibly start,
+a very slow YouTube app through the tunnel, downloads under a third-party VPN. Reported and not fixable
+from code: the Play Protect install block (see `RELEASE.md`). The full picture, including how to read
+the next report, is the "Session snapshot" at the top of `HANDOFF.md`.
+
 **Current state after patch 25:** the original implementation roadmap and the later S0-S11 audit have been consumed into the codebase. Patch 24 delivered the first feature sprint; patch 25 closes the remaining autonomous reliability, persistence, privacy, storage, test and release-hardening work that can be completed in Codespaces without a physical device.
 
 Patch 24's local build is explicitly confirmed by the user (`BUILD SUCCESSFUL`, commit `91169f5`). Patch 25c is the delivery hotfix for the single AAPT string-resource blocker found by Patch 25b's mandatory Gradle gate; Patch 25c itself is guarded by `testDebugUnitTest`, `lintDebug` and `assembleDebug` before its delivery scripts are removed. The remaining items below are therefore **verification gates**, not unimplemented feature work.
@@ -170,6 +178,17 @@ Not yet device-verified. Full detail in `CHANGELOG.md`.
   completing); a real age-restricted video downloads successfully once signed in; a previously
   misclassified transient bypass error now actually retries and can succeed instead of failing
   outright.
+
+### Patch 35 adaptive fallback, load-ranked strategies, manual choice, background re-check
+
+Not yet device-verified. Full detail in `CHANGELOG.md`. Requires patch 34.
+- [ ] Copy report after a failed or slow download: the report shows `run`, `hb` (phase, percent, kbps, rx, last line) and `end` lines, and `slow` / `stall` / `route ... ok` lines when the ladder moved.
+- [ ] A running download shows "12% · 340 KB/s" (or the ETA when yt-dlp has one), never "-1% (ETA -1s)" and never "Preparing" once real progress exists.
+- [ ] A route that stays under 80 KB/s for 25 s is abandoned for the next one (at most two hops); the download resumes, it does not restart; a later download starts on the route that worked.
+- [ ] Settings: "Choose strategy manually" lists the strategies with their last results; Test runs one strategy; Use pins it (it goes first, automatic searches keep it first); "Choose automatically" unpins.
+- [ ] A search stopped early keeps its passes (message "What it found so far is saved"), and the report header shows the new chain.
+- [ ] After the update, the first launch starts a quiet background check (small-TV notification); starting a download during it works, using the previous strategies.
+- [ ] YouTube tunnel: with a strategy that stops carrying traffic, the log shows `probe fail` twice and then `rotate`, and playback recovers on the next strategy.
 
 ### Patch 34 fallback ladder without a hard gate, VPN awareness, compact log
 

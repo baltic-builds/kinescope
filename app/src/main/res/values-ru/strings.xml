@@ -229,4 +229,26 @@
     <string name="copy_report">Скопировать отчёт</string>
     <string name="report_copied">Отчёт скопирован</string>
     <string name="error_verification_vpn">YouTube просит подтвердить, что вы не робот. Через VPN это случается часто. Отключите VPN, используйте встроенный обход и повторите попытку.</string>
+    <!-- Patch 35 -->
+    <string name="progress_percent_speed">%1$.0f%% · %2$s</string>
+    <string name="progress_percent_only">%1$.0f%%</string>
+    <string name="speed_kb">%d КБ/с</string>
+    <string name="speed_mb">%.1f МБ/с</string>
+    <string name="bypass_search_partial">Остановлено. Найденное сохранено.</string>
+    <string name="bypass_strategy_tested">Проверка завершена. Результат в списке.</string>
+    <string name="strategy_picker_title">Выбрать стратегию вручную</string>
+    <string name="strategy_picker_hint">Проверьте стратегию, чтобы узнать, как она работает в этой сети, и закрепите нужную. Закреплённая стратегия пробуется первой; если она перестанет работать, приложение переключится на другую.</string>
+    <string name="strategy_show">Показать</string>
+    <string name="strategy_hide">Скрыть</string>
+    <string name="strategy_test">Проверить</string>
+    <string name="strategy_use">Выбрать</string>
+    <string name="strategy_pinned">Закреплена</string>
+    <string name="strategy_auto">Выбирать автоматически</string>
+    <string name="strategy_untested">Ещё не проверена</string>
+    <string name="strategy_result_ok">Оценка %1$d · %2$d КБ/с · %3$d из %4$d соединений</string>
+    <string name="strategy_result_basic">Оценка %1$d · %2$d КБ/с</string>
+    <string name="strategy_result_failed">Не прошла</string>
+    <string name="strategy_testing">Проверяем стратегию…</string>
+    <string name="strategy_pinned_done">Стратегия закреплена и будет пробоваться первой.</string>
+    <string name="strategy_unpinned">Стратегии снова выбираются автоматически.</string>
 </resources>

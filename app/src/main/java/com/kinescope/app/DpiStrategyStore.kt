@@ -18,6 +18,13 @@ object DpiPrefs {
     private const val KEY_VERIFIED_FALLBACKS = "verified_fallbacks"
     private const val KEY_INITIAL_SEARCH_DONE = "initial_search_done"
     private const val KEY_FIRST_RUN_NOTICE_SHOWN = "first_run_notice_shown"
+    private const val KEY_PINNED = "pinned_strategy"
+    private const val KEY_PROVEN = "proven_strategy"
+    private const val KEY_PROVEN_AT = "proven_at"
+    private const val KEY_QUARANTINE = "quarantine"
+    private const val KEY_SEARCH_VERSION = "search_version"
+    private const val PROVEN_MAX_AGE_MS = 14L * 24L * 60L * 60L * 1000L
+    private const val QUARANTINE_MS = 10L * 60L * 1000L
     private const val MAX_FALLBACKS = 3
 
     private fun prefs(context: Context) = context.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE)
@@ -85,6 +92,57 @@ object DpiPrefs {
         prefs(context).edit().putBoolean(KEY_FIRST_RUN_NOTICE_SHOWN, true).apply()
     }
 
+    /** Patch 35: the strategy the user pinned in Settings; it always leads the chain. */
+    fun pinned(context: Context): String? = prefs(context).getString(KEY_PINNED, null)?.takeIf { it.isNotBlank() }
+
+    /** Pins [line]: it becomes the verified primary (the previous chain follows it) and the bypass is switched on. */
+    fun pin(context: Context, line: String) {
+        val existing = DpiStrategyStore.verifiedChain(context)
+        markStrategiesVerified(context, line, existing.filter { it != line })
+        prefs(context).edit().putString(KEY_PINNED, line).putBoolean(KEY_ENABLED, true).apply()
+        clearQuarantine(context, line)
+    }
+
+    fun unpin(context: Context) {
+        prefs(context).edit().remove(KEY_PINNED).apply()
+    }
+
+    /** The strategy that last carried a real download, if that was within two weeks. */
+    fun provenLine(context: Context, now: Long = System.currentTimeMillis()): String? {
+        val store = prefs(context)
+        val age = now - store.getLong(KEY_PROVEN_AT, 0L)
+        return if (age in 0..PROVEN_MAX_AGE_MS) store.getString(KEY_PROVEN, null) else null
+    }
+
+    /** Keeps [line] out of the front of the chain for ten minutes after it failed in real use. */
+    fun quarantine(context: Context, line: String, forMs: Long = QUARANTINE_MS) {
+        val now = System.currentTimeMillis()
+        val current = QuarantineList.parse(prefs(context).getString(KEY_QUARANTINE, null), now)
+        val next = QuarantineList.add(current, line, now + forMs)
+        prefs(context).edit().putString(KEY_QUARANTINE, QuarantineList.serialize(next)).apply()
+    }
+
+    fun quarantined(context: Context): Set<String> =
+        QuarantineList.parse(prefs(context).getString(KEY_QUARANTINE, null), System.currentTimeMillis()).keys
+
+    fun clearQuarantine(context: Context, line: String? = null) {
+        val store = prefs(context)
+        if (line == null) {
+            store.edit().remove(KEY_QUARANTINE).apply()
+            return
+        }
+        val now = System.currentTimeMillis()
+        val next = QuarantineList.parse(store.getString(KEY_QUARANTINE, null), now) - line
+        store.edit().putString(KEY_QUARANTINE, QuarantineList.serialize(next)).apply()
+    }
+
+    /** The app version code at the last finished strategy search; a new build triggers a background re-check. */
+    fun lastSearchVersion(context: Context): Long = prefs(context).getLong(KEY_SEARCH_VERSION, 0L)
+
+    fun setLastSearchVersion(context: Context, version: Long) {
+        prefs(context).edit().putLong(KEY_SEARCH_VERSION, version).apply()
+    }
+
     /**
      * Patch 33: after a download really completed through [line], make it the primary strategy
      * (the previous primary and the rest stay behind it as fallbacks). A search only proves a
@@ -92,6 +150,8 @@ object DpiPrefs {
      */
     fun promoteVerified(context: Context, line: String) {
         val store = prefs(context)
+        // Patch 35: a download really finished through this strategy; a background re-check keeps it in front.
+        store.edit().putString(KEY_PROVEN, line).putLong(KEY_PROVEN_AT, System.currentTimeMillis()).apply()
         val primary = store.getString(KEY_VERIFIED_STRATEGY, null) ?: return
         if (primary == line) return
         val chain = (listOf(primary) + verifiedFallbacks(context)).distinct()
@@ -182,6 +242,19 @@ object DpiStrategyStore {
      * `BypassVpnService`); callers that only need "is the feature usable right now" should
      * check whether this list is empty.
      */
+    /**
+     * Patch 35: the chain to use right now: the verified strategies, the pinned one first, and
+     * strategies that failed in real use in the last ten minutes last. Empty when nothing is verified.
+     */
+    fun chain(context: Context): List<String> {
+        val stored = verifiedChain(context)
+        val pinned = DpiPrefs.pinned(context)
+        if (stored.isEmpty()) {
+            return if (pinned != null && DpiPrefs.isStrategyVerified(context, pinned)) listOf(pinned) else emptyList()
+        }
+        return ChainPlanner.order(stored, pinned, DpiPrefs.quarantined(context))
+    }
+
     fun verifiedChain(context: Context): List<String> {
         val primary = selected(context)
         if (!DpiPrefs.isStrategyVerified(context, primary)) return emptyList()

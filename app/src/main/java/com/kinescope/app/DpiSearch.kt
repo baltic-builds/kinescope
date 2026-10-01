@@ -20,10 +20,40 @@ internal data class StrategyResult(
     /** Patch 33: whether a real ~200 KB transfer through this strategy completed. */
     val deepOk: Boolean = false,
     /** Patch 33: measured speed of that transfer in KB/s (0 when it was not measured). */
-    val throughputKbps: Int = 0
+    val throughputKbps: Int = 0,
+    /** Patch 35: how many of [loadTotal] simultaneous connections through this strategy completed. */
+    val loadPassed: Int = 0,
+    val loadTotal: Int = 0,
+    /** Patch 35: median time in ms to finish the TLS handshake under that load (0 = not measured). */
+    val handshakeMs: Int = 0,
+    val loadKbps: Int = 0
 ) {
     val fullPass: Boolean get() = started && total > 0 && requiredPassed
+
+    /** Patch 35: at least four in five simultaneous connections completed. */
+    val loadOk: Boolean get() = loadTotal > 0 && loadPassed * 5 >= loadTotal * 4
+
+    /**
+     * Patch 35: 0-100 quality score for display and tie-breaking: hosts through (25), a real
+     * transfer (15), simultaneous connections that completed (45) and how quickly the handshakes
+     * finished under that load (15). 0 for a strategy that did not fully pass.
+     */
+    fun score(): Int {
+        if (!fullPass) return 0
+        val hosts = if (total > 0) 25 * passed / total else 0
+        val transfer = if (deepOk) 15 else 0
+        val load = if (loadTotal > 0) 45 * loadPassed / loadTotal else 0
+        val latency = when {
+            loadTotal == 0 || loadPassed == 0 -> 0
+            handshakeMs <= 500 -> 15
+            handshakeMs <= 1_000 -> 10
+            handshakeMs <= 2_000 -> 5
+            else -> 0
+        }
+        return (hosts + transfer + load + latency).coerceIn(0, 100)
+    }
 }
+
 
 internal data class SearchProgress(
     val index: Int,
@@ -57,7 +87,13 @@ internal class DpiStrategySearch(
      * traffic from one that dies after the first packets, which is how a strategy that "passed"
      * could still fail every real download.
      */
-    private val deepProbe: ((port: Int) -> Int?)? = null
+    private val deepProbe: ((port: Int) -> Int?)? = null,
+    /**
+     * Patch 35: optional simultaneous-connection test, run only for a strategy whose single transfer
+     * worked. The YouTube app opens many connections at once and pays a strategy's per-connection
+     * cost every time; one connection at a time cannot show that.
+     */
+    private val loadProbe: ((port: Int) -> LoadResult?)? = null
 ) {
     /**
      * [stopAfterFullPasses] bounds how many fully-passing strategies to collect before
@@ -69,11 +105,15 @@ internal class DpiStrategySearch(
         candidates: List<String>,
         isCancelled: () -> Boolean,
         onProgress: (SearchProgress) -> Unit,
-        stopAfterFullPasses: Int = 1
+        stopAfterFullPasses: Int = 1,
+        /** Patch 35: called before each strategy; blocks while a download needs the engine. */
+        waitIfPaused: () -> Unit = {}
     ): List<StrategyResult> {
         val results = mutableListOf<StrategyResult>()
         var fullPasses = 0
         for ((index, line) in candidates.withIndex()) {
+            if (isCancelled()) break
+            waitIfPaused()
             if (isCancelled()) break
             onProgress(SearchProgress(index, candidates.size, line, results.toList()))
             val result = try {
@@ -126,6 +166,17 @@ internal class DpiStrategySearch(
                     throughputKbps = measured
                 }
             }
+            // Patch 35: several connections at once, only for a strategy whose single transfer worked.
+            var load: LoadResult? = null
+            if (deepOk && loadProbe != null) {
+                load = try {
+                    loadProbe.invoke(session.port)
+                } catch (e: InterruptedException) {
+                    throw e
+                } catch (e: Exception) {
+                    null
+                }
+            }
             return StrategyResult(
                 line,
                 started = true,
@@ -133,7 +184,11 @@ internal class DpiStrategySearch(
                 total = hosts.size,
                 requiredPassed = requiredPassed,
                 deepOk = deepOk,
-                throughputKbps = throughputKbps
+                throughputKbps = throughputKbps,
+                loadPassed = load?.passed ?: 0,
+                loadTotal = load?.total ?: 0,
+                handshakeMs = load?.medianHandshakeMs ?: 0,
+                loadKbps = load?.kbps ?: 0
             )
         } finally {
             pool.shutdownNow()
@@ -160,14 +215,16 @@ internal class DpiStrategySearch(
             results.filter { it.started && it.passed > 0 }.maxByOrNull { it.passed }
 
         /**
-         * Patch 33: the fully passing strategies, best first -- those whose real transfer
-         * completed, then more hosts through, then higher measured speed. The sort is stable, so
-         * the search order (hand-picked built-ins first) settles the remaining ties.
+         * Patch 35: the fully passing strategies, best first. Simultaneous connections that
+         * completed (what the YouTube app really does) rank first, then a real single transfer,
+         * then the overall score (hosts, load, handshake latency), then single-transfer speed.
+         * The sort is stable, so the search order breaks the remaining ties.
          */
         fun ranked(results: List<StrategyResult>): List<StrategyResult> =
             results.filter { it.fullPass }.sortedWith(
-                compareByDescending<StrategyResult> { it.deepOk }
-                    .thenByDescending { it.passed }
+                compareByDescending<StrategyResult> { it.loadOk }
+                    .thenByDescending { it.deepOk }
+                    .thenByDescending { it.score() }
                     .thenByDescending { it.throughputKbps }
             )
     }

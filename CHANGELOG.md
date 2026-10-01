@@ -13,6 +13,98 @@ patch's own `.py` script for the exact, idempotent, exact-match-guarded
 edits it makes.
 
 
+## Patch 35 — Adaptive fallback, load-ranked strategies, manual choice, background re-check, run heartbeat
+
+Requires patch 34. Not device-verified. The last patch of this series: it also writes the session
+snapshot at the top of `HANDOFF.md` and the status block at the top of `ROADMAP.md`.
+
+### What the 2026-09-29 report shows
+The report (header `fmt=2`, OnePlus 5, Android 10, yt-dlp nightly 2026.09.27) covers two searches and
+two resumed downloads of the same job.
+- **The second search was cut short and its result thrown away.** `srch done n=21 pass=2 ms=82682`: only
+  21 of the 72 strategies were tested, so it was stopped (Stop button or notification). A stopped search
+  never applied its passes, so the chain stayed the old one; the report header at 23:42:43 still lists the
+  old `#s1..#s4`, and the later download used them. The two passes it had found (one with 3/3 hosts and
+  a 1421 KB/s transfer) were lost. Patch 35 keeps the passes of a stopped search.
+- **The download ran and neither failed nor stalled.** Run 1: `chk ok` (304 ms), `run` at 23:39:33, the user
+  paused at 23:39:56. Run 2: `run` at 23:41:49, the log ends at 23:42:43. Neither produced a `stall`,
+  an error, or a progress fact. Patch 34's watchdog only saw silence, and yt-dlp's stdout lines reset it.
+  So the run was alive in some phase; which one is unknown.
+- **Why the row looked frozen ("ETA -1"), verified in the wrapper source.** `youtubedl-android` 0.18.1
+  updates its progress value only for a line matching `[download] xx.x% ... ETA mm:ss`. yt-dlp prints
+  `ETA Unknown` while it has no speed, so the wrapper keeps reporting progress -1 and ETA -1 while the
+  download runs at a crawl. Patch 34 turned that into "Preparing the download…", which is just as wrong
+  for a running download. Patch 35 parses the line itself.
+- **A silent phase that is not the network.** The wrapper adds `--js-runtimes quickjs:<path>`, so the JS
+  challenge is solved on the phone by QuickJS: CPU-bound, silent, and slow on a 2017 phone. A watchdog that
+  reads silence as a dead route would kill it. Patch 35 gives that phase its own limit.
+- **YouTube slow in the app although the strategy "passed everything".** The primary (`-o1 -f-1 -r-5+se
+  -a1`) passed the light probe and a single 200 KB transfer at 1249 KB/s, but the YouTube app opens many
+  connections at once. A single connection says little about that. Not proven to be the cause; patch 35
+  measures simultaneous connections and re-checks the running tunnel.
+
+### Downloads
+- **Run monitor** (`RunMonitor`, pure and unit-tested). Judges a run by yt-dlp's stdout and by bytes the app
+  received (`TrafficStats.getUidRxBytes`, our uid, the engine process included). Phases: extraction (60 s
+  of silence), the QuickJS challenge (180 s), downloading (40 s), and merging/remuxing (not judged). A
+  route is stalled only when both the output and the network are idle.
+- **Slow routes.** With a speed limit (80 KB/s, averaged over 25 s of the download, at least three samples)
+  a route that stays under it is abandoned for the next one. At most two such hops per attempt: if two
+  routes are equally slow the cause is not the route, so the better of them runs to the end without a limit.
+  The download resumes from the part file (`--continue`).
+- **Ladder.** Recent route first (ten minutes, in memory), then the chain (pinned first, quarantined
+  last), a strategy that fails its live check is deferred and tried for real later with tighter limits,
+  the direct route last and only if it can resolve YouTube, first under a third-party VPN. The route that
+  finishes becomes the proven strategy; routes that failed hard before it are quarantined for ten minutes.
+- **Progress text** now comes from the line: `12% · 340 KB/s`, the ETA when yt-dlp has one, or the percent
+  alone. "Preparing the download…" is shown only before the first percent.
+- **Heartbeat.** Every 15 s a run logs `hb j= ph= pct= kbps= rx= lines= idle= last="..."` and at the end
+  `end j= res=ok|stall|slow|err|cancel dur= ...`. This is the evidence the previous reports lacked.
+
+### Strategy search
+- **Load test.** A strategy that passes the light probe and the single transfer is then tried with six
+  simultaneous connections (two each to www.youtube.com, i.ytimg.com and redirector.googlevideo.com,
+  up to 100 KB each, 6 s). Recorded: connections completed, median TLS handshake time, combined speed.
+- **Ranking:** load OK (at least 4 of 6) first, then a real single transfer, then a 0-100 score (hosts 25,
+  transfer 15, load 45, handshake latency 15), then single-transfer speed; list order breaks ties.
+- **Results are kept** (`DpiResultsStore`, per strategy) for Settings and for the report (`#top` lines).
+- **A stopped search keeps what it found** (only if something passed), and a test of one strategy from
+  Settings never changes the chain.
+- **Order of candidates:** the current chain first, so a re-check confirms or replaces it quickly.
+
+### Manual choice (Settings)
+"Choose strategy manually" shows every strategy with its last result (score, KB/s, connections). Test runs
+that one strategy; Use pins it: it goes first, automatic searches keep it first and only rebuild the
+fallbacks behind it. "Choose automatically" unpins. A pinned strategy that fails in real use is
+quarantined like any other for ten minutes, so the app still switches away from a dead choice.
+
+### Background re-check after an update
+The first launch of a new build starts a full check in the background (small-TV notification, no popup),
+once per build. The previous verified strategies keep serving downloads and the tunnel meanwhile. The
+check steps aside between two strategies when a download starts (the download waits for the strategy in
+progress, at most 30 s), and a strategy that carried a real download in the last 14 days keeps the lead
+unless this check tested it and it failed. A check started by hand replaces the primary by ranking.
+
+### YouTube tunnel
+Every 30 s, three simultaneous connections through the tunnel's engine. Two failed probes in a row (fewer
+than two of three completing) quarantine the current strategy and reconnect on the next one. At most one
+switch per 90 s and three per ten minutes, so a network that is simply down cannot make the tunnel thrash.
+The log shows `probe ok` (on change and every tenth time), `probe fail` and `rotate`.
+
+### Report
+The header gains `pin`, `proven`, `quarantined`, `search_ver` and up to three `#top` lines (score, KB/s,
+connections, handshake, strategy).
+
+### Verification status
+- Sandbox only: the script applies cleanly to a copy of the repository and is idempotent; the non-Compose
+  Kotlin sources compile against the API 35 `android.jar` with stubs for androidx and youtubedl-android;
+  the unit tests pass, including new ones for `RunMonitor` (fed lines shaped like real yt-dlp output),
+  `ChainPlanner`, `DpiResultsStore` and the ranking. `BypassSettings.kt` and `MainActivity.kt` (Compose)
+  were checked by brace balance and review only, and follow the patterns already used in those files.
+- Not verified: everything on a real device. The limits (60/180/40 s, 80 KB/s over 25 s, 30 s probes) were
+  chosen by judgement, not measured. Whether a slow YouTube app is a strategy problem at all is not proven;
+  the probes and the heartbeat exist to find out.
+
 ## Patch 34 — Fallback ladder without a hard gate, DNS-aware routes, VPN awareness, compact AI-first log, Play Protect hardening
 
 Requires patch 33. Not device-verified.
