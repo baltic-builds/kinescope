@@ -193,3 +193,21 @@ Patch 28 modernizes the existing system without changing its identity:
 - The YouTube tunnel and Kinescope download/test engine use separate Android processes (`:dpi_vpn` and `:dpi`), preserving the existing process-isolation rule for ByeDPI's native global state.
 - Download rows expose destructive removal by end-to-start swipe. The red destructive surface appears only during the gesture; pause/resume remains the only persistent per-row control. `SAVING` cannot be swiped away.
 - Preserve whitespace. Do not compensate for the smaller navbar by adding new labels, borders, gradients, floating badges or decorative surfaces elsewhere.
+
+## Patch 36 — balanced control geometry and motion stability
+
+Patch 36 keeps the warm cream/terracotta system and existing typography/shapes; it changes hierarchy,
+not identity.
+
+- The floating bottom bar is responsive (`280-380dp`) and has three equal **56dp** touch targets with
+  symmetric `SpaceEvenly` distribution. The center Add action remains primary but is no longer larger
+  than the side targets. System navigation insets remain mandatory.
+- The Home YouTube-bypass action is capped at `280dp` and `48dp` high. It is still prominent, but it
+  must not visually outweigh the persistent navigation control below it.
+- Queue cards keep a stable vertical rhythm: one-line status text plus a reserved progress area for all
+  active states. Indeterminate progress is used for Preparing / Processing / Saving; determinate progress
+  is used only when real transfer percentage exists.
+- Foreground notifications use the same Kinescope small-TV icon as strategy search, so system chrome and
+  in-app chrome describe one product.
+- Settings' final low-emphasis label is `powered by ephedrine`; it uses `labelSmall` and secondary text
+  color, centered, with no new decorative surface.

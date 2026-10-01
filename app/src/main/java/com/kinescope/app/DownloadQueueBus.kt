@@ -48,6 +48,9 @@ object DownloadQueueBus {
     private val _jobs = MutableStateFlow<List<DownloadJobStatus>>(emptyList())
     val jobs = _jobs.asStateFlow()
 
+    private val _completionVersion = MutableStateFlow(0L)
+    val completionVersion = _completionVersion.asStateFlow()
+
     fun replace(statuses: List<DownloadJobStatus>) {
         _jobs.value = statuses
     }
@@ -62,6 +65,12 @@ object DownloadQueueBus {
 
     fun remove(id: String) {
         _jobs.update { current -> current.filterNot { it.id == id } }
+    }
+
+    /** Removes a successful job from the queue and tells the UI to refresh the published library. */
+    fun complete(id: String) {
+        _jobs.update { current -> current.filterNot { it.id == id } }
+        _completionVersion.update { it + 1L }
     }
 
     fun find(id: String): DownloadJobStatus? = _jobs.value.firstOrNull { it.id == id }

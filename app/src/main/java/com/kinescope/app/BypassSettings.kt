@@ -93,18 +93,9 @@ fun BypassSettingsSection(requestNotifications: () -> Unit = {}) {
         DpiSearchService.start(context)
     }
 
-    // Runs the strategy search by itself, once, the first time this screen is opened on a
-    // device -- so a fresh install/update does not require the user to know to press
-    // "Test strategies" before the bypass (or the Home-screen YouTube action) can do anything.
-    // The flag is only consumed once the search actually starts: if the screen first opens
-    // while blocked (a download is active), the one automatic attempt is not silently wasted --
-    // it simply waits for a later visit where controlsEnabled is true.
-    LaunchedEffect(Unit) {
-        if (!DpiPrefs.hasRunInitialSearch(context) && !initialVerified && controlsEnabled) {
-            DpiPrefs.setHasRunInitialSearch(context, true)
-            startSearch()
-        }
-    }
+    // Patch 36: automatic first-run/update searches are owned by MainActivity. Settings only
+    // starts a search from an explicit user action, avoiding a second lifecycle owner and an
+    // early initial_search_done write before a search has actually finished.
 
     val runUpdate: () -> Unit = {
         busy = BypassBusy.UPDATING

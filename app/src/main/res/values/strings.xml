@@ -113,6 +113,7 @@
     <!-- Patch 25 reliability and roadmap completion -->
     <string name="status_preparing">Preparing…</string>
     <string name="status_processing">Processing downloaded media…</string>
+    <string name="status_finishing_download">Finishing the download…</string>
     <string name="status_saving">Saving to your library…</string>
     <string name="status_interrupted">Interrupted — tap Resume to continue</string>
     <string name="status_retry_available">Retry available</string>
@@ -133,6 +134,7 @@
 
     <string name="update_waiting_for_idle">Waiting for the active download to finish before updating yt-dlp…</string>
     <string name="personal_use_notice">Use downloads only where you have the right to save the content. Kinescope does not bypass access controls or DRM.</string>
+    <string name="powered_by">powered by ephedrine</string>
 
     <string name="delete_confirm_title">Delete this download?</string>
     <string name="delete_confirm_body">The file will be removed from the device and cannot be restored by Kinescope.</string>
@@ -216,10 +218,10 @@
 <string name="cd_remove_download">Remove download</string>
     <string name="bypass_wait_download">Finish the current download before testing or changing the bypass.</string>
     <!-- Patch 33 -->
-    <string name="first_run_title">Getting ready</string>
-    <string name="first_run_body">We’re looking for ways around the YouTube block that work on your network — please hold on. This happens once, when you first open the app.</string>
-    <string name="first_run_progress">Checked %1$d of %2$d</string>
-    <string name="first_run_ok">Got it</string>
+    <string name="strategy_refresh_title">Updating strategies</string>
+    <string name="strategy_refresh_body">Kinescope started refreshing network strategies in the background. This should only take a short time. Please keep the app open and don’t switch away until the update finishes.</string>
+    <string name="strategy_refresh_progress">Checked %1$d of %2$d</string>
+    <string name="strategy_refresh_ok">Got it</string>
     <string name="status_waiting_for_check">Waiting for the network check to finish…</string>
     <string name="status_preparing_download">Preparing the download…</string>
     <string name="status_trying_another_way">Trying another way (%1$d of %2$d)…</string>

@@ -120,21 +120,26 @@ Then, under this repo's **Actions** tab, run *Build and Publish Signed Release* 
 
 ### Installing on a device: Play Protect and Android developer verification
 
-Two different things can stop or interrupt a sideloaded install; only the second needs anything
-from the developer. Nothing in the app's code can skip either dialog.
+Play Protect / Android verification UI is owned by Android and Google Play services. **There is no
+manifest flag or app-code change that can force a blocking dialog to become the softer "Scan app"
+prompt.** Kinescope can only keep its APK/signing/permissions clean, register the developer/package
+where applicable, and appeal an erroneous Play Protect classification.
 
-- **"Send app for security check" / "App scan recommended".** Google Play Protect shows this for
-  any app it has not seen before. Choosing to send or scan the app lets the install continue.
-  This is normal and is not a block.
-- **"App blocked to protect your device".** Google documents one variant of this block for apps
-  installed from a browser, messenger or file manager that declare SMS, notification-listener or
-  accessibility permissions. Kinescope declares none of them (see `AndroidManifest.xml`), so that
-  variant is not the cause.
-- **Android developer verification (the likely cause of an "unknown developer" block).** Per
-  Google's Android developer documentation, from **30 September 2026** a package name that is not
-  registered can no longer be installed on certified Android devices in Brazil, Indonesia,
-  Singapore and Thailand; other regions follow in 2027. The dialog wording alone cannot prove
-  this is what a given phone shows -- confirm it by registering (below) and reinstalling.
+- **"Send app for security check" / "App scan recommended".** Google documents these as unknown-app
+  scan prompts. Choosing to send/scan lets Play Protect inspect the APK; this is not the same as a
+  harmful-app classification.
+- **"App blocked to protect your device".** Google's developer guidance documents this exact wording
+  for internet-sideloaded apps that declare SMS, notification-listener or accessibility access.
+  Kinescope declares none of those high-risk permissions, and release CI checks that they stay absent.
+  If the phone still shows this exact warning, capture the full reason text and file a Play Protect
+  appeal after confirming the signed APK is the one produced by release CI.
+- **Android developer verification is a separate layer.** As of **1 October 2026**, Google's FAQ says
+  the 30 September 2026 first phase checks installs from the named participating stores in Brazil,
+  Indonesia, Singapore and Thailand; **direct sideloads and non-participating stores are not changed by
+  that September phase**. Global expansion follows in 2027. Therefore a GitHub/direct-download APK
+  blocked today should not be diagnosed as developer verification from the dialog title alone.
+  Registering `com.kinescope.app` is still the correct future-proof path and avoids the unverified-
+  developer flow once verification applies to that install route.
 
 Free way to register a personal app (a *limited distribution* account, no government ID; up to
 20 authorised devices):
@@ -164,15 +169,20 @@ Which dialog you see decides the fix. The descriptions are Google's own
 | "App blocked to protect your device: This app can request access to sensitive data" | Google documents it only for apps installed from a browser, messenger or file manager that declare `RECEIVE_SMS`, `READ_SMS`, a notification listener or an accessibility service, in select markets. | Kinescope declares none of them. The release workflow fails if a build ever does, and prints "Play Protect high-risk declarations: none" in the run summary, so this dialog is not caused by the app's permissions. |
 | "Harmful app blocked" | Play Protect classified the APK. | File an appeal at `support.google.com/googleplay/android-developer/contact/protectappeals`. |
 | "Blocked by Advanced Protection", or Samsung "Auto Blocker" | A device setting, not the app. | Turn the setting off in Android settings, or use adb (below). |
-| A dialog about an unknown or unverified developer | Most likely Android developer verification (see above). | Register the package name; it is free for personal apps. |
+| A dialog specifically about an unknown or unverified developer | Android developer verification / registration flow. The September 2026 first phase is store-specific; direct sideload enforcement expands later. | Register the package/signing key. Limited distribution is free for up to 20 authorised devices; advanced flow remains the user-side fallback for an unregistered developer. |
 
-Routes that do not depend on the dialog:
-- From a computer with USB debugging on: `adb install -r kinescope-v<version>-arm64-v8a.apk`. adb is not one of the
-  "internet-sideloading" sources Google names for the sensitive-permission block. That is inferred from Google's
-  wording and has not been tested here.
-- Temporarily: Play Store, profile icon, Play Protect, Settings, turn **Scan apps with Play Protect** off, install,
-  turn it back on (Google Help, `support.google.com/googleplay/answer/2812853`).
-Neither of these can be done from the app's code.
+Developer-side action order for this project:
+1. Install only the **signed release APK** and verify its certificate matches the workflow summary.
+2. Keep the current minimal permission set; if the exact Play Protect reason still does not match the
+   manifest, submit Google's Play Protect appeal with the APK/package/signing details.
+3. Register `com.kinescope.app` in Android Developer Console with the same signing certificate. For
+   personal use, limited distribution is free and supports up to 20 explicitly authorised devices.
+4. For the developer's own device, `adb install -r kinescope-v<version>-arm64-v8a.apk` remains a useful
+   diagnostic install path. Android's advanced flow is the user-side path for unregistered developers
+   where developer verification applies.
+
+Turning Play Protect off is a device-side workaround, not a product fix, and Kinescope should not be
+designed around it. None of these install-policy decisions can be changed from Kinescope app code.
 
 ### Android 15 / 16 KB page-size note
 

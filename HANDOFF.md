@@ -6,38 +6,32 @@ doesn't already have repo access, also attach a fresh repomix export
 (or paste `CLAUDE.md`, `AGENTS.md`, `ROADMAP.md`, `CHANGELOG.md`,
 `CJM.md`, `design.md`, `RELEASE.md`, and `THIRD_PARTY_NOTICES.md` directly).
 
-## Session snapshot — read this first (updated by patch 35, 2026-09-30)
+## Session snapshot — read this first (updated by patch 36, 2026-10-01)
 
 Written so a new conversation can continue without the old one. Everything below the divider is the
 longer history; where the two disagree, this section and the code win.
 
 ### Working, confirmed on a real device by the user
-- CI builds: unit tests, lint and a signed release APK succeed (user reports, patches 33 and 34).
+- **Current 2026-10-01 baseline: builds succeed; downloads work; DPI bypass works. Treat this as the
+  protected baseline and do not reopen or refactor the bypass transport absent a regression.**
 - Strategy search: the first-launch check of all bundled strategies runs to the end and keeps four
   ranked strategies (device log 2026-09-29: `Search kept 4 strategies; primary transfer=true
   speed=1249KB/s`).
-- Compact log and "Copy report" (patch 34): the user pasted a report with the `#kinescope-report fmt=2`
-  header, so the journal, the header and the new line format all work.
-- Earlier baseline (patch 23 and before, Android 13): install, share/paste, download, play,
-  background persistence. A download through the bypass completed on 2026-09-24 (log line
-  `Completed job` after about 8 minutes) with a strategy from the built-in list.
+- Compact log and "Copy report" (patch 34) work; a real report with `#kinescope-report fmt=2` was
+  captured. Earlier install/share/paste/play/background persistence is also confirmed.
 
-### Not working, reported by the user on 2026-09-29 (device: OnePlus 5, Android 10, yt-dlp nightly 2026.09.27)
-1. **Downloads through the bypass do not visibly start.** No error, the row never leaves the start
-   state. The patch 34 report shows `chk ok` then `run` and then the user pausing or the log ending
-   50 s later, so the run neither failed nor stalled by the watchdog's rules. It is unknown whether
-   yt-dlp was extracting, solving the JavaScript challenge, or downloading at a crawl.
-2. **YouTube in the official app through Kinescope's tunnel is "very slow, practically does not
-   load"**, worse than before patch 31, even though the chosen strategy passed every synthetic test.
-3. **Play Protect still blocks the install** ("App blocked to protect your device"). Not fixable from
-   code, see `RELEASE.md` ("If the install is still blocked"). The exact dialog text is still unknown.
-4. **A third-party VPN**: YouTube works in the app over it, but Kinescope's downloads fail. Log B
-   (patch 33 era) shows YouTube answering "Sign in to confirm you're not a bot" through the bypass.
-   Routing works there; the IP address is what YouTube scores.
-
-### Unconfirmed (delivered, never reported on)
-Patch 33: the first-launch popup, the compact navbar, the small-TV status-bar icon, no `.sha256`
-asset. Patch 34: the ladder without a hard gate. Patch 35: everything in it.
+### Current issues addressed by patch 36; device verification still required
+1. Download progress/ETA and row height visibly jumped while yt-dlp emitted frequent callbacks.
+2. At 100% the UI still said Downloading while yt-dlp was merging/remuxing, making the app look stuck.
+3. Completed files remained in the visible queue even though their durable job had already been removed.
+4. Tapping the foreground download notification did not visibly bring the app to Home.
+5. The bottom navbar was too small relative to the Home YouTube-bypass action; Settings lacked the
+   requested developer watermark.
+6. Automatic strategy checks needed the same RU/EN explanatory popup after an app update, not only on
+   a fresh install.
+7. **Play Protect still blocks the install** ("App blocked to protect your device"). App code cannot
+   choose Play Protect's scan-vs-block UI; `RELEASE.md` now records the current Google guidance and
+   distinguishes direct sideloading from the September 2026 participating-store verification rollout.
 
 ### What patch 35 changed, and why (details in CHANGELOG.md "Patch 35")
 Two findings from the 2026-09-29 logs drove it. (a) The search result was thrown away: the second
@@ -528,10 +522,11 @@ Documentation sources of truth: `CLAUDE.md` (constraints/decisions), `AGENTS.md`
 
 ## Immediate next step for Claude (in a new conversation)
 
-**Collect device verification for Patches 31 to 35 first** -- this is now the single blocking
-item (the checklists are in `ROADMAP.md`; Patch 34's first question is whether a download now
-completes, or fails with a plain message, on the restricted network, with and without a
-third-party VPN, and what the copied report says).
+**Verify Patch 36 end to end first.** The protected baseline is that downloads and DPI bypass
+work. Confirm the queue/phase/notification/UI changes without changing the transport: one normal
+download, one download that requires merge/remux, notification tap-to-Home, queue removal + Library
+refresh, fresh-install/update strategy popup, RU/EN locale behavior and the resized navigation. Then
+continue the remaining device-only gates in `ROADMAP.md`.
 Exact checklist in `ROADMAP.md`'s Patch 31 section: does the Home screen's new bypass card show
 correctly in all three states; does the YouTube sign-in screen now open on the actual sign-in
 form, and does signing in succeed (this was never confirmed to even be reachable before, since

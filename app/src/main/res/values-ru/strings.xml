@@ -113,6 +113,7 @@
     <!-- Patch 25 reliability and roadmap completion -->
     <string name="status_preparing">Подготовка…</string>
     <string name="status_processing">Обрабатываем загруженный файл…</string>
+    <string name="status_finishing_download">Завершаем загрузку…</string>
     <string name="status_saving">Сохраняем в библиотеку…</string>
     <string name="status_interrupted">Загрузка прервана — нажмите «Продолжить»</string>
     <string name="status_retry_available">Можно повторить</string>
@@ -133,6 +134,7 @@
 
     <string name="update_waiting_for_idle">Ждём завершения текущей загрузки, затем обновим yt-dlp…</string>
     <string name="personal_use_notice">Скачивайте только тот контент, который вы вправе сохранять. Kinescope не обходит ограничения доступа или DRM.</string>
+    <string name="powered_by">powered by ephedrine</string>
 
     <string name="delete_confirm_title">Удалить эту загрузку?</string>
     <string name="delete_confirm_body">Файл будет удалён с устройства. Kinescope не сможет его восстановить.</string>
@@ -216,10 +218,10 @@
 <string name="cd_remove_download">Удалить загрузку</string>
     <string name="bypass_wait_download">Дождитесь окончания текущей загрузки, прежде чем тестировать или менять обход.</string>
     <!-- Patch 33 -->
-    <string name="first_run_title">Подготовка</string>
-    <string name="first_run_body">Мы ищем доступные в вашей сети варианты обхода блокировки YouTube — оставайтесь на линии. Это делается один раз при первом запуске.</string>
-    <string name="first_run_progress">Проверено %1$d из %2$d</string>
-    <string name="first_run_ok">Понятно</string>
+    <string name="strategy_refresh_title">Обновляем стратегии</string>
+    <string name="strategy_refresh_body">Kinescope запустил фоновое обновление сетевых стратегий. Это не займет много времени. Пожалуйста, не сворачивайте приложение и дождитесь завершения обновления.</string>
+    <string name="strategy_refresh_progress">Проверено %1$d из %2$d</string>
+    <string name="strategy_refresh_ok">Понятно</string>
     <string name="status_waiting_for_check">Ждём окончания проверки сети…</string>
     <string name="status_preparing_download">Готовим загрузку…</string>
     <string name="status_trying_another_way">Пробуем другой способ (%1$d из %2$d)…</string>

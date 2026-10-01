@@ -54,6 +54,28 @@ The detailed implementation record lives in `CHANGELOG.md`; this file only track
 
 ## Remaining verification gates
 
+### Patch 36 CJM/UX stabilization (2026-10-01)
+
+Source-of-truth baseline from the user: **build succeeds; downloads work; DPI bypass works.** Patch 36
+preserves that path and fixes UX/lifecycle friction around it. Full detail in `CHANGELOG.md`.
+
+- [ ] Fresh install: automatic strategy search starts and the RU device shows the Russian popup; a
+  non-Russian locale shows English. Keep the app open until it completes.
+- [ ] Install a newer build over the current one: first launch starts the background re-check and shows
+  the same popup while the previously verified strategy remains usable.
+- [ ] During a download the queue row stays the same height; progress updates smoothly and no raw/jumpy
+  ETA causes the whole list to move.
+- [ ] At the end, the row changes from Downloading/Finishing to Processing while yt-dlp merges/remuxes,
+  then Saving while MediaStore publishes. It never sits at "Downloading 100%" during conversion.
+- [ ] After MediaStore commit the completed row disappears from Queue and the new file appears in Library
+  without a manual refresh.
+- [ ] Tap the active download notification while Kinescope is backgrounded or on Settings: the existing
+  singleTask activity comes to the foreground on Home. Repeat for the strategy-search notification.
+- [ ] Bottom navigation has three balanced 56dp targets and clears gesture/three-button system navigation;
+  the Home YouTube-bypass action no longer visually dominates it.
+- [ ] Settings ends with `powered by ephedrine`.
+
+
 These require the user's phone or a real GitHub Actions run. Do not mark them complete from code review or a local compile alone.
 
 ### Real-device flow
@@ -187,7 +209,7 @@ Not yet device-verified. Full detail in `CHANGELOG.md`. Requires patch 34.
 - [ ] A route that stays under 80 KB/s for 25 s is abandoned for the next one (at most two hops); the download resumes, it does not restart; a later download starts on the route that worked.
 - [ ] Settings: "Choose strategy manually" lists the strategies with their last results; Test runs one strategy; Use pins it (it goes first, automatic searches keep it first); "Choose automatically" unpins.
 - [ ] A search stopped early keeps its passes (message "What it found so far is saved"), and the report header shows the new chain.
-- [ ] After the update, the first launch starts a quiet background check (small-TV notification); starting a download during it works, using the previous strategies.
+- [ ] After the update, the first launch starts a background check, shows the Patch-36 explanatory popup and keeps previous strategies usable while the refresh runs.
 - [ ] YouTube tunnel: with a strategy that stops carrying traffic, the log shows `probe fail` twice and then `rotate`, and playback recovers on the next strategy.
 
 ### Patch 34 fallback ladder without a hard gate, VPN awareness, compact log

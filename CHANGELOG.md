@@ -13,6 +13,50 @@ patch's own `.py` script for the exact, idempotent, exact-match-guarded
 edits it makes.
 
 
+## Patch 36 — CJM/UX stabilization, truthful download phases, balanced navigation
+
+Requires patch 35. Built from the 2026-10-01 source-of-truth repomix. The user now confirms that
+**downloads and DPI bypass work on-device**; this patch preserves that network path and focuses on
+friction around it.
+
+### Download lifecycle / stability
+- The visible queue is now a work queue: after MediaStore commit succeeds, a completed job is removed
+  immediately and a separate completion version tells Home to refresh Library. The durable journal was
+  already removed at success; UI and persistence now agree.
+- yt-dlp post-processing is detected from its merger/remux/extract/move output while the process is
+  still running. The row and foreground notification switch to **Processing** instead of sitting at
+  "Downloading 100%"; the final MediaStore copy remains **Saving**. A short **Finishing the download**
+  state covers the hand-off at ~100% before yt-dlp emits a post-processing line.
+- Progress projection is throttled to 750 ms. Speed is preferred over noisy ETA; ETA is rounded to
+  five-second buckets when it is the only useful signal. Queue status is single-line and active rows
+  reserve progress-bar space, preventing the list from changing height on every phase transition.
+
+### Notifications / navigation
+- Download and strategy notifications share one explicit `AppIntents.pendingOpenHome()` intent with
+  `NEW_TASK | CLEAR_TOP | SINGLE_TOP`. `MainActivity.onNewIntent()` converts it into a Compose state
+  event, so tapping a notification visibly brings Kinescope to Home even when an existing singleTask
+  activity was previously on Settings.
+- Download notifications now use Kinescope's own small-TV status icon and report Preparing /
+  Downloading / Finishing / Processing / Saving truthfully.
+
+### Automatic strategy refresh
+- Fresh install and first launch after an app update both show the same localized explanation (Russian
+  for `values-ru`, English fallback for every other locale) before the automatic background refresh.
+- Removed the stale second auto-search owner from `BypassSettings`: it could set
+  `initial_search_done=true` before a search actually finished. `MainActivity` is now the single owner
+  of automatic refresh; Settings only starts a search after an explicit user action.
+
+### UI / design-system pass
+- Bottom navigation uses three equal 56dp touch targets, symmetric spacing, safe navigation-bar insets
+  and a responsive 280-380dp pill.
+- The Home YouTube-bypass action is intentionally smaller (48dp high, max 280dp) so it no longer
+  overpowers navigation. Queue status text is bounded to one line.
+- Settings ends with the requested `powered by ephedrine` watermark.
+- No broad architecture rewrite: the working bypass/download engine path is untouched. The code audit
+  fixed the concrete duplicate lifecycle owner and duplicated notification-intent construction; larger
+  `DownloadService` decomposition is intentionally deferred under KISS/YAGNI until behavior requires it.
+
+
 ## Patch 35 — Adaptive fallback, load-ranked strategies, manual choice, background re-check, run heartbeat
 
 Requires patch 34. Not device-verified. The last patch of this series: it also writes the session

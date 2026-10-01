@@ -173,12 +173,6 @@ class DpiSearchService : Service() {
     }
 
     private fun buildNotification(progress: SearchProgress?): Notification {
-        val contentIntent = PendingIntent.getActivity(
-            this,
-            0,
-            Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
         val stopIntent = Intent(this, DpiSearchService::class.java).apply { action = ACTION_STOP }
         val stopPendingIntent = PendingIntent.getService(
             this,
@@ -199,7 +193,7 @@ class DpiSearchService : Service() {
             .setSmallIcon(R.drawable.ic_stat_kinescope)
             .setContentTitle(getString(R.string.bypass_search_notification_title))
             .setContentText(text)
-            .setContentIntent(contentIntent)
+            .setContentIntent(AppIntents.pendingOpenHome(this))
             .setOnlyAlertOnce(true)
             .setOngoing(true)
             .addAction(0, getString(R.string.stop), stopPendingIntent)

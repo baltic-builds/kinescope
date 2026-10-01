@@ -137,3 +137,26 @@ in-region, multiple travelers sharing one library — revisit this
 document before assuming the existing priority ordering in
 `ROADMAP.md` still holds. It was derived from this specific journey,
 not from general best practice.
+
+## Patch 36 — visible download contract
+
+The Queue is now explicitly a **work queue**, not a download history. A successful item leaves Queue
+as soon as the MediaStore commit succeeds; Library is the durable success surface and refreshes from a
+separate completion event. This removes the ambiguous old state where the same file was both "Done" in
+Queue and present in Library.
+
+The user-visible lifecycle must stay truthful and stable:
+
+`Queued -> Preparing -> Downloading -> Finishing -> Processing -> Saving -> Library`
+
+- **Downloading** is only network transfer. Progress projection is intentionally bounded; a callback
+  storm must not re-layout the whole screen.
+- **Finishing** covers the short 100% hand-off before yt-dlp announces merger/remux work.
+- **Processing** starts from yt-dlp's own merger/remux/extract/move lines, while the process is still
+  active. Never show "Downloading 100%" for this phase.
+- **Saving** is the MediaStore publish/commit step. The queue item disappears only after that commit.
+- Active rows reserve their progress area and status text stays single-line so stage changes do not
+  make the surrounding UI jump.
+
+Notification tap is part of the same CJM: it must return the existing app task to **Home**, where the
+active queue is visible, rather than merely delivering an intent to an already-existing Settings screen.

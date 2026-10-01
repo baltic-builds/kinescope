@@ -223,7 +223,7 @@ class DownloadService : Service() {
         }
 
         job = transition(job, JobState.PREPARING, getString(R.string.status_preparing), failureKind = null)
-        updateNotification(getString(R.string.notification_downloading), job.id)
+        updateNotification(getString(R.string.status_preparing), job.id)
 
         if (!hasNetwork()) {
             interruptJob(job, FailureKind.NO_INTERNET, getString(R.string.error_no_internet))
@@ -273,12 +273,6 @@ class DownloadService : Service() {
             return
         }
 
-        job = transition(job, JobState.PROCESSING, getString(R.string.status_processing))
-        requestedControls.remove(job.id)?.let {
-            finishControlled(job, it)
-            return
-        }
-
         publishCompletedOutput(job, preset, outputFile)
     }
 
@@ -322,7 +316,8 @@ class DownloadService : Service() {
             }
 
             requestedControls.remove(job.id)?.let { throw ControlledStop(it) }
-            transition(job, JobState.RUNNING, getString(R.string.status_starting), failureKind = null)
+            transition(job, JobState.RUNNING, getString(R.string.status_preparing_download), failureKind = null)
+            updateNotification(getString(R.string.status_preparing_download), job.id)
 
             try {
                 executeAttempt(job, preset, outputTemplate, profile)
@@ -690,31 +685,60 @@ class DownloadService : Service() {
 
         var result = "ok"
         val startedAt = SystemClock.elapsedRealtime()
+        var lastUiAt = 0L
+        var lastUiPhase = RunMonitor.Phase.START
+        var finishingAnnounced = false
         try {
             YoutubeDL.getInstance().execute(request, job.id) { progress, etaInSeconds, line ->
                 monitor.onLine(line)
                 val snapshot = monitor.snapshot()
+                val now = SystemClock.elapsedRealtime()
                 val percent = YtdlpLine.parse(line).percent
                     ?: snapshot.percent.takeIf { it >= 0f }
                     ?: progress.takeIf { it >= 0f }
                 if (requestedControls[job.id] != null) {
                     YoutubeDL.getInstance().destroyProcessById(job.id)
+                } else if (snapshot.phase == RunMonitor.Phase.QUIET) {
+                    if (lastUiPhase != RunMonitor.Phase.QUIET) {
+                        DownloadQueueBus.update(job.id) {
+                            it.copy(
+                                state = JobState.PROCESSING,
+                                progressText = getString(R.string.status_processing),
+                                progressFraction = null
+                            )
+                        }
+                        updateNotification(getString(R.string.status_processing), job.id)
+                        lastUiAt = now
+                    }
                 } else if (percent != null) {
-                    val text = when {
-                        etaInSeconds >= 0 -> getString(R.string.progress_percent_eta, percent, etaInSeconds)
-                        snapshot.kbps > 0 -> getString(R.string.progress_percent_speed, percent, speedText(snapshot.kbps))
-                        else -> getString(R.string.progress_percent_only, percent)
+                    val finishing = percent >= 99.5f
+                    if (!finishing) finishingAnnounced = false
+                    if ((finishing && !finishingAnnounced) || (!finishing && now - lastUiAt >= UI_PROGRESS_THROTTLE_MS)) {
+                        val roundedEta = if (etaInSeconds >= 0) ((etaInSeconds + 2) / 5) * 5 else -1
+                        val text = when {
+                            finishing -> getString(R.string.status_finishing_download)
+                            snapshot.kbps > 0 -> getString(R.string.progress_percent_speed, percent, speedText(snapshot.kbps))
+                            roundedEta >= 0 -> getString(R.string.progress_percent_eta, percent, roundedEta)
+                            else -> getString(R.string.progress_percent_only, percent)
+                        }
+                        DownloadQueueBus.update(job.id) {
+                            it.copy(
+                                state = JobState.RUNNING,
+                                progressText = text,
+                                progressFraction = (percent / 100f).coerceIn(0f, 1f)
+                            )
+                        }
+                        if (finishing) {
+                            finishingAnnounced = true
+                            updateNotification(getString(R.string.status_finishing_download), job.id)
+                        } else {
+                            updateProgressNotification(job.id, percent.toInt())
+                        }
+                        lastUiAt = now
                     }
-                    DownloadQueueBus.update(job.id) {
-                        it.copy(
-                            state = JobState.RUNNING,
-                            progressText = text,
-                            progressFraction = (percent / 100f).coerceIn(0f, 1f)
-                        )
-                    }
-                    updateProgressNotification(job.id, percent.toInt())
-                } else {
-                    // Still extracting / solving the challenge / choosing formats.
+                } else if (lastUiPhase != snapshot.phase) {
+                    // Extraction / JS challenge / format selection: announce the phase once instead of
+                    // recomposing the whole queue for every yt-dlp line that says the same thing.
                     DownloadQueueBus.update(job.id) {
                         it.copy(
                             state = JobState.RUNNING,
@@ -722,7 +746,9 @@ class DownloadService : Service() {
                             progressFraction = null
                         )
                     }
+                    lastUiAt = now
                 }
+                lastUiPhase = snapshot.phase
             }
         } catch (e: Exception) {
             val userControl = requestedControls[job.id] != null
@@ -785,14 +811,7 @@ class DownloadService : Service() {
         if (publishedUri != null) {
             DownloadJobStore.remove(this, job.id)
             DownloadJobStore.cleanupWorkspace(this, job.id)
-            DownloadQueueBus.update(job.id) {
-                it.copy(
-                    state = JobState.DONE,
-                    progressText = getString(R.string.status_saved_to, job.destinationSubfolder),
-                    progressFraction = null,
-                    failureKind = null
-                )
-            }
+            DownloadQueueBus.complete(job.id)
             showCompletionNotification(job.id)
             AppLog.i("DownloadService", "Completed job=${job.id}")
         } else {
@@ -922,17 +941,11 @@ class DownloadService : Service() {
     }
 
     private fun buildNotification(text: String, jobId: String?, progress: Int?): Notification {
-        val contentIntent = PendingIntent.getActivity(
-            this,
-            0,
-            Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(getString(R.string.app_name))
             .setContentText(text)
-            .setSmallIcon(android.R.drawable.stat_sys_download)
-            .setContentIntent(contentIntent)
+            .setSmallIcon(R.drawable.ic_stat_kinescope)
+            .setContentIntent(AppIntents.pendingOpenHome(this))
             .setOnlyAlertOnce(true)
             .setOngoing(true)
 
@@ -954,17 +967,11 @@ class DownloadService : Service() {
     }
 
     private fun showCompletionNotification(jobId: String) {
-        val contentIntent = PendingIntent.getActivity(
-            this,
-            0,
-            Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(getString(R.string.app_name))
             .setContentText(getString(R.string.notification_complete))
-            .setSmallIcon(android.R.drawable.stat_sys_download)
-            .setContentIntent(contentIntent)
+            .setSmallIcon(R.drawable.ic_stat_kinescope)
+            .setContentIntent(AppIntents.pendingOpenHome(this))
             .setAutoCancel(true)
             .build()
         getSystemService(NotificationManager::class.java).notify(
@@ -1062,6 +1069,7 @@ class DownloadService : Service() {
         private const val EXTRA_JOB_ID = "extra_job_id"
         private const val IDLE_TIMEOUT_MS = 5_000L
         private const val NOTIFICATION_THROTTLE_MS = 750L
+        private const val UI_PROGRESS_THROTTLE_MS = 750L
 
         // Patch 33: bypass watchdog and first-launch wait.
         private const val WATCHDOG_TICK_MS = 2_000L

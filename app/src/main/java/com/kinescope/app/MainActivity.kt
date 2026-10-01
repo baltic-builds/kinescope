@@ -121,6 +121,7 @@ import java.util.Date
 class MainActivity : ComponentActivity() {
 
     private val sharedUrl = mutableStateOf("")
+    private val openHomeRequest = mutableLongStateOf(0L)
 
     private val notificationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) {
@@ -139,6 +140,7 @@ class MainActivity : ComponentActivity() {
             YtOfflineTheme {
                 KinescopeApp(
                     prefillUrl = sharedUrl.value,
+                    openHomeRequest = openHomeRequest.longValue,
                     requestNotifications = ::requestNotificationsIfNeeded
                 )
             }
@@ -161,6 +163,9 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleIncomingIntent(intent: Intent?) {
+        if (intent?.action == AppIntents.ACTION_OPEN_HOME) {
+            openHomeRequest.longValue += 1L
+        }
         if (intent?.action == Intent.ACTION_SEND && intent.type == "text/plain") {
             val sharedText = intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty()
             YouTubeUrlParser.firstFromText(sharedText)?.canonicalUrl?.let {
@@ -198,13 +203,18 @@ private fun openYouTubeApp(context: Context): Boolean {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun KinescopeApp(prefillUrl: String, requestNotifications: () -> Unit) {
+private fun KinescopeApp(
+    prefillUrl: String,
+    openHomeRequest: Long,
+    requestNotifications: () -> Unit
+) {
     val context = LocalContext.current
     val jobs by DownloadQueueBus.jobs.collectAsState()
+    val completionVersion by DownloadQueueBus.completionVersion.collectAsState()
     val scope = rememberCoroutineScope()
     val bypassState by BypassVpnController.state.collectAsState()
     val searchState by DpiSearchController.state.collectAsState()
-    var showFirstRunNotice by remember { mutableStateOf(false) }
+    var showStrategyRefreshNotice by remember { mutableStateOf(false) }
 
     var section by remember { mutableStateOf(AppSection.HOME) }
     var url by remember { mutableStateOf("") }
@@ -217,6 +227,10 @@ private fun KinescopeApp(prefillUrl: String, requestNotifications: () -> Unit) {
     var settingsTapCount by remember { mutableIntStateOf(0) }
     var lastSettingsTapAt by remember { mutableLongStateOf(0L) }
     var openYouTubeWhenReady by remember { mutableStateOf(false) }
+
+    LaunchedEffect(openHomeRequest) {
+        if (openHomeRequest > 0L) section = AppSection.HOME
+    }
 
     val vpnPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -238,28 +252,19 @@ private fun KinescopeApp(prefillUrl: String, requestNotifications: () -> Unit) {
         }
     }
 
-    // Patch 33: on a fresh install the check of all bundled strategies starts by itself, with a
-    // popup right away (shown once per install). It counts as done only when a search finishes,
-    // so an interrupted first check simply restarts on the next launch, without the popup.
+    // Patch 36: MainActivity is the single owner of automatic strategy refreshes. Fresh installs
+    // and the first launch after an app update both explain the background work before starting it.
     LaunchedEffect(Unit) {
         if (
             !DpiPrefs.hasRunInitialSearch(context) &&
             DpiStrategyStore.verifiedChain(context).isEmpty() &&
             !DpiSearchController.state.value.running
         ) {
-            if (!DpiPrefs.hasShownFirstRunNotice(context)) {
-                DpiPrefs.setFirstRunNoticeShown(context)
-                showFirstRunNotice = true
-            }
+            showStrategyRefreshNotice = true
             DpiSearchService.start(context)
         }
     }
-    LaunchedEffect(searchState.running, searchState.resultMessageRes) {
-        if (!searchState.running && searchState.resultMessageRes != null) showFirstRunNotice = false
-    }
 
-    // Patch 35: the first launch of a new build re-checks all strategies quietly, once. No popup:
-    // the previous strategies keep serving downloads and the tunnel while it runs (see DpiSearchService).
     LaunchedEffect(Unit) {
         val version = DpiSearchService.appVersionCode(context)
         if (
@@ -267,7 +272,14 @@ private fun KinescopeApp(prefillUrl: String, requestNotifications: () -> Unit) {
             DpiPrefs.lastSearchVersion(context) != version &&
             !DpiSearchController.state.value.running
         ) {
+            showStrategyRefreshNotice = true
             DpiSearchService.startBackground(context)
+        }
+    }
+
+    LaunchedEffect(searchState.running, searchState.resultMessageRes) {
+        if (!searchState.running && searchState.resultMessageRes != null) {
+            showStrategyRefreshNotice = false
         }
     }
 
@@ -275,8 +287,7 @@ private fun KinescopeApp(prefillUrl: String, requestNotifications: () -> Unit) {
         library = withContext(Dispatchers.IO) { MediaStorage.listPublished(context) }
     }
 
-    val completedCount = jobs.count { it.state == JobState.DONE }
-    LaunchedEffect(completedCount) { loadLibrary() }
+    LaunchedEffect(completionVersion) { loadLibrary() }
 
     fun refreshLibrary() {
         scope.launch { loadLibrary() }
@@ -364,11 +375,11 @@ private fun KinescopeApp(prefillUrl: String, requestNotifications: () -> Unit) {
         }
     }
 
-    if (showFirstRunNotice) {
-        FirstRunNoticeDialog(
+    if (showStrategyRefreshNotice) {
+        StrategyRefreshNoticeDialog(
             progress = searchState.progress,
             onDismiss = {
-                showFirstRunNotice = false
+                showStrategyRefreshNotice = false
                 requestNotifications()
             }
         )
@@ -533,21 +544,21 @@ private fun ResponsiveContent(innerPadding: PaddingValues, content: @Composable 
 }
 
 /**
- * Patch 33: shown once on the first launch while the bundled strategies are checked. One language
- * only: the text comes from values/ (English) or values-ru/ (Russian) by the device language.
+ * Patch 36: explains automatic strategy work on a fresh install and after an app update. Android
+ * selects values-ru only for a Russian locale; every other locale falls back to English values/.
  */
 @Composable
-private fun FirstRunNoticeDialog(progress: SearchProgress?, onDismiss: () -> Unit) {
+private fun StrategyRefreshNoticeDialog(progress: SearchProgress?, onDismiss: () -> Unit) {
     AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.first_run_title)) },
+        onDismissRequest = {},
+        title = { Text(stringResource(R.string.strategy_refresh_title)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(stringResource(R.string.first_run_body))
+                Text(stringResource(R.string.strategy_refresh_body))
                 if (progress != null && progress.total > 0) {
                     Text(
                         stringResource(
-                            R.string.first_run_progress,
+                            R.string.strategy_refresh_progress,
                             (progress.index + 1).coerceAtMost(progress.total),
                             progress.total
                         ),
@@ -562,7 +573,7 @@ private fun FirstRunNoticeDialog(progress: SearchProgress?, onDismiss: () -> Uni
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.first_run_ok)) }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.strategy_refresh_ok)) }
         }
     )
 }
@@ -586,44 +597,48 @@ private fun GlassBottomBar(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 4.dp),
+                .padding(horizontal = 16.dp, vertical = 8.dp),
             contentAlignment = Alignment.Center
         ) {
-            // Patch 33: the pill wraps its three buttons instead of stretching to a fixed
-            // 330dp, which left a wide empty gap between them.
+            // Patch 36: all three actions share the same 56dp touch target and are distributed
+            // symmetrically. The bar stays compact on phones and caps its width on larger screens.
             Surface(
                 modifier = Modifier
+                    .fillMaxWidth()
+                    .widthIn(min = 280.dp, max = 380.dp)
                     .border(
                         width = 1.dp,
-                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.42f),
+                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.36f),
                         shape = MaterialTheme.shapes.extraLarge
                     ),
                 shape = MaterialTheme.shapes.extraLarge,
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
-                tonalElevation = 4.dp,
-                shadowElevation = 6.dp
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
+                tonalElevation = 3.dp,
+                shadowElevation = 5.dp
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     GlassNavIcon(selected = section == AppSection.HOME, onClick = onHome) {
                         Icon(Icons.Default.Home, contentDescription = stringResource(R.string.cd_home))
                     }
                     Surface(
-                        modifier = Modifier.size(48.dp).clickable(onClick = onQuickAdd),
+                        modifier = Modifier.size(56.dp).clickable(onClick = onQuickAdd),
                         shape = CircleShape,
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.94f),
-                        tonalElevation = 3.dp,
-                        shadowElevation = 4.dp
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.96f),
+                        tonalElevation = 2.dp,
+                        shadowElevation = 3.dp
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Icon(
                                 Icons.Default.Add,
                                 contentDescription = stringResource(R.string.cd_quick_add),
                                 tint = MaterialTheme.colorScheme.onPrimary,
-                                modifier = Modifier.size(25.dp)
+                                modifier = Modifier.size(26.dp)
                             )
                         }
                     }
@@ -647,7 +662,7 @@ private fun GlassNavIcon(
 ) {
     Box(
         modifier = Modifier
-            .size(48.dp)
+            .size(56.dp)
             .clip(CircleShape)
             .background(
                 if (selected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.78f)
@@ -706,8 +721,11 @@ private fun BypassHomeCard(state: BypassVpnUiState, onClick: () -> Unit) {
             Button(
                 onClick = onClick,
                 enabled = !state.starting,
-                modifier = Modifier.fillMaxWidth(0.85f),
-                contentPadding = PaddingValues(vertical = 14.dp)
+                modifier = Modifier
+                    .fillMaxWidth(0.72f)
+                    .widthIn(min = 180.dp, max = 280.dp)
+                    .height(48.dp),
+                contentPadding = PaddingValues(horizontal = 18.dp, vertical = 8.dp)
             ) {
                 Text(
                     text = stringResource(
@@ -912,16 +930,27 @@ private fun QueueRow(
                     Text(
                         text = stringResource(R.string.job_status_line, jobStateLabel(job.state), job.progressText),
                         style = MaterialTheme.typography.bodyMedium,
-                        color = statusColor
+                        color = statusColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
-                    if (job.state == JobState.RUNNING) {
-                        Spacer(modifier = Modifier.height(4.dp))
-                        LinearProgressIndicator(
-                            progress = job.progressFraction ?: 0f,
-                            modifier = Modifier.fillMaxWidth(),
-                            color = MaterialTheme.colorScheme.primary,
-                            trackColor = MaterialTheme.colorScheme.surface
-                        )
+                    if (job.state in setOf(JobState.PREPARING, JobState.RUNNING, JobState.PROCESSING, JobState.SAVING)) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        val progressFraction = job.progressFraction
+                        if (progressFraction != null) {
+                            LinearProgressIndicator(
+                                progress = progressFraction,
+                                modifier = Modifier.fillMaxWidth(),
+                                color = MaterialTheme.colorScheme.primary,
+                                trackColor = MaterialTheme.colorScheme.surface
+                            )
+                        } else {
+                            LinearProgressIndicator(
+                                modifier = Modifier.fillMaxWidth(),
+                                color = MaterialTheme.colorScheme.primary,
+                                trackColor = MaterialTheme.colorScheme.surface
+                            )
+                        }
                     }
                 }
                 when (job.state) {
@@ -1327,7 +1356,15 @@ private fun SettingsScreen(
                 }
             }
         }
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(28.dp))
+        Text(
+            text = stringResource(R.string.powered_by),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.58f),
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(8.dp))
     }
 }
 
