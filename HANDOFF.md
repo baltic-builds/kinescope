@@ -33,6 +33,19 @@ longer history; where the two disagree, this section and the code win.
    choose Play Protect's scan-vs-block UI; `RELEASE.md` now records the current Google guidance and
    distinguishes direct sideloading from the September 2026 participating-store verification rollout.
 
+### What patch 37 changed (2026-10-03, not device-verified)
+Instagram Reels download by link, next to YouTube. The research is in `CHANGELOG.md` "Patch 37"; the short
+version: anonymous yt-dlp access to Instagram needs curl_cffi impersonation that `youtubedl-android 0.18.1` does
+not ship (the one prebuilt bundle found is a paid fork), so Reels use an optional signed-in WebView session
+(`InstagramAuth`, cookies passed with `--cookies`), ideally a spare account. Map of what moved:
+`MediaSource` / `MediaUrlParser` / `InstagramUrlParser` (links, `mediaId` is the journal and duplicate key),
+`InstagramShareResolver` (redirect-only resolution of `/share/reel/...`), `DownloadService` (`runJob`
+source detection + output template, `executeWithRecovery` Instagram chain, `executeAttemptOverBypass`
+cookies/format), `DownloadErrorClassifier.classifyInstagram` + `FailureKind.INSTAGRAM_LOGIN`, and `MainActivity`
+(Settings row, `InstagramLoginScreen`, Home banner). Facts to keep: the journal format did not change; a
+login-required Reel is a resumable PAUSED job that signing in resumes; nothing re-captures the Instagram cookies
+before a run because yt-dlp rewrites that file itself; `ROADMAP.md` "Patch 37" lists what only a device can confirm.
+
 ### What patch 35 changed, and why (details in CHANGELOG.md "Patch 35")
 Two findings from the 2026-09-29 logs drove it. (a) The search result was thrown away: the second
 search was stopped after 21 of 72 strategies, and stopped searches never applied their passes, so the
@@ -402,6 +415,9 @@ All Kotlin runtime files live under `app/src/main/java/com/kinescope/app/`.
 - `QualityPresets.kt` -- stable quality IDs + bounded yt-dlp format selectors.
 - `MediaStorage.kt` -- MediaStore two-phase publication/list/delete and actual-output MIME derivation.
 - `YouTubeAuth.kt` -- optional app-private YouTube WebView cookie/session capture for yt-dlp.
+- `MediaSource.kt` / `MediaUrlParser.kt` / `InstagramUrlParser.kt` -- patch 37: site detection and the strict Instagram link parser; `MediaUrlParser` is the single entry point for enqueue, share and clipboard.
+- `InstagramShareResolver.kt` -- patch 37: redirect-only resolution of `instagram.com/share/...` links on the worker thread.
+- `InstagramAuth.kt` -- patch 37: optional app-private Instagram WebView cookie/session capture for yt-dlp.
 - `Settings.kt` -- SharedPreferences for stable quality, storage history and yt-dlp update timestamp.
 - `AppLog.kt` -- rotating diagnostic journal using the shared privacy filter before file/Logcat output.
 - `DiagnosticSanitizer.kt` -- pure URL/cookie/private-path redaction layer covered by JVM tests.

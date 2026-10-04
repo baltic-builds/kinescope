@@ -30,6 +30,7 @@ internal object LogFormat {
         "Engine" to "eng",
         "Updater" to "upd",
         "YouTubeAuth" to "auth",
+        "InstagramAuth" to "auth",
         "MediaStorage" to "media",
         "Library" to "lib",
         "MainActivity" to "ui",

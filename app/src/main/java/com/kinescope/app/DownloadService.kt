@@ -230,14 +230,29 @@ class DownloadService : Service() {
             return
         }
 
-        if (YouTubeAuth.hasSavedSession(this)) YouTubeAuth.refreshSavedSession(this)
+        // Patch 37: the site comes from the canonical URL. Only the YouTube session is re-captured
+        // from the WebView before a run; the Instagram cookie file is rewritten by yt-dlp itself
+        // when Instagram rotates a cookie, and a re-capture would overwrite that with older values.
+        val source = MediaSource.fromCanonicalUrl(job.canonicalUrl)
+        if (source == MediaSource.YOUTUBE && YouTubeAuth.hasSavedSession(this)) {
+            YouTubeAuth.refreshSavedSession(this)
+        }
+        if (source == MediaSource.INSTAGRAM && InstagramShareResolver.isShareUrl(job.canonicalUrl)) {
+            job = resolveInstagramShare(job)
+        }
 
         val workspace = DownloadJobStore.workspaceDir(this, job.id)
         if (!workspace.exists() && !workspace.mkdirs()) {
             failJob(job, FailureKind.STORAGE, getString(R.string.error_workspace_create))
             return
         }
-        val outputTemplate = "${workspace.absolutePath}/%(title).150B.%(ext)s"
+        // Reels usually have no real title (a caption or "Video by <user>"), so name the file after
+        // the uploader and the post id instead; the id also keeps two Reels from colliding.
+        val outputTemplate = "${workspace.absolutePath}/" + if (source == MediaSource.INSTAGRAM) {
+            "%(uploader|Instagram).60B - %(id)s.%(ext)s"
+        } else {
+            "%(title).150B.%(ext)s"
+        }
         val preset = qualityPreset(job.qualityId)
 
         // Patch 35: a strategy search steps aside between two strategies while a download runs.
@@ -276,17 +291,42 @@ class DownloadService : Service() {
         publishCompletedOutput(job, preset, outputFile)
     }
 
+    /**
+     * Patch 37: `instagram.com/share/reel/<token>` is what the Instagram app's "Copy link" often
+     * produces, and it is not a Reel URL. Follow its redirect (see [InstagramShareResolver]: HTTP
+     * redirects only, every hop validated) and keep the real link in the journal. When it cannot
+     * be resolved the share link is handed to yt-dlp unchanged and the failure is logged.
+     */
+    private fun resolveInstagramShare(job: StoredDownloadJob): StoredDownloadJob {
+        val resolved = InstagramShareResolver.resolve(job.canonicalUrl)
+        if (resolved == null) {
+            AppLog.w("DownloadService", "share link not resolved j=${job.id}; handing it to yt-dlp as is")
+            return job
+        }
+        AppLog.i("DownloadService", "share link resolved j=${job.id}")
+        return DownloadJobStore.update(this, job.id) { it.copy(canonicalUrl = resolved.canonicalUrl) } ?: job
+    }
+
     private fun executeWithRecovery(
         job: StoredDownloadJob,
         preset: QualityPreset,
         outputTemplate: String
     ) {
-        val attempts = listOf(
-            RecoveryProfile.DEFAULT,
-            RecoveryProfile.DEFAULT_AFTER_REFRESH,
-            RecoveryProfile.WEB_SAFARI_IPV4,
-            RecoveryProfile.ANDROID_VR_LOGGED_OUT
-        )
+        val source = MediaSource.fromCanonicalUrl(job.canonicalUrl)
+        val instagramSession = source == MediaSource.INSTAGRAM && InstagramAuth.hasSavedSession(this)
+        // Patch 37: the YouTube player-client profiles mean nothing for Instagram. Its chain is the
+        // plain run plus one retry after a nightly yt-dlp refresh (extractor fixes land there), and
+        // only when DownloadErrorClassifier.isRecoverableInstagram says a retry can help.
+        val attempts = if (source == MediaSource.INSTAGRAM) {
+            listOf(RecoveryProfile.DEFAULT, RecoveryProfile.DEFAULT_AFTER_REFRESH)
+        } else {
+            listOf(
+                RecoveryProfile.DEFAULT,
+                RecoveryProfile.DEFAULT_AFTER_REFRESH,
+                RecoveryProfile.WEB_SAFARI_IPV4,
+                RecoveryProfile.ANDROID_VR_LOGGED_OUT
+            )
+        }
         var nightlyRefreshAttempted = false
         var lastError: String? = null
 
@@ -327,7 +367,11 @@ class DownloadService : Service() {
                 throw ControlledStop(action)
             } catch (e: YoutubeDLException) {
                 lastError = e.message.orEmpty()
-                val recoverable = DownloadErrorClassifier.isRecoverableYoutubeBlock(lastError)
+                val recoverable = if (source == MediaSource.INSTAGRAM) {
+                    DownloadErrorClassifier.isRecoverableInstagram(lastError, instagramSession)
+                } else {
+                    DownloadErrorClassifier.isRecoverableYoutubeBlock(lastError)
+                }
                 AppLog.e(
                     "DownloadService",
                     "Attempt ${index + 1}/${attempts.size} failed job=${job.id} profile=$profile recoverable=$recoverable",
@@ -343,12 +387,18 @@ class DownloadService : Service() {
             }
         }
 
-        val kind = DownloadErrorClassifier.classify(lastError)
-        if (kind == FailureKind.YOUTUBE_VERIFICATION) {
-            pauseForVerification(job, friendlyError(lastError))
+        val kind = if (source == MediaSource.INSTAGRAM) {
+            DownloadErrorClassifier.classifyInstagram(lastError)
+        } else {
+            DownloadErrorClassifier.classify(lastError)
+        }
+        // Both a YouTube bot check and an Instagram login request park the job as a resumable
+        // Pause: signing in (Settings or the Home banner) resumes it.
+        if (kind == FailureKind.YOUTUBE_VERIFICATION || kind == FailureKind.INSTAGRAM_LOGIN) {
+            pauseForVerification(job, friendlyError(lastError, source), kind)
             throw AlreadyHandledFailure()
         }
-        failJob(job, kind, friendlyError(lastError))
+        failJob(job, kind, friendlyError(lastError, source))
         throw AlreadyHandledFailure()
     }
 
@@ -587,6 +637,7 @@ class DownloadService : Service() {
         bypass: BypassSession?,
         limits: MonitorLimits? = null
     ) {
+        val mediaSource = MediaSource.fromCanonicalUrl(job.canonicalUrl)
         val request = YoutubeDLRequest(job.canonicalUrl).apply {
             addOption("-o", outputTemplate)
             addOption("--no-playlist")
@@ -599,9 +650,21 @@ class DownloadService : Service() {
             addOption("--socket-timeout", "15")
             addOption("--retry-sleep", "http:exp=1:8")
             addOption("--sleep-requests", "0.75")
-            preset.apply(this)
+            if (mediaSource == MediaSource.INSTAGRAM) {
+                // A carousel post is a playlist to yt-dlp; one Reel is wanted.
+                addOption("--playlist-items", "1")
+                applyInstagramFormat(preset.id)
+            } else {
+                preset.apply(this)
+            }
 
-            if (profile.useCookies && YouTubeAuth.hasSavedSession(this@DownloadService)) {
+            if (mediaSource == MediaSource.INSTAGRAM) {
+                // Instagram: the user's own signed-in session, nothing else (no YouTube cookies,
+                // no custom user agent: yt-dlp talks to Instagram with its own headers).
+                if (InstagramAuth.hasSavedSession(this@DownloadService)) {
+                    addOption("--cookies", InstagramAuth.cookieFile(this@DownloadService).absolutePath)
+                }
+            } else if (profile.useCookies && YouTubeAuth.hasSavedSession(this@DownloadService)) {
                 addOption("--cookies", YouTubeAuth.cookieFile(this@DownloadService).absolutePath)
                 YouTubeAuth.userAgent(this@DownloadService)?.let { addOption("--add-header", "User-Agent:$it") }
             }
@@ -616,7 +679,8 @@ class DownloadService : Service() {
         val monitorLimits = limits ?: UNJUDGED_LIMITS
         AppLog.i(
             "DownloadService",
-            "run j=${job.id} p=$profile auth=${profile.useCookies && YouTubeAuth.hasSavedSession(this)} " +
+            "run j=${job.id} p=$profile src=${if (mediaSource == MediaSource.INSTAGRAM) "ig" else "yt"} " +
+                "auth=${if (mediaSource == MediaSource.INSTAGRAM) InstagramAuth.hasSavedSession(this) else profile.useCookies && YouTubeAuth.hasSavedSession(this)} " +
                 "bypass=${bypass != null}" +
                 (limits?.let { " wd=${it.startMs / 1000}/${it.jsMs / 1000}/${it.idleMs / 1000}s min=${it.minKbps}KB/s" } ?: "")
         )
@@ -842,14 +906,18 @@ class DownloadService : Service() {
         }
     }
 
-    private fun pauseForVerification(job: StoredDownloadJob, message: String) {
+    private fun pauseForVerification(
+        job: StoredDownloadJob,
+        message: String,
+        kind: FailureKind = FailureKind.YOUTUBE_VERIFICATION
+    ) {
         transition(
             job,
             JobState.PAUSED,
             message,
-            failureKind = FailureKind.YOUTUBE_VERIFICATION
+            failureKind = kind
         )
-        AppLog.w("DownloadService", "Job=${job.id} paused for YouTube verification; resumable")
+        AppLog.w("DownloadService", "Job=${job.id} paused kind=$kind; resumable")
     }
 
     private fun interruptJob(job: StoredDownloadJob, kind: FailureKind, message: String) {
@@ -885,9 +953,15 @@ class DownloadService : Service() {
         return updated
     }
 
-    private fun friendlyError(raw: String?): String {
+    private fun friendlyError(raw: String?, source: MediaSource = MediaSource.YOUTUBE): String {
         val message = raw.orEmpty()
-        return when (DownloadErrorClassifier.classify(raw)) {
+        val kind = if (source == MediaSource.INSTAGRAM) {
+            DownloadErrorClassifier.classifyInstagram(raw)
+        } else {
+            DownloadErrorClassifier.classify(raw)
+        }
+        return when (kind) {
+            FailureKind.INSTAGRAM_LOGIN -> getString(R.string.error_instagram_login)
             FailureKind.YOUTUBE_VERIFICATION -> if (NetworkState.systemVpnActive(this)) {
                 getString(R.string.error_verification_vpn)
             } else {
@@ -1099,8 +1173,10 @@ class DownloadService : Service() {
         private val TERMINAL_STATES = setOf(JobState.DONE, JobState.STOPPED)
 
         fun enqueue(context: Context, url: String, qualityIndex: Int): EnqueueResult {
-            val parsed = YouTubeUrlParser.parse(url).parsed ?: return EnqueueResult.INVALID
-            if (DownloadJobStore.findActiveDuplicate(context, parsed.videoId) != null) {
+            // Patch 37: one strict entry point for both sites. `mediaId` is the bare YouTube video id
+            // (unchanged, so existing journals still de-duplicate) or `ig:<shortcode>`.
+            val parsed = MediaUrlParser.parse(url) ?: return EnqueueResult.INVALID
+            if (DownloadJobStore.findActiveDuplicate(context, parsed.mediaId) != null) {
                 return EnqueueResult.DUPLICATE
             }
 
@@ -1109,7 +1185,7 @@ class DownloadService : Service() {
             val job = StoredDownloadJob(
                 id = UUID.randomUUID().toString(),
                 canonicalUrl = parsed.canonicalUrl,
-                videoId = parsed.videoId,
+                videoId = parsed.mediaId,
                 qualityId = preset.id,
                 state = JobState.QUEUED,
                 destinationSubfolder = Settings.getDownloadSubfolder(context),

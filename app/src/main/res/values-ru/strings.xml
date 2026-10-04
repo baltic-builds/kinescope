@@ -19,7 +19,7 @@
     <string name="status_paused">На паузе</string>
     <string name="status_stopping">Останавливаем…</string>
     <string name="status_stopped">Остановлено</string>
-    <string name="status_recovering_update">Обновляем модуль YouTube…</string>
+    <string name="status_recovering_update">Обновляем модуль загрузки…</string>
     <string name="status_recovering_retry">Попытка восстановления %1$d из %2$d…</string>
     <string name="status_saved_to">Сохранено в Downloads/%1$s</string>
     <string name="progress_percent_eta">%1$.0f%% (осталось около %2$d с)</string>
@@ -53,9 +53,9 @@
     <string name="banner_no_internet">Нет подключения к интернету — некоторые загрузки не удалось запустить.</string>
     <string name="banner_youtube_verification">YouTube запрашивает дополнительную проверку. Kinescope уже выполнил автоматическое восстановление; вход в аккаунт может сделать сессию более доверенной.</string>
 
-    <string name="empty_queue">Очередь пуста. Нажмите центральную кнопку ниже или поделитесь ссылкой YouTube с Kinescope.</string>
-    <string name="quick_add_hint">Вставьте ссылку YouTube. Если подходящая ссылка уже скопирована, Kinescope автоматически подставит её при открытии этого раздела.</string>
-    <string name="youtube_link_placeholder">Вставьте ссылку YouTube…</string>
+    <string name="empty_queue">Очередь пуста. Нажмите центральную кнопку ниже или поделитесь ссылкой YouTube или Instagram с Kinescope.</string>
+    <string name="quick_add_hint">Вставьте ссылку YouTube или Instagram Reel. Если подходящая ссылка уже скопирована, Kinescope автоматически подставит её при открытии этого раздела.</string>
+    <string name="youtube_link_placeholder">Вставьте ссылку YouTube или Instagram…</string>
     <string name="start_download">Начать загрузку</string>
 
     <string name="refresh">Обновить</string>
@@ -130,7 +130,7 @@
     <string name="error_service_timeout">Android остановил длительную загрузку. Нажмите «Продолжить», чтобы возобновить её.</string>
     <string name="error_service_start">Не удалось запустить службу загрузки. Задача сохранена — нажмите «Продолжить», чтобы повторить.</string>
     <string name="error_duplicate_job">Это видео уже находится в очереди или ожидает повторной попытки.</string>
-    <string name="error_only_youtube_video">Вставьте прямую ссылку на видео, Shorts или трансляцию YouTube либо ссылку youtu.be.</string>
+    <string name="error_only_youtube_video">Вставьте ссылку на видео, Shorts или трансляцию YouTube, ссылку youtu.be либо ссылку на Instagram Reel. Профили и истории не поддерживаются.</string>
 
     <string name="update_waiting_for_idle">Ждём завершения текущей загрузки, затем обновим yt-dlp…</string>
     <string name="personal_use_notice">Скачивайте только тот контент, который вы вправе сохранять. Kinescope не обходит ограничения доступа или DRM.</string>
@@ -253,4 +253,16 @@
     <string name="strategy_testing">Проверяем стратегию…</string>
     <string name="strategy_pinned_done">Стратегия закреплена и будет пробоваться первой.</string>
     <string name="strategy_unpinned">Стратегии снова выбираются автоматически.</string>
+    <!-- Patch 37: Instagram Reels -->
+    <string name="settings_instagram_account">Аккаунт Instagram</string>
+    <string name="instagram_session_saved">Веб-сессия Instagram сохранена на этом устройстве.</string>
+    <string name="instagram_session_not_saved">Веб-сессия Instagram не сохранена.</string>
+    <string name="instagram_login_warning">Нужна для большинства Reels: Instagram больше не отдаёт их анонимным загрузчикам. Входите запасным аккаунтом, а не основным: Instagram может ограничить или заблокировать аккаунт, с которого идут автоматические загрузки. Kinescope не видит и не хранит ваш пароль; во внутреннем хранилище остаются только cookies сессии.</string>
+    <string name="instagram_sign_in_action">Войти в Instagram</string>
+    <string name="instagram_login_title">Вход в Instagram</string>
+    <string name="instagram_login_instructions">Войдите на настоящей странице Instagram ниже, затем нажмите «Использовать эту сессию». Cookies хранятся только во внутреннем хранилище Kinescope и передаются yt-dlp только при загрузках из Instagram.</string>
+    <string name="instagram_session_captured">Сессия Instagram сохранена.</string>
+    <string name="instagram_session_capture_uncertain">Kinescope не обнаружил авторизованную сессию Instagram. Завершите вход и повторите попытку.</string>
+    <string name="error_instagram_login">Для этого Reel Instagram требует вход в аккаунт. Войдите в Instagram в настройках, и загрузка продолжится.</string>
+    <string name="banner_instagram_login">Instagram просит войти в аккаунт, прежде чем отдать этот Reel.</string>
 </resources>

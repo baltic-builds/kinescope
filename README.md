@@ -15,8 +15,8 @@ A personal Android app for downloading individual YouTube videos before travel a
 ## Product flow
 
 - **Home:** download queue + offline library.
-- **Add:** paste/share a single YouTube video URL, choose quality and enqueue quickly.
-- **Settings:** default quality, storage folder, yt-dlp updater and optional local YouTube web session.
+- **Add:** paste/share a single YouTube video URL or an Instagram Reel link, choose quality and enqueue quickly.
+- **Settings:** default quality, storage folder, yt-dlp updater and optional local YouTube and Instagram web sessions.
 - **Diagnostics:** five rapid taps on the Settings navbar icon opens the private log journal.
 - **Localization:** English is the default; Russian devices automatically use `values-ru`.
 
@@ -29,6 +29,14 @@ Kinescope never implements its own YouTube extractor or anti-bot bypass. Every d
 For YouTube verification / 403 / 429 failures the app uses a bounded recovery chain: current session -> nightly yt-dlp refresh -> supported yt-dlp client/network fallbacks. Optional YouTube cookies can be captured in an app-private WebView session and supplied to yt-dlp. If YouTube still refuses the request, the job is parked as resumable Pause instead of being retried forever.
 
 This is failure recovery, not a guarantee that YouTube will accept every IP/session. See `ROADMAP.md` for the remaining real-device verification and upstream compatibility limitations.
+
+## Instagram Reels (patch 37)
+
+Paste or share an `instagram.com/reel/...` link (or the `/share/reel/...` link the Instagram app's "Copy link" often gives). Everything still goes through `yt-dlp`; Kinescope writes no Instagram extraction code.
+
+Instagram no longer serves most Reels to anonymous downloaders, so Settings has an **Instagram account** row: sign in on the real Instagram page inside the app and Kinescope hands the resulting cookies to yt-dlp. Use a spare account, not your main one; Instagram may rate-limit or lock accounts used for automated downloading. The password is never seen or stored, the cookies stay in app-private storage, and signing out deletes them. A Reel that needs a login waits as a resumable Pause and continues after sign-in.
+
+Not supported: profiles, stories, highlights and playlists. See `ROADMAP.md` ("Patch 37") for what is still unverified on a device.
 
 ## Storage and privacy
 

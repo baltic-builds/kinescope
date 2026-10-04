@@ -57,3 +57,24 @@ fun qualityPreset(id: QualityId): QualityPreset =
 
 fun qualityPresetIndex(id: QualityId): Int =
     qualityPresets.indexOfFirst { it.id == id }.takeIf { it >= 0 } ?: 0
+
+/**
+ * Patch 37: Instagram has no YouTube-style quality ladder. The video presets only cap the height
+ * (see [InstagramFormats]) and the audio preset still extracts MP3, so the chips keep working
+ * unchanged and the Add screen needs no Instagram-specific control.
+ */
+fun YoutubeDLRequest.applyInstagramFormat(id: QualityId) {
+    val cap: Int? = when (id) {
+        QualityId.VIDEO_1080 -> 1080
+        QualityId.VIDEO_720 -> 720
+        QualityId.VIDEO_480 -> 480
+        QualityId.AUDIO_MP3 -> null
+    }
+    if (cap == null) {
+        addOption("-x")
+        addOption("--audio-format", "mp3")
+    } else {
+        addOption("-f", InstagramFormats.selector(cap))
+        addOption("--merge-output-format", "mp4")
+    }
+}

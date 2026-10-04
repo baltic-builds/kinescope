@@ -54,6 +54,41 @@ The detailed implementation record lives in `CHANGELOG.md`; this file only track
 
 ## Remaining verification gates
 
+### Patch 37 Instagram Reels (2026-10-03)
+
+Not device-verified. Full detail in `CHANGELOG.md`. Do not mark these complete from code review or a build alone.
+
+- [ ] Settings -> Instagram account -> Sign in: the Instagram page loads, a normal login completes (also with 2FA
+  or a checkpoint prompt), "Use this session" reports "Instagram session saved", and the Settings row then shows
+  the saved state. Record the exact behaviour if Instagram refuses the embedded browser; do not work around it
+  with custom code.
+- [ ] Paste a public `instagram.com/reel/...` link with the session saved: it downloads, plays, and the file is
+  named `<uploader> - <id>`. Repeat with the Instagram app's "Copy link" (`/share/reel/...`) and with a Share ->
+  Kinescope from the Instagram app.
+- [ ] Without a session, a Reel either downloads or parks as a resumable Pause with the sign-in banner on Home;
+  after signing in the paused job continues by itself.
+- [ ] Capture the real yt-dlp error text for: no session, expired session (sign out of Instagram elsewhere), a
+  deleted Reel, a private account. Compare with `DownloadErrorClassifier.classifyInstagram` and extend its markers
+  and `InstagramErrorClassifierTest` with the verbatim lines.
+- [ ] Settings -> Instagram -> Sign out removes the cookie file and the instagram.com WebView cookies; the YouTube
+  session (if any) is still there.
+- [ ] A YouTube download still works exactly as before (protected baseline), including the bypass ladder.
+- [ ] The Copy report (Logs) shows the on-device yt-dlp version; it must be 2026.08.19 or newer (the release that
+  fixed logged-in Instagram extraction). Run the in-app yt-dlp update first if it is older.
+- [ ] Check `ig` runs in the Copy report: `run ... src=ig auth=true`, and that no cookie value or URL appears.
+
+#### Patch 37 technical debt
+- Anonymous Instagram downloads need curl_cffi impersonation in the bundled Python; revisit only if
+  `youtubedl-android` ships it (upstream request open) or a free, maintained build appears. Check the bundled
+  Python version first (curl_cffi's Android wheel targets CPython 3.13); this was not verified.
+- The strategy search probes YouTube hosts only, so a bypass strategy verified for YouTube does not prove Instagram
+  or its CDN is reachable on a restricted network. Add Instagram probe hosts only if a real failure shows it.
+- `InstagramLoginScreen` duplicates the structure of `YouTubeLoginScreen` on purpose (the YouTube flow is a protected
+  baseline). Merge them once both are device-confirmed.
+- yt-dlp rewrites the Instagram cookie file when cookies rotate; nothing re-reads it from the WebView, so an
+  expired session needs a manual re-sign-in.
+- `status_recovering_update` was made site-neutral; other log and watchdog strings still say "YouTube".
+
 ### Patch 36 CJM/UX stabilization (2026-10-01)
 
 Source-of-truth baseline from the user: **build succeeds; downloads work; DPI bypass works.** Patch 36

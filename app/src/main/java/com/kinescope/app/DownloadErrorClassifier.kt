@@ -90,4 +90,70 @@ object DownloadErrorClassifier {
         // direct fallback failed, DownloadService stops the chain itself (BypassTransportException).
         FailureKind.CONNECTION_BLOCKED
     )
+
+    // ---- Patch 37: Instagram -----------------------------------------------------------------
+    //
+    // yt-dlp's Instagram extractor changed several times in 2026 and its wording is not stable, so
+    // this keys on broad markers and looks at the LAST "ERROR:" line only: an earlier WARNING such
+    // as "Main webpage is locked behind the login page" must not turn a dead connection into a
+    // login problem. The classifier is intentionally separate from [classify], whose YouTube
+    // markers (HTTP 403/429 mean "verification") are wrong for Instagram.
+
+    /** The last `ERROR:` line of a yt-dlp failure, or its last line when there is none. */
+    private fun lastErrorLine(raw: String?): String {
+        val lines = raw.orEmpty().lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.toList()
+        return lines.lastOrNull { it.startsWith("ERROR:") } ?: lines.lastOrNull().orEmpty()
+    }
+
+    fun classifyInstagram(raw: String?): FailureKind {
+        val lower = lastErrorLine(raw).lowercase()
+        return when {
+            lower.isBlank() -> FailureKind.OTHER
+            INSTAGRAM_LOGIN_MARKERS.any { lower.contains(it) } -> FailureKind.INSTAGRAM_LOGIN
+            lower.contains("unavailable") || lower.contains("http error 404") ||
+                lower.contains("page not found") -> FailureKind.UNAVAILABLE
+            lower.contains("unable to resolve host") || lower.contains("unknownhost") ||
+                lower.contains("network is unreachable") -> FailureKind.NO_INTERNET
+            isTransportFailureLower(lower) -> FailureKind.CONNECTION_BLOCKED
+            else -> FailureKind.OTHER
+        }
+    }
+
+    /** A plain rate limit (HTTP 429): retrying right away only makes it worse. */
+    fun isInstagramRateLimited(raw: String?): Boolean {
+        val lower = lastErrorLine(raw).lowercase()
+        if (INSTAGRAM_LOGIN_MARKERS.any { lower.contains(it) }) return false
+        return lower.contains("429") || lower.contains("too many requests") ||
+            lower.contains("rate-limit") || lower.contains("rate limit")
+    }
+
+    /**
+     * Whether another attempt can help: a refreshed yt-dlp can fix a changed extractor, but a
+     * login failure without a saved session cannot be fixed by retrying, and a rate limit or an
+     * unavailable post certainly cannot.
+     */
+    fun isRecoverableInstagram(raw: String?, hasSession: Boolean): Boolean {
+        if (isInstagramRateLimited(raw)) return false
+        // yt-dlp 2026.08.19 warns "The provided Instagram account cookies are no longer valid" and
+        // then ends with a generic "empty media response". A newer yt-dlp cannot revive a dead
+        // session, so this is a sign-in problem and a retry would only waste a nightly download.
+        if (raw.orEmpty().contains("cookies are no longer valid", ignoreCase = true)) return false
+        return when (classifyInstagram(raw)) {
+            FailureKind.INSTAGRAM_LOGIN -> hasSession
+            FailureKind.OTHER, FailureKind.CONNECTION_BLOCKED -> true
+            else -> false
+        }
+    }
+
+    private val INSTAGRAM_LOGIN_MARKERS = listOf(
+        "login",
+        "log in",
+        "logged-in",
+        "logged in",
+        "empty media response",
+        "registered users",
+        "invalidated",
+        "--cookies",
+        "authentication"
+    )
 }

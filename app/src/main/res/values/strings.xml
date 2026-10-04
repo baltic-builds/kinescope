@@ -19,7 +19,7 @@
     <string name="status_paused">Paused</string>
     <string name="status_stopping">Stopping…</string>
     <string name="status_stopped">Stopped</string>
-    <string name="status_recovering_update">Refreshing the YouTube extractor…</string>
+    <string name="status_recovering_update">Refreshing the extractor…</string>
     <string name="status_recovering_retry">Recovery attempt %1$d of %2$d…</string>
     <string name="status_saved_to">Saved to Downloads/%1$s</string>
     <string name="progress_percent_eta">%1$.0f%% (ETA %2$ds)</string>
@@ -53,9 +53,9 @@
     <string name="banner_no_internet">No internet connection — some downloads could not start.</string>
     <string name="banner_youtube_verification">YouTube is asking for verification. Kinescope already tried automatic recovery; signing in can make the session more trustworthy.</string>
 
-    <string name="empty_queue">Nothing queued. Use the center button below or share a YouTube link into Kinescope.</string>
-    <string name="quick_add_hint">Paste a YouTube link. If a valid link is already in the clipboard, Kinescope fills it automatically when you open this screen.</string>
-    <string name="youtube_link_placeholder">Paste a YouTube link…</string>
+    <string name="empty_queue">Nothing queued. Use the center button below or share a YouTube or Instagram link into Kinescope.</string>
+    <string name="quick_add_hint">Paste a YouTube or Instagram Reel link. If a valid link is already in the clipboard, Kinescope fills it automatically when you open this screen.</string>
+    <string name="youtube_link_placeholder">Paste a YouTube or Instagram link…</string>
     <string name="start_download">Start download</string>
 
     <string name="refresh">Refresh</string>
@@ -130,7 +130,7 @@
     <string name="error_service_timeout">Android stopped the long-running download service. Tap Resume to continue.</string>
     <string name="error_service_start">Could not start the download service. The job was saved; tap Resume to try again.</string>
     <string name="error_duplicate_job">This video is already queued or waiting for retry.</string>
-    <string name="error_only_youtube_video">Paste a direct YouTube video, Shorts, Live, or youtu.be link.</string>
+    <string name="error_only_youtube_video">Paste a YouTube video, Shorts, Live or youtu.be link, or an Instagram Reel link. Profiles and stories are not supported.</string>
 
     <string name="update_waiting_for_idle">Waiting for the active download to finish before updating yt-dlp…</string>
     <string name="personal_use_notice">Use downloads only where you have the right to save the content. Kinescope does not bypass access controls or DRM.</string>
@@ -253,4 +253,16 @@
     <string name="strategy_testing">Testing this strategy…</string>
     <string name="strategy_pinned_done">This strategy is pinned and will be tried first.</string>
     <string name="strategy_unpinned">Strategies are chosen automatically again.</string>
+    <!-- Patch 37: Instagram Reels -->
+    <string name="settings_instagram_account">Instagram account</string>
+    <string name="instagram_session_saved">An Instagram web session is saved on this device.</string>
+    <string name="instagram_session_not_saved">No Instagram web session is saved.</string>
+    <string name="instagram_login_warning">Needed for most Instagram Reels: Instagram no longer serves them to anonymous downloaders. Sign in with a spare account, not your main one — Instagram may rate-limit or lock accounts used for automated downloading. Kinescope never sees or stores your password; only the session cookies stay inside its private app storage.</string>
+    <string name="instagram_sign_in_action">Sign in to Instagram</string>
+    <string name="instagram_login_title">Instagram sign-in</string>
+    <string name="instagram_login_instructions">Sign in on the real Instagram page below, then tap “Use this session”. Cookies stay inside Kinescope’s private app storage and are passed to yt-dlp only for Instagram downloads.</string>
+    <string name="instagram_session_captured">Instagram session saved.</string>
+    <string name="instagram_session_capture_uncertain">Kinescope did not detect a signed-in Instagram session. Finish signing in and try again.</string>
+    <string name="error_instagram_login">Instagram needs a signed-in session for this Reel. Sign in to Instagram in Settings and the download continues.</string>
+    <string name="banner_instagram_login">Instagram wants you to sign in before it will serve this Reel.</string>
 </resources>

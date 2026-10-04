@@ -142,6 +142,8 @@ object DownloadJobStore {
     private fun restoredStatusText(context: Context, job: StoredDownloadJob): String = when {
         job.state == JobState.PAUSED && job.failureKind == FailureKind.YOUTUBE_VERIFICATION ->
             context.getString(R.string.error_youtube_verification)
+        job.state == JobState.PAUSED && job.failureKind == FailureKind.INSTAGRAM_LOGIN ->
+            context.getString(R.string.error_instagram_login)
         job.state == JobState.PAUSED -> context.getString(R.string.status_paused)
         job.state == JobState.INTERRUPTED -> context.getString(R.string.status_interrupted)
         job.state == JobState.FAILED -> context.getString(R.string.status_retry_available)

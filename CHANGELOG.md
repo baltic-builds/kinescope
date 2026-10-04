@@ -13,6 +13,84 @@ patch's own `.py` script for the exact, idempotent, exact-match-guarded
 edits it makes.
 
 
+## Patch 37 — Instagram Reels by link (yt-dlp + an optional signed-in session)
+
+Requires patch 36. Built from the 2026-10-03 source-of-truth repomix. Adds Instagram Reels as a second
+source next to YouTube, at the user's request ("download by link, not only from YouTube, minimal GUI
+change"). Extraction stays entirely inside yt-dlp: Kinescope recognizes the link, supplies a cookie file
+the user created by signing in, and explains failures.
+
+### Research behind the design (public sources read on 2026-10-03; none of it re-run on a device)
+- Public Telegram bots and self-hosted downloaders almost all do the same thing: yt-dlp plus the cookies
+  of a throwaway signed-in account. The elaborate ones add fallbacks (a private-API library, a paid hosted
+  API, a link-preview rewrite) that need a server, a paid key or custom extraction, which `CLAUDE.md` forbids.
+- yt-dlp's Instagram extractor changed repeatedly in 2026: stable 2026.06.09 answered anonymous requests
+  with "empty media response"; from the 2026.06.28 nightly the anonymous path requires browser TLS
+  impersonation (curl_cffi); stable 2026.07.04 reworked the extractor and detects invalidated cookies; stable
+  2026.08.19 fixed logged-in extraction. (Taken from yt-dlp's issue tracker and release notes.)
+- `youtubedl-android` (pinned 0.18.1) does not bundle curl_cffi (the upstream request is still open); the one
+  prebuilt bundle found that does is a paid fork. So the anonymous path is out of reach under the zero-cost
+  rule, and a signed-in session is the supported route.
+
+### Checked against the real yt-dlp 2026.08.19 (desktop Python build installed in the sandbox, not the on-device one)
+- Logged-in extraction reads the `sessionid` cookie and calls Instagram's media-info API; impersonation is used only
+  when available, so a session works without curl_cffi. Logged-out extraction needs impersonation for its GraphQL
+  step and otherwise falls back to parsing the post page, so anonymous Reels may or may not work.
+- A dead session produces the warning "account cookies are no longer valid" followed by "empty media response".
+- The canonical links this patch produces match the extractor's URL pattern; `/share/` and `/reels/audio/` do not.
+- A cookie file in exactly the format `InstagramAuth` writes is loaded by yt-dlp (session visible for www and i
+  hosts) and re-saved in the same format.
+- The Reel output template and the height-capping format selector give the intended file names and picks on fake
+  format lists (DASH pair, progressive only, unknown height, cap below the only format).
+
+### Links
+- New `InstagramUrlParser` (strict: exact host allowlist, http/https only, no userinfo/port, bounded input,
+  tracking parameters dropped) and `MediaUrlParser`, the single entry point used by enqueue, the share intent
+  and the clipboard. Accepted: `/reel/`, `/reels/`, `/p/`, `/tv/` (also `/<user>/reel/...`) and
+  `/share/reel/<token>`. Rejected: profiles, stories, explore, `/reels/audio/`.
+- `InstagramShareResolver`: the Instagram app's "Copy link" often yields `/share/reel/<token>`, which redirects to
+  the real Reel and which yt-dlp's Instagram extractor still rejects on purpose (its URL pattern excludes
+  `/share/`, read in yt-dlp 2026.08.19; issue 11630). The worker follows that redirect (HTTP only, no body read, no cookie sent, at most 4 hops, 8 s
+  timeouts, every hop passed through `InstagramUrlParser`). On any failure the share link goes to yt-dlp unchanged.
+- The journal key for a job is `mediaId`: the bare YouTube video id (unchanged, existing journals still
+  de-duplicate), `ig:<shortcode>`, or `igs:<token>` for a share link. The job format did not change; the source is
+  derived from the canonical URL (`MediaSource`).
+
+### Download
+- Instagram runs use their own recovery chain: the plain run, then at most one retry after a nightly yt-dlp
+  refresh, and only when `DownloadErrorClassifier.isRecoverableInstagram` says a retry can help (not for a rate
+  limit, an unavailable post, or a login failure without a saved session). YouTube's chain is untouched.
+- Format: the quality chips only cap the height (`bv*[height<=?N]+ba/b[height<=?N]/b`, always ending in an
+  unconditional `b`); the audio chip still extracts MP3. `--playlist-items 1` keeps a carousel post to one item.
+  Files are named `<uploader> - <id>.<ext>` because Reels rarely have a real title.
+- The existing bypass route ladder, watchdog and publication path are shared unchanged.
+
+### Session (the only visible addition: one Settings row and a Home banner)
+- `InstagramAuth`: WebView sign-in on instagram.com, the cookies are written once to an app-private Netscape
+  file and passed with `--cookies`; a capture without a `sessionid` cookie changes nothing. Sign-out deletes
+  the file and expires only the instagram.com cookies, never the YouTube ones. No password is seen.
+- A Reel that needs a login is parked as a resumable Pause (`FailureKind.INSTAGRAM_LOGIN`); a Home banner offers
+  the sign-in, and saving a session resumes those jobs.
+- `classifyInstagram` keys on broad markers and the last `ERROR:` line only, because 2026 wording is unstable.
+
+### Privacy
+- `DiagnosticSanitizer` redacts `sessionid`, `csrftoken`, `ds_user_id`, `ig_did` and related Instagram cookie names;
+  `InstagramAuth` logs counts only. App backup stays disabled.
+
+### Strings
+- Seven existing strings that only named YouTube were reworded (EN + RU); eleven Instagram strings were added.
+
+### Verification status
+- Sandbox only, plus the yt-dlp checks listed above. The script applies to a copy of the repository and is idempotent; the non-Compose sources and all
+  unit tests compile against the API 35 `android.jar` with stubs for androidx and youtubedl-android; the tests ran
+  on a minimal JUnit-compatible runner, not under Gradle. `MainActivity.kt` (Compose) was checked by brace
+  balance and review only. `./gradlew testDebugUnitTest lintDebug assembleDebug` is run by the patch script itself
+  before it commits.
+- Not verified, needs the user's device: that Instagram's WebView sign-in completes (2FA, checkpoint, and
+  whether Instagram accepts the stock WebView user agent, which this screen deliberately leaves unmodified), that the bundled yt-dlp downloads a real Reel with that session, that a `/share/` link
+  resolves from this app, the real yt-dlp wording for login/rate-limit failures, and that the Android 13 device
+  accepts the new Settings row layout. See `ROADMAP.md` "Patch 37".
+
 ## Patch 36 — CJM/UX stabilization, truthful download phases, balanced navigation
 
 Requires patch 35. Built from the 2026-10-01 source-of-truth repomix. The user now confirms that

@@ -168,25 +168,25 @@ class MainActivity : ComponentActivity() {
         }
         if (intent?.action == Intent.ACTION_SEND && intent.type == "text/plain") {
             val sharedText = intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty()
-            YouTubeUrlParser.firstFromText(sharedText)?.canonicalUrl?.let {
+            MediaUrlParser.firstFromText(sharedText)?.canonicalUrl?.let {
                 sharedUrl.value = it
-                AppLog.i("MainActivity", "Received shared YouTube URL")
+                AppLog.i("MainActivity", "Received shared link")
             }
         }
     }
 }
 
-private enum class AppSection { HOME, QUICK_ADD, SETTINGS, LOGS, YOUTUBE_AUTH }
+private enum class AppSection { HOME, QUICK_ADD, SETTINGS, LOGS, YOUTUBE_AUTH, INSTAGRAM_AUTH }
 
 private fun formatTimestamp(millis: Long): String {
     if (millis == 0L) return ""
     return DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(millis))
 }
 
-private fun clipboardYouTubeUrl(context: Context): String? {
+private fun clipboardMediaUrl(context: Context): String? {
     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return null
     val text = clipboard.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty()
-    return YouTubeUrlParser.firstFromText(text)?.canonicalUrl
+    return MediaUrlParser.firstFromText(text)?.canonicalUrl
 }
 
 private fun openYouTubeApp(context: Context): Boolean {
@@ -310,7 +310,7 @@ private fun KinescopeApp(
     }
 
     fun openQuickAdd() {
-        clipboardYouTubeUrl(context)?.let {
+        clipboardMediaUrl(context)?.let {
             url = it
             urlError = null
         }
@@ -370,7 +370,7 @@ private fun KinescopeApp(
 
     BackHandler(enabled = section != AppSection.HOME) {
         section = when (section) {
-            AppSection.LOGS, AppSection.YOUTUBE_AUTH -> AppSection.SETTINGS
+            AppSection.LOGS, AppSection.YOUTUBE_AUTH, AppSection.INSTAGRAM_AUTH -> AppSection.SETTINGS
             else -> AppSection.HOME
         }
     }
@@ -397,6 +397,7 @@ private fun KinescopeApp(
                             AppSection.SETTINGS -> stringResource(R.string.settings_title)
                             AppSection.LOGS -> stringResource(R.string.logs_title)
                             AppSection.YOUTUBE_AUTH -> stringResource(R.string.youtube_login_title)
+                            AppSection.INSTAGRAM_AUTH -> stringResource(R.string.instagram_login_title)
                         },
                         style = MaterialTheme.typography.headlineSmall
                     )
@@ -404,7 +405,11 @@ private fun KinescopeApp(
                 navigationIcon = {
                     if (section != AppSection.HOME) {
                         IconButton(onClick = {
-                            section = if (section == AppSection.LOGS || section == AppSection.YOUTUBE_AUTH) {
+                            section = if (
+                                section == AppSection.LOGS ||
+                                section == AppSection.YOUTUBE_AUTH ||
+                                section == AppSection.INSTAGRAM_AUTH
+                            ) {
                                 AppSection.SETTINGS
                             } else {
                                 AppSection.HOME
@@ -423,7 +428,7 @@ private fun KinescopeApp(
             )
         },
         bottomBar = {
-            if (section != AppSection.YOUTUBE_AUTH) {
+            if (section != AppSection.YOUTUBE_AUTH && section != AppSection.INSTAGRAM_AUTH) {
                 GlassBottomBar(
                     section = section,
                     onHome = { section = AppSection.HOME },
@@ -457,7 +462,8 @@ private fun KinescopeApp(
                     onPause = { DownloadService.pause(context, it) },
                     onResume = { DownloadService.resume(context, it) },
                     onStop = { DownloadService.stop(context, it) },
-                    onSignIn = { section = AppSection.YOUTUBE_AUTH }
+                    onSignIn = { section = AppSection.YOUTUBE_AUTH },
+                    onSignInInstagram = { section = AppSection.INSTAGRAM_AUTH }
                 )
                 AppSection.QUICK_ADD -> QuickAddScreen(
                     url = url,
@@ -492,6 +498,7 @@ private fun KinescopeApp(
                     lastUpdateTimestamp = lastUpdateTimestamp,
                     onCheckForUpdate = { runUpdate() },
                     onOpenYouTubeLogin = { section = AppSection.YOUTUBE_AUTH },
+                    onOpenInstagramLogin = { section = AppSection.INSTAGRAM_AUTH },
                     requestNotifications = requestNotifications
                 )
                 AppSection.LOGS -> LogsScreen()
@@ -504,6 +511,17 @@ private fun KinescopeApp(
                         }
                         verificationJobs.forEach { DownloadService.resume(context, it.id) }
                         section = if (verificationJobs.isNotEmpty()) AppSection.HOME else AppSection.SETTINGS
+                    }
+                )
+                AppSection.INSTAGRAM_AUTH -> InstagramLoginScreen(
+                    onBack = { section = AppSection.SETTINGS },
+                    onSaved = {
+                        // Reels that were parked waiting for a login continue now.
+                        val loginJobs = jobs.filter {
+                            it.state == JobState.PAUSED && it.failureKind == FailureKind.INSTAGRAM_LOGIN
+                        }
+                        loginJobs.forEach { DownloadService.resume(context, it.id) }
+                        section = if (loginJobs.isNotEmpty()) AppSection.HOME else AppSection.SETTINGS
                     }
                 )
             }
@@ -755,7 +773,8 @@ private fun HomeScreen(
     onPause: (String) -> Unit,
     onResume: (String) -> Unit,
     onStop: (String) -> Unit,
-    onSignIn: () -> Unit
+    onSignIn: () -> Unit,
+    onSignInInstagram: () -> Unit
 ) {
     val networkFailure = jobs.any {
         it.failureKind == FailureKind.NO_INTERNET && it.state in setOf(JobState.INTERRUPTED, JobState.FAILED)
@@ -766,6 +785,11 @@ private fun HomeScreen(
     }
     var networkBannerDismissed by remember { mutableStateOf(false) }
     var verificationBannerDismissed by remember { mutableStateOf(false) }
+    val instagramFailure = jobs.any {
+        it.failureKind == FailureKind.INSTAGRAM_LOGIN &&
+            (it.state == JobState.PAUSED || it.state == JobState.FAILED)
+    }
+    var instagramBannerDismissed by remember { mutableStateOf(false) }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -791,6 +815,17 @@ private fun HomeScreen(
                 VerificationBanner(
                     onDismiss = { verificationBannerDismissed = true },
                     onSignIn = onSignIn
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+        }
+        if (instagramFailure && !instagramBannerDismissed) {
+            item {
+                VerificationBanner(
+                    onDismiss = { instagramBannerDismissed = true },
+                    onSignIn = onSignInInstagram,
+                    messageRes = R.string.banner_instagram_login,
+                    actionRes = R.string.instagram_sign_in_action
                 )
                 Spacer(modifier = Modifier.height(12.dp))
             }
@@ -1045,7 +1080,12 @@ private fun ErrorBanner(text: String, onDismiss: () -> Unit) {
 }
 
 @Composable
-private fun VerificationBanner(onDismiss: () -> Unit, onSignIn: () -> Unit) {
+private fun VerificationBanner(
+    onDismiss: () -> Unit,
+    onSignIn: () -> Unit,
+    messageRes: Int = R.string.banner_youtube_verification,
+    actionRes: Int = R.string.youtube_sign_in_action
+) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
@@ -1054,7 +1094,7 @@ private fun VerificationBanner(onDismiss: () -> Unit, onSignIn: () -> Unit) {
         Column(modifier = Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = stringResource(R.string.banner_youtube_verification),
+                    text = stringResource(messageRes),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onPrimaryContainer,
                     modifier = Modifier.weight(1f)
@@ -1063,7 +1103,7 @@ private fun VerificationBanner(onDismiss: () -> Unit, onSignIn: () -> Unit) {
                     Icon(Icons.Default.Close, contentDescription = stringResource(R.string.cd_dismiss))
                 }
             }
-            TextButton(onClick = onSignIn) { Text(stringResource(R.string.youtube_sign_in_action)) }
+            TextButton(onClick = onSignIn) { Text(stringResource(actionRes)) }
         }
     }
 }
@@ -1247,12 +1287,14 @@ private fun SettingsScreen(
     lastUpdateTimestamp: Long,
     onCheckForUpdate: () -> Unit,
     onOpenYouTubeLogin: () -> Unit,
+    onOpenInstagramLogin: () -> Unit,
     requestNotifications: () -> Unit
 ) {
     val context = LocalContext.current
     var defaultQuality by remember { mutableIntStateOf(Settings.getDefaultQualityIndex(context)) }
     var subfolder by remember { mutableStateOf(Settings.getDownloadSubfolder(context)) }
     var hasSession by remember { mutableStateOf(YouTubeAuth.hasSavedSession(context)) }
+    var hasInstagramSession by remember { mutableStateOf(InstagramAuth.hasSavedSession(context)) }
 
     Column(
         modifier = Modifier
@@ -1351,6 +1393,40 @@ private fun SettingsScreen(
             if (hasSession) {
                 OutlinedButton(onClick = {
                     YouTubeAuth.clearSession(context) { hasSession = false }
+                }) {
+                    Text(stringResource(R.string.youtube_sign_out))
+                }
+            }
+        }
+
+        SettingsDivider()
+        SettingsSectionHeader(stringResource(R.string.settings_instagram_account))
+        Text(
+            text = if (hasInstagramSession) {
+                stringResource(R.string.instagram_session_saved)
+            } else {
+                stringResource(R.string.instagram_session_not_saved)
+            },
+            style = MaterialTheme.typography.bodyMedium
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = stringResource(R.string.instagram_login_warning),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(modifier = Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = onOpenInstagramLogin) {
+                Text(
+                    stringResource(
+                        if (hasInstagramSession) R.string.youtube_refresh_session else R.string.instagram_sign_in_action
+                    )
+                )
+            }
+            if (hasInstagramSession) {
+                OutlinedButton(onClick = {
+                    InstagramAuth.clearSession(context) { hasInstagramSession = false }
                 }) {
                     Text(stringResource(R.string.youtube_sign_out))
                 }
@@ -1459,6 +1535,85 @@ private fun YouTubeLoginScreen(onBack: () -> Unit, onSaved: () -> Unit) {
                     // Opens straight on Google's sign-in form instead of the YouTube homepage,
                     // so the user does not have to find "Sign in" themselves.
                     loadUrl(YOUTUBE_SIGN_IN_URL)
+                    webViewRef = this
+                }
+            }
+        )
+    }
+}
+
+// Patch 37: Instagram's own sign-in page. After signing in Instagram continues to its home feed
+// (and may show "save login info" / notification prompts); the user taps "Use this session" once
+// the feed is visible. A sibling of YouTubeLoginScreen, kept separate so the YouTube flow (a
+// protected baseline) is untouched.
+private const val INSTAGRAM_SIGN_IN_URL = "https://www.instagram.com/accounts/login/"
+
+@SuppressLint("SetJavaScriptEnabled")
+@Composable
+private fun InstagramLoginScreen(onBack: () -> Unit, onSaved: () -> Unit) {
+    val context = LocalContext.current
+    var webViewRef by remember { mutableStateOf<WebView?>(null) }
+    var status by remember { mutableStateOf("") }
+
+    BackHandler(enabled = true) {
+        val webView = webViewRef
+        if (webView != null && webView.canGoBack()) webView.goBack() else onBack()
+    }
+
+    DisposableEffect(Unit) {
+        onDispose { webViewRef?.destroy() }
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        Text(
+            text = stringResource(R.string.instagram_login_instructions),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = {
+                val result = InstagramAuth.captureCurrentSession(context)
+                status = if (result.looksSignedIn) {
+                    context.getString(R.string.instagram_session_captured)
+                } else {
+                    context.getString(R.string.instagram_session_capture_uncertain)
+                }
+                if (result.looksSignedIn) onSaved()
+            }) {
+                Text(stringResource(R.string.youtube_use_session))
+            }
+            OutlinedButton(onClick = onBack) { Text(stringResource(R.string.cancel)) }
+        }
+        if (status.isNotBlank()) {
+            Text(status, style = MaterialTheme.typography.bodySmall)
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        AndroidView(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
+            factory = { webContext ->
+                WebView(webContext).apply {
+                    settings.javaScriptEnabled = true
+                    settings.domStorageEnabled = true
+                    settings.safeBrowsingEnabled = true
+                    // The stock WebView user agent is left untouched: the "; wv" strip in the YouTube
+                    // sign-in exists only because Google's login detects it (CHANGELOG, Patch 31), and
+                    // nothing says Instagram does. If a device shows Instagram refusing the embedded
+                    // browser, that is a finding to record, not a reason to guess a workaround here.
+                    CookieManager.getInstance().setAcceptCookie(true)
+                    CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+                    webChromeClient = WebChromeClient()
+                    webViewClient = object : WebViewClient() {
+                        override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                            val uri = request?.url ?: return false
+                            // Instagram tries to hand the page to its own app (intent:// or
+                            // instagram://). Stay in this page instead of leaving Kinescope.
+                            return !(uri.scheme == "http" || uri.scheme == "https")
+                        }
+                    }
+                    loadUrl(INSTAGRAM_SIGN_IN_URL)
                     webViewRef = this
                 }
             }
