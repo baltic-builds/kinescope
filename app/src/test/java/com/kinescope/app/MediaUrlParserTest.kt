@@ -65,7 +65,22 @@ class MediaUrlParserTest {
     @Test
     fun instagramFormatSelectorAlwaysEndsInAnUnconditionalFallback() {
         val selector = InstagramFormats.selector(720)
-        assertEquals("bv*[height<=?720]+ba/b[height<=?720]/b", selector)
         assertEquals("b", selector.substringAfterLast('/'))
+    }
+
+    @Test
+    fun instagramFormatSelectorPrefersH264BeforeAnythingElse() {
+        // Regression for the black-picture Reel: the first two alternatives may only ever select
+        // H.264 (explicit avc1) or a muxed file that is not VP9/AV1/HEVC; plain "any video" comes
+        // after them. The exact string was checked against yt-dlp 2026.08.19 on Instagram-like
+        // format lists (VP9 DASH + unlabelled progressive, VP9 only, avc DASH, progressive only).
+        val parts = InstagramFormats.selector(720).split('/')
+        assertEquals("bv*[height<=?720][vcodec^=avc]+ba[acodec^=mp4a]", parts[0])
+        assertEquals(
+            "b[height<=?720][vcodec!^=?vp][vcodec!^=?av0][vcodec!^=?hev][vcodec!^=?hvc]",
+            parts[1]
+        )
+        assertEquals(listOf("bv*[height<=?720]+ba", "b[height<=?720]", "b"), parts.drop(2))
+        assertEquals("bv*[height<=?480][vcodec^=avc]+ba[acodec^=mp4a]", InstagramFormats.selector(480).split('/')[0])
     }
 }

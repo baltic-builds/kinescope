@@ -13,6 +13,42 @@ patch's own `.py` script for the exact, idempotent, exact-match-guarded
 edits it makes.
 
 
+## Patch 38 — Instagram codec fix (a saved Reel played as a black picture)
+
+Requires patch 37. Reported after the first device run of patch 37: downloads work, but one Reel plays as a black
+picture with sound.
+
+### Cause
+- The save step is not involved: `MediaStorage.publish` copies the finished file byte for byte and takes the MIME
+  type from the extension. The file was already unplayable when yt-dlp produced it.
+- Patch 37 selected Instagram formats with `bv*[height<=?N]+ba/b[height<=?N]/b`. yt-dlp's default sort ranks a
+  labelled video codec above an unlabelled one. For Instagram only the DASH video streams are labelled (VP9);
+  the plain H.264 downloads carry no codec at all (yt-dlp issue 12394, still how the 2026.08.19 extractor builds
+  its formats: the codec comes from an optional `video_codec` field). So whenever a Reel is offered as VP9 DASH,
+  yt-dlp downloaded the VP9 video plus the audio and merged them into an MP4. A phone that cannot decode that
+  stream shows sound and no picture.
+- Reproduced, not assumed: yt-dlp 2026.08.19 run on Instagram-like format lists took `dash-…vd(vp09)+dash-…ad`
+  with the old selector and the unlabelled progressive file (or an avc1 DASH video, when one exists) with the new
+  one. The user's actual file was not inspected, so the VP9 explanation is an inference from the evidence above.
+
+### Fix
+- `InstagramFormats.selector`: (1) an explicit avc1 video with AAC audio, (2) a muxed progressive file that is not
+  VP9/AV1/HEVC (`[vcodec!^=?vp]` keeps an unlabelled one), (3) then any video plus audio, any muxed file, and the
+  unconditional `b`, so a VP9-only Reel still downloads instead of failing.
+- `DownloadService` logs the format ids of every Instagram run (`fmt j=… dash-…vd+dash-…ad` means the VP9 route).
+- `MediaUrlParserTest` now pins the codec order.
+
+### Trade-off and limit
+- The progressive file can be smaller than the best DASH rendition, so a 1080p chip may deliver less than 1080p.
+  Playing at all was judged more important than the last step of resolution.
+- A Reel offered only as VP9 is still saved as VP9 and may still not play. Re-encoding on the phone would fix it
+  but depends on the bundled ffmpeg having an H.264 encoder, which was not verified.
+
+### Verification status
+- Sandbox: the selector was run through yt-dlp 2026.08.19's own format selection (five Instagram-like cases); the
+  patched tree compiles (non-Compose sources) and the unit tests pass on a minimal JUnit-compatible runner. Not
+  verified: the real Gradle build and any real Reel on the device. See `ROADMAP.md` "Patch 38".
+
 ## Patch 37 — Instagram Reels by link (yt-dlp + an optional signed-in session)
 
 Requires patch 36. Built from the 2026-10-03 source-of-truth repomix. Adds Instagram Reels as a second

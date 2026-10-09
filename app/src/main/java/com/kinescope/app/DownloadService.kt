@@ -754,6 +754,12 @@ class DownloadService : Service() {
         var finishingAnnounced = false
         try {
             YoutubeDL.getInstance().execute(request, job.id) { progress, etaInSeconds, line ->
+                // Patch 38: yt-dlp prints the ids it chose ("Downloading 1 format(s): a+b"). For Instagram
+                // a DASH pair (`dash-...vd+dash-...ad`) is the VP9 route, so the id line in a report
+                // shows what was actually downloaded when a saved Reel does not play.
+                if (mediaSource == MediaSource.INSTAGRAM && line.contains("format(s):")) {
+                    AppLog.i("DownloadService", "fmt j=${job.id} ${line.substringAfter("format(s):").trim().take(90)}")
+                }
                 monitor.onLine(line)
                 val snapshot = monitor.snapshot()
                 val now = SystemClock.elapsedRealtime()

@@ -33,6 +33,13 @@ longer history; where the two disagree, this section and the code win.
    choose Play Protect's scan-vs-block UI; `RELEASE.md` now records the current Google guidance and
    distinguishes direct sideloading from the September 2026 participating-store verification rollout.
 
+### What patch 38 changed (2026-10-04, not device-verified)
+Instagram Reels sometimes saved as a black picture with sound: yt-dlp picked the VP9 DASH video because only
+VP9 is codec-labelled for Instagram. `InstagramFormats.selector` is now H.264-first (see its KDoc and CHANGELOG
+"Patch 38"), and `DownloadService` logs `fmt j=…` with the chosen ids. The save path (`MediaStorage.publish`) was
+checked and is a plain byte copy; do not look for the cause there. Open: a VP9-only Reel still cannot be fixed by
+selection.
+
 ### What patch 37 changed (2026-10-03, not device-verified)
 Instagram Reels download by link, next to YouTube. The research is in `CHANGELOG.md` "Patch 37"; the short
 version: anonymous yt-dlp access to Instagram needs curl_cffi impersonation that `youtubedl-android 0.18.1` does

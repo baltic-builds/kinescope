@@ -54,6 +54,21 @@ The detailed implementation record lives in `CHANGELOG.md`; this file only track
 
 ## Remaining verification gates
 
+### Patch 38 Instagram codec fix (2026-10-04)
+
+Not device-verified. Do not mark complete from a build alone.
+
+- [ ] Delete the Reel that showed a black picture, download the same link again: it now plays with picture and sound.
+- [ ] Copy report after that run: find `fmt j=…`. A plain id (e.g. a number) or an `avc1` pair is the intended outcome;
+  `dash-…vd+dash-…ad` means yt-dlp still took the DASH/VP9 route, so paste that line back.
+- [ ] Download two or three other Reels; all play. Note any that are noticeably lower resolution than before.
+- [ ] If a Reel is VP9-only and still does not play, that is the known limit: decide on a re-encode only after checking
+  the bundled ffmpeg for an H.264 encoder.
+
+#### Patch 38 technical debt
+- VP9/AV1-only Instagram posts cannot be fixed by format selection (see CHANGELOG, Patch 38).
+- Quality chips on Instagram cap the height of the H.264/progressive choice, which may top out below the DASH VP9 one.
+
 ### Patch 37 Instagram Reels (2026-10-03)
 
 Not device-verified. Full detail in `CHANGELOG.md`. Do not mark these complete from code review or a build alone.
