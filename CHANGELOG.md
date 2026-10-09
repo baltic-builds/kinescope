@@ -13,6 +13,58 @@ patch's own `.py` script for the exact, idempotent, exact-match-guarded
 edits it makes.
 
 
+## Patch 40 — DownloadService and MainActivity split by responsibility (behavior unchanged)
+
+Requires patch 39, which left these two files whole because a move-only split could not be verified. It can be:
+the split is done mechanically by the patch script (members cut out of the current files by anchor and re-wrapped
+verbatim, never retyped), audited line by line, and gated by the full Gradle run before anything is committed.
+
+### DownloadService.kt: 1,250 -> about 450 lines
+It keeps the Android service lifecycle, the command handlers, the worker thread and the order of one job's steps
+(`runJob`) plus the public companion API. The rest moved into collaborators. Each is a `ContextWrapper` around the
+service, so the moved methods run unchanged (`getString(...)`, `this` as a Context and `bindService` behave exactly
+as they did inside the service):
+- `DownloadNotifier` -- foreground and completion notifications, throttled progress.
+- `JobLifecycle` -- every journal/queue transition (Preparing, Paused, Interrupted, Failed...) and the handling of an
+  honored Pause/Stop; with `JobControls` (the process-wide Pause/Stop requests, formerly a companion map),
+  `ControlAction`, `ControlledStop`, `AlreadyHandledFailure`.
+- `RecoveryChain` -- the bounded attempt chain (plain, nightly refresh, YouTube client fallbacks; Instagram stops
+  after the refresh); with `RecoveryProfile`.
+- `RouteLadder` -- the bypass route ladder and the wait for a running strategy search.
+- `YtDlpRun` -- one yt-dlp execution: request, progress callback, stall/slow watchdog; with the three `Bypass*Exception`.
+- `DownloadPublisher` -- output selection and the two-phase MediaStore commit.
+- `friendlyDownloadError` (`DownloadErrors.kt`) -- the user-facing failure text, now a `Context` extension.
+The pass-through `executeAttempt` wrapper was inlined into the recovery chain (one call, its comment kept).
+
+### MainActivity.kt: 1,550 -> about 460 lines
+It keeps the activity, `AppSection`, the clipboard/YouTube-app helpers and `KinescopeApp` (state, navigation, handlers).
+Moved unchanged: `AppChrome.kt` (responsive column, bottom bar, strategy-refresh notice), `HomeScreen.kt`,
+`QueueAndLibrary.kt` (queue and library rows, library file actions), `QuickAddScreen.kt`, `SettingsScreen.kt`,
+`LogsScreen.kt`. A top-level declaration that another file now uses went from `private` to `internal`
+(`AppSection`, `GlassBottomBar`, `HomeScreen`, `LibraryRow`, `LogsScreen`, `QueueRow`, `QuickAddScreen`,
+`ResponsiveContent`, `SettingsScreen`, `StrategyRefreshNoticeDialog`, `playItem`, `shareItem`); `formatTimestamp`
+moved next to its only user and stayed private.
+
+### What did not change
+- No behavior, string, layout or journal format. Log tags are the same ("DownloadService", "MainActivity"), so Copy
+  reports read exactly as before; the script fails if the set of log statements differs.
+- The Compose code was not retyped. Earlier CHANGELOG entries name members by their old home (for example
+  `DownloadService.executeWithBypassFallback` is now `RouteLadder.executeWithBypassFallback`).
+
+### Verification status
+- Sandbox, after applying patches 38 -> 39 -> 40 to a clean copy and again on the result (idempotent): the
+  non-Compose sources and all tests compile against the API 35 `android.jar` with stubs, and 111 unit tests pass on a
+  minimal JUnit-compatible runner (not Gradle).
+- DownloadService split: line audit (only the renamed notification/lifecycle calls and the class wrappers differ; every
+  log statement is identical).
+- MainActivity split: every code line is preserved (the audit compares both sides after dropping imports, headers and
+  `private`/`internal`). The Compose files could not be compiled against real Compose, so the whole package was compiled
+  with name-resolving stubs for every imported Compose symbol, once before and once after the split: the error profile was
+  identical, and the same check does flag a deliberately dropped import and a deliberately re-privatized function, so
+  a missing import or visibility error would have shown.
+- Not verified: the real Gradle build and any behavior on the device. The script runs
+  `./gradlew testDebugUnitTest lintDebug assembleDebug` before it commits.
+
 ## Patch 39 — Final production review: one real bug, dead code, duplication, texts, documents
 
 Requires patches 37-38. A review of the whole source tree (about 10,000 lines of Kotlin, the resources and every

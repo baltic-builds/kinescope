@@ -4,7 +4,7 @@ The current state of Kinescope for anyone (human or AI agent) resuming work. It 
 appended to: per-patch history lives in `CHANGELOG.md`, open work in `ROADMAP.md`, process rules in `AGENTS.md`,
 product constraints in `CLAUDE.md`. Where this file and the code disagree, the code wins; fix this file.
 
-State as of patch 39 (2026-10-04).
+State as of patch 40 (2026-10-06).
 
 ## What Kinescope is
 
@@ -34,7 +34,7 @@ not yet being 16 KB page-size compatible (upstream).
   explicit Resume; nothing restarts a transfer by itself. The site of a job is derived from its canonical URL
   (`StoredDownloadJob.mediaSource`), so the journal has no site field; the journal key is `mediaId` (the bare
   YouTube id, `ig:<shortcode>` or `igs:<token>`).
-- **One worker.** `DownloadService` runs a single serialized worker with per-job workspaces. Pause keeps partial
+- **One worker.** `DownloadService` runs a single serialized worker with per-job workspaces; it owns the service lifecycle and the order of a job's steps, and delegates to `DownloadNotifier`, `JobLifecycle`, `RecoveryChain` -> `RouteLadder` -> `YtDlpRun`, and `DownloadPublisher` (each a `ContextWrapper` around the service). Pause keeps partial
   files, Resume reuses them, Stop deletes the workspace. `EngineController` is the one lock around yt-dlp/ffmpeg
   initialization, execution and self-update. Publication is two-phase through `MediaStorage` (`IS_PENDING`
   committed before the private source is deleted; the byte copy is verbatim, so a bad video was already bad when
@@ -75,7 +75,14 @@ All runtime Kotlin lives in `app/src/main/java/com/kinescope/app/`. `Documentati
 this list misses a source file; keep it complete.
 
 Downloads and queue
-- `DownloadService.kt` -- foreground single-worker queue, recovery chains, route ladder, watchdog, notifications, publication, Android 15 timeout.
+- `DownloadService.kt` -- the foreground single-worker queue: Android service lifecycle, command handlers, worker thread, the order of one job's steps (`runJob`), the public companion API, Android 15 timeout.
+- `JobLifecycle.kt` -- `JobLifecycle` (journal/queue transitions, honored Pause/Stop), `JobControls`, `ControlAction`, `ControlledStop`, `AlreadyHandledFailure`.
+- `RecoveryChain.kt` -- `RecoveryChain` (the bounded attempt chain) and `RecoveryProfile`.
+- `RouteLadder.kt` -- `RouteLadder` (bypass route ladder, wait for a strategy search).
+- `YtDlpRun.kt` -- `YtDlpRun` (one yt-dlp execution with the stall/slow watchdog) and the `Bypass*Exception` types.
+- `DownloadPublisher.kt` -- output selection and the two-phase MediaStore commit.
+- `DownloadNotifier.kt` -- foreground and completion notifications.
+- `DownloadErrors.kt` -- `friendlyDownloadError`, the user-facing failure text.
 - `DownloadJobStore.kt` -- durable journal, process-death normalization, workspaces.
 - `DownloadQueueBus.kt` -- live job/progress projection; `JobState`, `FailureKind`.
 - `DownloadErrorClassifier.kt` -- pure classification of yt-dlp failures (YouTube and Instagram).
@@ -94,7 +101,11 @@ Links and sites
 - `WebSessionLogin.kt` -- the shared WebView sign-in screen and the two `WebSessionSite` definitions.
 
 UI
-- `MainActivity.kt` -- navigation, Home/Add/Settings/Logs screens, queue rows, banners, library actions.
+- `MainActivity.kt` -- the activity, `AppSection`, `KinescopeApp` (state, navigation, handlers).
+- `AppChrome.kt` -- responsive column, bottom navigation, strategy-refresh notice.
+- `HomeScreen.kt` -- Home: bypass card, queue/library lists, empty state, banners.
+- `QueueAndLibrary.kt` -- the queue-job row, the library-file row and the library file actions.
+- `QuickAddScreen.kt`, `SettingsScreen.kt`, `LogsScreen.kt` -- the Add, Settings and Logs screens.
 - `BypassSettings.kt`, `StrategyPicker.kt` -- the bypass section of Settings and the manual strategy list.
 - `Theme.kt` -- Material3 tokens, Inter/Lora via the Google Fonts provider, shapes (`design.md`).
 
@@ -165,6 +176,7 @@ parser/search/ranking/store, the network probe and the privacy redaction. Build 
 - **Application.onCreate runs in every process** (`:dpi`, `:dpi_vpn`); guard process-wide work by process name.
 - **Hold/release pairs need a `finally`.** The strategy-search hold taken per download was never released until
   patch 39; a counter test pins the semantics, the `finally` at the call site is what fixes the leak.
+- **Move-only refactors are verifiable when the moves are mechanical.** Cut members out by anchor and keep the bodies verbatim (a `ContextWrapper` around the service lets code that calls `getString` or passes `this` as a Context move unchanged), audit the result line by line, and compile before and after. For Compose files without the Compose libraries, compile with name-resolving stubs for every imported symbol and compare the error profiles: a missing import or a `private`-in-file reference shows up as a difference.
 - **Format selection is not neutral.** yt-dlp's default sort prefers a labelled codec; always state the codec you
   want when a site labels only some streams.
 - **A later patch can silently break an earlier patch's idempotency check** when it rewrites text the earlier one

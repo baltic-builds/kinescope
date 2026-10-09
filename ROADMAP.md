@@ -1,6 +1,6 @@
 # Roadmap
 
-State after patch 39 (2026-10-04). This file tracks only what is still open: device verification gates,
+State after patch 40 (2026-10-06). This file tracks only what is still open: device verification gates,
 technical debt and what is out of scope. How each item was closed lives in `CHANGELOG.md`; the state a new
 session needs is in `HANDOFF.md`.
 
@@ -42,6 +42,13 @@ session needs is in `HANDOFF.md`.
 - [ ] Copy report shows yt-dlp 2026.08.19 or newer, `run ... src=ig auth=true` and `fmt j=...` (a plain id or an
   `avc1` pair is the intended outcome, `dash-...vd+dash-...ad` means the VP9 route), and no cookie value or URL.
 - [ ] Two or three more Reels play with picture and sound; note any noticeably below the chosen height.
+
+### After the file split (patch 40)
+- [ ] One pass through the app behaves exactly as before: Home (queue, library, banners, bypass card), Add (paste,
+  clipboard prefill, quality chips), Settings (every section), Logs (five taps), both sign-in screens, and a YouTube and
+  an Instagram download from enqueue to the library, including Pause/Resume/Stop and the completion notification.
+- [ ] Copy report after those downloads still shows the usual tags (`dl`, `byp`, `srch`, `job`, `auth`...); a changed or
+  missing tag would mean a moved log statement was altered.
 
 ### Sign-in screens (patch 39)
 - [ ] The YouTube and the Instagram sign-in screens (now one shared screen) open on their own start pages, Back
@@ -122,11 +129,6 @@ session needs is in `HANDOFF.md`.
   new sign-in.
 - **Cookie rotation:** yt-dlp rewrites the Instagram cookie file when Instagram rotates a cookie and nothing
   re-reads it from the WebView, so an expired session needs a manual re-sign-in.
-- **Two large files.** `DownloadService.kt` (about 1,250 lines: queue, recovery ladder, notifications, publication)
-  and `MainActivity.kt` (about 1,600 lines: every screen) each hold several responsibilities. They were left whole
-  on purpose: a move-only split cannot be verified without a device, and the protected baseline matters more.
-  Split by responsibility (notifications, recovery ladder; Home, Add, Settings, Logs) only together with the
-  device gates above.
 - **Leftovers kept on purpose:** `StageResult.replyCode` (SOCKS reply code of a failed check) is recorded but no
   longer read after the unused `Verdict` classifier was removed; the watchdog's internal log text still says
   "YouTube".
