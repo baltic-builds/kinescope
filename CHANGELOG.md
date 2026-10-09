@@ -13,6 +13,63 @@ patch's own `.py` script for the exact, idempotent, exact-match-guarded
 edits it makes.
 
 
+## Patch 39 — Final production review: one real bug, dead code, duplication, texts, documents
+
+Requires patches 37-38. A review of the whole source tree (about 10,000 lines of Kotlin, the resources and every
+document) against DRY, KISS, YAGNI and SOLID, done on the repomix plus patches 37-38 as the source of truth.
+
+### Bug fixed
+- `DownloadService` took `DpiSearchController.holdForDownload()` for every download, and `releaseDownload()` had no
+  caller. After the first download of a process the hold stayed set, so any strategy search started afterwards (the
+  background re-check, "Test strategies") waited for ever between two strategies. The hold is now released in a
+  `finally`; `DpiSearchControllerTest` pins the counter (never negative, balanced across two downloads).
+
+### Removed (YAGNI)
+- No-caller code: `DpiBypass.startIfEnabled` and `isHealthy`, `DpiPrefs.setStrategy`, the first-run-notice accessors
+  and key, `RouteScoreboard.forget`, the `NetworkCheck` `Verdict` classifier with its test and two SOCKS reply
+  constants (the UI that explained verdicts was removed earlier), the drawable `ic_stop`.
+- 38 unused string resources (EN + RU) and the comment headers left empty by that, and the unused Compose tooling
+  dependencies (`ui-tooling`, `ui-tooling-preview`, the unused test BOM) in `app/build.gradle.kts`, whose comment
+  also carried closed history.
+
+### De-duplicated (DRY / SRP)
+- Two near-identical WebView sign-in screens in `MainActivity` became one `WebSessionLoginScreen` driven by a
+  `WebSessionSite` (`WebSessionLogin.kt`); the differences (start page, Google's user-agent marker, whether other
+  schemes open externally, how cookies are captured) are data, not copied code.
+- Two near-identical Settings account sections became one `AccountSection`.
+- The cookie parser and the Netscape writer existed twice; they are `CookieJarFile` now (JVM-tested). The YouTube
+  cookie file is written atomically like the Instagram one.
+- `MediaUrlParser` maps each site once; the site of a job is `StoredDownloadJob.mediaSource` instead of three copies of
+  the same expression.
+
+### Texts and UX
+- The "Couldn't reach YouTube" error was also shown for Instagram. It now names the site (`%1$s`).
+- Session buttons and two link strings had YouTube-named keys but served both sites: `session_use`,
+  `session_refresh`, `session_sign_out`, `link_placeholder`, `error_unsupported_link`.
+- The yt-dlp update row says when the extractor is already current (the string existed and was never shown).
+- One apostrophe style, em dashes instead of `--`, and the extractor hint names Instagram.
+
+### Documents
+- `ROADMAP.md` rewritten to what is open: it had grown to about 30 KB of closed history, against its own rule.
+- `HANDOFF.md` rewritten as a compact, current snapshot; its patch-by-patch narrative duplicated this file and its file
+  map missed about 20 files. `DocumentationTest` now fails the unit-test run if the map misses a source file or if a
+  string exists in only one language.
+- `README.md`, `CLAUDE.md`, `CJM.md` and `design.md` brought to the current state (Instagram, sessions, status).
+
+### Reviewed and deliberately left alone
+- `DownloadService.kt` (about 1,250 lines) and `MainActivity.kt` (about 1,600 lines) hold several responsibilities each.
+  A move-only split of that size cannot be verified without a device, and the build works; it is recorded in
+  `ROADMAP.md` as debt tied to the device gates.
+- `StageResult.replyCode` is recorded in diagnostics but no longer read; the watchdog's internal log text still says
+  "YouTube". Neither affects behavior.
+
+### Verification status
+- Sandbox: the script applies to a clean copy and is idempotent; the non-Compose sources and all tests compile
+  against the API 35 `android.jar` with stubs; the tests ran on a minimal JUnit-compatible runner, not Gradle. The
+  Compose files (`MainActivity.kt`, `WebSessionLogin.kt`) were checked by delimiter nesting, symbol and string
+  references and review only. The script itself runs `./gradlew testDebugUnitTest lintDebug assembleDebug` before it
+  commits. Not verified: any behavior on the device (see `ROADMAP.md`).
+
 ## Patch 38 — Instagram codec fix (a saved Reel played as a black picture)
 
 Requires patch 37. Reported after the first device run of patch 37: downloads work, but one Reel plays as a black

@@ -97,35 +97,4 @@ class NetworkCheckTest {
         val report = NetworkCheck(1_000, okSecure).checkViaBypass(closed, "www.youtube.com")
         assertEquals(CheckStage.PROXY, report.failedStage)
     }
-
-    private fun path(bypass: Boolean, vararg stages: Pair<CheckStage, Boolean>, reply: Int? = null) =
-        PathResult(bypass, stages.map { (stage, ok) -> StageResult(stage, ok, "", if (!ok) reply else null) })
-
-    private val directOk = path(false, CheckStage.DNS to true, CheckStage.TCP to true, CheckStage.TLS to true, CheckStage.HTTP to true)
-
-    @Test
-    fun verdictsNameTheBlockedLayerAndWhetherTheBypassHelps() {
-        val dnsFail = path(false, CheckStage.DNS to false)
-        val tcpFail = path(false, CheckStage.DNS to true, CheckStage.TCP to false)
-        val tlsFail = path(false, CheckStage.DNS to true, CheckStage.TCP to true, CheckStage.TLS to false)
-        val viaOk = path(true, CheckStage.PROXY to true, CheckStage.CONNECT to true, CheckStage.TLS to true, CheckStage.HTTP to true)
-        val viaNoEngine = path(true, CheckStage.PROXY to false)
-        val viaTlsFail = path(true, CheckStage.PROXY to true, CheckStage.CONNECT to true, CheckStage.TLS to false)
-        val viaNoHost = path(true, CheckStage.PROXY to true, CheckStage.CONNECT to false, reply = 0x04)
-        val viaRefused = path(true, CheckStage.PROXY to true, CheckStage.CONNECT to false, reply = 0x05)
-
-        fun verdict(direct: PathResult, via: PathResult?) = verdictOf(NetworkCheckReport("h", direct, via))
-        assertEquals(Verdict.DIRECT_OK, verdict(directOk, null))
-        assertEquals(Verdict.DIRECT_OK, verdict(directOk, viaOk))
-        assertEquals(Verdict.DNS_BLOCKED, verdict(dnsFail, null))
-        assertEquals(Verdict.TCP_BLOCKED, verdict(tcpFail, null))
-        assertEquals(Verdict.TLS_INTERFERENCE, verdict(tlsFail, null))
-        assertEquals(Verdict.BYPASS_FIXES, verdict(tlsFail, viaOk))
-        assertEquals(Verdict.BYPASS_UNAVAILABLE, verdict(tlsFail, viaNoEngine))
-        assertEquals(Verdict.BYPASS_ALSO_FAILS, verdict(tlsFail, viaTlsFail))
-        // DNS is blocked and the engine cannot resolve the name either: nothing a DPI strategy can do.
-        assertEquals(Verdict.DNS_BLOCKS_BYPASS, verdict(dnsFail, viaNoHost))
-        assertEquals(Verdict.BYPASS_ALSO_FAILS, verdict(dnsFail, viaRefused))
-        assertEquals(Verdict.BYPASS_ALSO_FAILS, verdict(tcpFail, viaNoHost))
-    }
 }

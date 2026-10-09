@@ -18,9 +18,4 @@ internal object RouteScoreboard {
 
     @Synchronized
     fun recentGood(now: Long): String? = route?.takeIf { now - at in 0..TTL_MS }
-
-    @Synchronized
-    fun forget() {
-        route = null
-    }
 }

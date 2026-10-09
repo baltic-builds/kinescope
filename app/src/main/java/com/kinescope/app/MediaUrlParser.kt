@@ -13,24 +13,16 @@ object MediaUrlParser {
         val canonicalUrl: String
     )
 
-    fun parse(raw: String): Parsed? {
-        YouTubeUrlParser.parse(raw).parsed?.let {
-            return Parsed(MediaSource.YOUTUBE, it.videoId, it.canonicalUrl)
-        }
-        InstagramUrlParser.parse(raw).parsed?.let {
-            return Parsed(MediaSource.INSTAGRAM, it.mediaId, it.canonicalUrl)
-        }
-        return null
-    }
+    fun parse(raw: String): Parsed? =
+        YouTubeUrlParser.parse(raw).parsed?.toMedia()
+            ?: InstagramUrlParser.parse(raw).parsed?.toMedia()
 
     /** The first supported link inside free text (a share payload, the clipboard). */
-    fun firstFromText(raw: String): Parsed? {
-        YouTubeUrlParser.firstFromText(raw)?.let {
-            return Parsed(MediaSource.YOUTUBE, it.videoId, it.canonicalUrl)
-        }
-        InstagramUrlParser.firstFromText(raw)?.let {
-            return Parsed(MediaSource.INSTAGRAM, it.mediaId, it.canonicalUrl)
-        }
-        return null
-    }
+    fun firstFromText(raw: String): Parsed? =
+        YouTubeUrlParser.firstFromText(raw)?.toMedia()
+            ?: InstagramUrlParser.firstFromText(raw)?.toMedia()
+
+    private fun YouTubeUrlParser.Parsed.toMedia() = Parsed(MediaSource.YOUTUBE, videoId, canonicalUrl)
+
+    private fun InstagramUrlParser.Parsed.toMedia() = Parsed(MediaSource.INSTAGRAM, mediaId, canonicalUrl)
 }

@@ -2,7 +2,6 @@ package com.kinescope.app
 
 import android.Manifest
 import android.app.Activity
-import android.annotation.SuppressLint
 import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -13,11 +12,6 @@ import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
-import android.webkit.CookieManager
-import android.webkit.WebChromeClient
-import android.webkit.WebResourceRequest
-import android.webkit.WebView
-import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -89,7 +83,6 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -109,7 +102,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.Dispatchers
@@ -301,6 +293,8 @@ private fun KinescopeApp(
             val result = withContext(Dispatchers.IO) { YtDlpUpdater.updateBlocking(context) }
             updateStatus = if (result.startsWith("ERROR:")) {
                 context.getString(R.string.update_failed, result.removePrefix("ERROR:").ifBlank { context.getString(R.string.error_unknown) })
+            } else if (result == "ALREADY_UP_TO_DATE") {
+                context.getString(R.string.update_current)
             } else {
                 context.getString(R.string.update_done)
             }
@@ -483,7 +477,7 @@ private fun KinescopeApp(
                                 urlError = context.getString(R.string.error_duplicate_job)
                             }
                             DownloadService.EnqueueResult.INVALID -> {
-                                urlError = context.getString(R.string.error_only_youtube_video)
+                                urlError = context.getString(R.string.error_unsupported_link)
                             }
                             DownloadService.EnqueueResult.START_FAILED -> {
                                 urlError = context.getString(R.string.error_service_start)
@@ -502,7 +496,8 @@ private fun KinescopeApp(
                     requestNotifications = requestNotifications
                 )
                 AppSection.LOGS -> LogsScreen()
-                AppSection.YOUTUBE_AUTH -> YouTubeLoginScreen(
+                AppSection.YOUTUBE_AUTH -> WebSessionLoginScreen(
+                    site = YouTubeSessionSite,
                     onBack = { section = AppSection.SETTINGS },
                     onSaved = {
                         val verificationJobs = jobs.filter {
@@ -513,7 +508,8 @@ private fun KinescopeApp(
                         section = if (verificationJobs.isNotEmpty()) AppSection.HOME else AppSection.SETTINGS
                     }
                 )
-                AppSection.INSTAGRAM_AUTH -> InstagramLoginScreen(
+                AppSection.INSTAGRAM_AUTH -> WebSessionLoginScreen(
+                    site = InstagramSessionSite,
                     onBack = { section = AppSection.SETTINGS },
                     onSaved = {
                         // Reels that were parked waiting for a login continue now.
@@ -1230,7 +1226,7 @@ private fun QuickAddScreen(
             value = url,
             onValueChange = onUrlChange,
             modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text(stringResource(R.string.youtube_link_placeholder)) },
+            placeholder = { Text(stringResource(R.string.link_placeholder)) },
             singleLine = true,
             isError = errorText != null,
             supportingText = errorText?.let { { Text(it) } },
@@ -1374,64 +1370,28 @@ private fun SettingsScreen(
         BypassSettingsSection(requestNotifications = requestNotifications)
 
         SettingsDivider()
-        SettingsSectionHeader(stringResource(R.string.settings_youtube_account))
-        Text(
-            text = if (hasSession) stringResource(R.string.youtube_session_saved) else stringResource(R.string.youtube_session_not_saved),
-            style = MaterialTheme.typography.bodyMedium
+        AccountSection(
+            title = R.string.settings_youtube_account,
+            savedRes = R.string.youtube_session_saved,
+            notSavedRes = R.string.youtube_session_not_saved,
+            warningRes = R.string.youtube_login_warning,
+            signInRes = R.string.youtube_sign_in_action,
+            hasSession = hasSession,
+            onOpen = onOpenYouTubeLogin,
+            onSignOut = { YouTubeAuth.clearSession(context) { hasSession = false } }
         )
-        Spacer(modifier = Modifier.height(6.dp))
-        Text(
-            text = stringResource(R.string.youtube_login_warning),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Spacer(modifier = Modifier.height(10.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = onOpenYouTubeLogin) {
-                Text(stringResource(if (hasSession) R.string.youtube_refresh_session else R.string.youtube_sign_in_action))
-            }
-            if (hasSession) {
-                OutlinedButton(onClick = {
-                    YouTubeAuth.clearSession(context) { hasSession = false }
-                }) {
-                    Text(stringResource(R.string.youtube_sign_out))
-                }
-            }
-        }
 
         SettingsDivider()
-        SettingsSectionHeader(stringResource(R.string.settings_instagram_account))
-        Text(
-            text = if (hasInstagramSession) {
-                stringResource(R.string.instagram_session_saved)
-            } else {
-                stringResource(R.string.instagram_session_not_saved)
-            },
-            style = MaterialTheme.typography.bodyMedium
+        AccountSection(
+            title = R.string.settings_instagram_account,
+            savedRes = R.string.instagram_session_saved,
+            notSavedRes = R.string.instagram_session_not_saved,
+            warningRes = R.string.instagram_login_warning,
+            signInRes = R.string.instagram_sign_in_action,
+            hasSession = hasInstagramSession,
+            onOpen = onOpenInstagramLogin,
+            onSignOut = { InstagramAuth.clearSession(context) { hasInstagramSession = false } }
         )
-        Spacer(modifier = Modifier.height(6.dp))
-        Text(
-            text = stringResource(R.string.instagram_login_warning),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Spacer(modifier = Modifier.height(10.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = onOpenInstagramLogin) {
-                Text(
-                    stringResource(
-                        if (hasInstagramSession) R.string.youtube_refresh_session else R.string.instagram_sign_in_action
-                    )
-                )
-            }
-            if (hasInstagramSession) {
-                OutlinedButton(onClick = {
-                    InstagramAuth.clearSession(context) { hasInstagramSession = false }
-                }) {
-                    Text(stringResource(R.string.youtube_sign_out))
-                }
-            }
-        }
         Spacer(modifier = Modifier.height(28.dp))
         Text(
             text = stringResource(R.string.powered_by),
@@ -1445,180 +1405,43 @@ private fun SettingsScreen(
 }
 
 @Composable
+private fun AccountSection(
+    title: Int,
+    savedRes: Int,
+    notSavedRes: Int,
+    warningRes: Int,
+    signInRes: Int,
+    hasSession: Boolean,
+    onOpen: () -> Unit,
+    onSignOut: () -> Unit
+) {
+    SettingsSectionHeader(stringResource(title))
+    Text(
+        text = stringResource(if (hasSession) savedRes else notSavedRes),
+        style = MaterialTheme.typography.bodyMedium
+    )
+    Spacer(modifier = Modifier.height(6.dp))
+    Text(
+        text = stringResource(warningRes),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+    Spacer(modifier = Modifier.height(10.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Button(onClick = onOpen) {
+            Text(stringResource(if (hasSession) R.string.session_refresh else signInRes))
+        }
+        if (hasSession) {
+            OutlinedButton(onClick = onSignOut) { Text(stringResource(R.string.session_sign_out)) }
+        }
+    }
+}
+
+@Composable
 private fun SettingsDivider() {
     Spacer(modifier = Modifier.height(20.dp))
     HorizontalDivider(color = MaterialTheme.colorScheme.outline)
     Spacer(modifier = Modifier.height(20.dp))
-}
-
-// The same accounts.google.com entry point youtube.com's own "Sign in" button navigates to
-// (verified against YouTube's real sign-in redirect chain), so the WebView opens straight on
-// the sign-in form instead of the homepage.
-private const val YOUTUBE_SIGN_IN_URL =
-    "https://accounts.google.com/ServiceLogin?service=youtube&continue=https%3A%2F%2Fwww.youtube.com%2F"
-
-@SuppressLint("SetJavaScriptEnabled")
-@Composable
-private fun YouTubeLoginScreen(onBack: () -> Unit, onSaved: () -> Unit) {
-    val context = LocalContext.current
-    var webViewRef by remember { mutableStateOf<WebView?>(null) }
-    var status by remember { mutableStateOf("") }
-
-    BackHandler(enabled = true) {
-        val webView = webViewRef
-        if (webView != null && webView.canGoBack()) webView.goBack() else onBack()
-    }
-
-    DisposableEffect(Unit) {
-        onDispose { webViewRef?.destroy() }
-    }
-
-    Column(modifier = Modifier.fillMaxSize()) {
-        Text(
-            text = stringResource(R.string.youtube_login_instructions),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = {
-                val result = YouTubeAuth.captureCurrentSession(
-                    context = context,
-                    userAgent = webViewRef?.settings?.userAgentString
-                )
-                status = if (result.looksSignedIn) {
-                    context.getString(R.string.youtube_session_captured)
-                } else {
-                    context.getString(R.string.youtube_session_capture_uncertain)
-                }
-                if (result.looksSignedIn) onSaved()
-            }) {
-                Text(stringResource(R.string.youtube_use_session))
-            }
-            OutlinedButton(onClick = onBack) { Text(stringResource(R.string.cancel)) }
-        }
-        if (status.isNotBlank()) {
-            Text(status, style = MaterialTheme.typography.bodySmall)
-        }
-        Spacer(modifier = Modifier.height(8.dp))
-        AndroidView(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f),
-            factory = { webContext ->
-                WebView(webContext).apply {
-                    settings.javaScriptEnabled = true
-                    settings.domStorageEnabled = true
-                    settings.safeBrowsingEnabled = true
-                    // Google rejects sign-in from the stock WebView user agent: it contains a
-                    // "; wv" marker that Google's login explicitly detects and blocks with
-                    // "This browser or app may not be secure" (disallowed_useragent). Stripping
-                    // just that marker -- keeping the real device/Android/Chrome version as-is
-                    // -- is the documented minimal fix (see CHANGELOG.md's Patch 31 entry for
-                    // sources); a made-up user agent would be both less reliable and less honest.
-                    settings.userAgentString = settings.userAgentString
-                        .replace("; wv)", ")")
-                        .replace("; wv ", " ")
-                    CookieManager.getInstance().setAcceptCookie(true)
-                    CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
-                    webChromeClient = WebChromeClient()
-                    webViewClient = object : WebViewClient() {
-                        override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
-                            val uri = request?.url ?: return false
-                            if (uri.scheme == "http" || uri.scheme == "https") return false
-                            runCatching {
-                                context.startActivity(Intent(Intent.ACTION_VIEW, uri))
-                            }
-                            return true
-                        }
-                    }
-                    // Opens straight on Google's sign-in form instead of the YouTube homepage,
-                    // so the user does not have to find "Sign in" themselves.
-                    loadUrl(YOUTUBE_SIGN_IN_URL)
-                    webViewRef = this
-                }
-            }
-        )
-    }
-}
-
-// Patch 37: Instagram's own sign-in page. After signing in Instagram continues to its home feed
-// (and may show "save login info" / notification prompts); the user taps "Use this session" once
-// the feed is visible. A sibling of YouTubeLoginScreen, kept separate so the YouTube flow (a
-// protected baseline) is untouched.
-private const val INSTAGRAM_SIGN_IN_URL = "https://www.instagram.com/accounts/login/"
-
-@SuppressLint("SetJavaScriptEnabled")
-@Composable
-private fun InstagramLoginScreen(onBack: () -> Unit, onSaved: () -> Unit) {
-    val context = LocalContext.current
-    var webViewRef by remember { mutableStateOf<WebView?>(null) }
-    var status by remember { mutableStateOf("") }
-
-    BackHandler(enabled = true) {
-        val webView = webViewRef
-        if (webView != null && webView.canGoBack()) webView.goBack() else onBack()
-    }
-
-    DisposableEffect(Unit) {
-        onDispose { webViewRef?.destroy() }
-    }
-
-    Column(modifier = Modifier.fillMaxSize()) {
-        Text(
-            text = stringResource(R.string.instagram_login_instructions),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = {
-                val result = InstagramAuth.captureCurrentSession(context)
-                status = if (result.looksSignedIn) {
-                    context.getString(R.string.instagram_session_captured)
-                } else {
-                    context.getString(R.string.instagram_session_capture_uncertain)
-                }
-                if (result.looksSignedIn) onSaved()
-            }) {
-                Text(stringResource(R.string.youtube_use_session))
-            }
-            OutlinedButton(onClick = onBack) { Text(stringResource(R.string.cancel)) }
-        }
-        if (status.isNotBlank()) {
-            Text(status, style = MaterialTheme.typography.bodySmall)
-        }
-        Spacer(modifier = Modifier.height(8.dp))
-        AndroidView(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f),
-            factory = { webContext ->
-                WebView(webContext).apply {
-                    settings.javaScriptEnabled = true
-                    settings.domStorageEnabled = true
-                    settings.safeBrowsingEnabled = true
-                    // The stock WebView user agent is left untouched: the "; wv" strip in the YouTube
-                    // sign-in exists only because Google's login detects it (CHANGELOG, Patch 31), and
-                    // nothing says Instagram does. If a device shows Instagram refusing the embedded
-                    // browser, that is a finding to record, not a reason to guess a workaround here.
-                    CookieManager.getInstance().setAcceptCookie(true)
-                    CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
-                    webChromeClient = WebChromeClient()
-                    webViewClient = object : WebViewClient() {
-                        override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
-                            val uri = request?.url ?: return false
-                            // Instagram tries to hand the page to its own app (intent:// or
-                            // instagram://). Stay in this page instead of leaving Kinescope.
-                            return !(uri.scheme == "http" || uri.scheme == "https")
-                        }
-                    }
-                    loadUrl(INSTAGRAM_SIGN_IN_URL)
-                    webViewRef = this
-                }
-            }
-        )
-    }
 }
 
 @Composable

@@ -5,7 +5,7 @@ prioritization decision in `ROADMAP.md`. It exists so future changes
 get judged against the real journey a real trip involves, rather than
 against abstract "code quality" — a bug's severity in this app is a
 function of *where in this journey* it can strike, not just how likely
-it is to happen. See `ROADMAP.md`'s Step 8 for why this was written.
+it is to happen. It was written to calibrate priorities; the history is in `CHANGELOG.md`.
 
 ## Context
 
@@ -57,7 +57,7 @@ Concretely, this stage is why:
 - `DownloadQueueBus`'s atomic updates matter: several jobs' progress
   ticks and enqueues genuinely race against each other in this exact
   scenario.
-- Host-validating shared/pasted URLs (YouTube only) exists so a
+- Host-validating shared/pasted URLs (YouTube and Instagram Reels only) exists so a
   mis-tapped share from the wrong app fails immediately and visibly at
   this stage, instead of silently queuing something that will never
   produce a usable video.

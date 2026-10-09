@@ -26,8 +26,6 @@ internal object Socks5 {
     private const val ATYP_IPV4 = 1
     private const val ATYP_DOMAIN = 3
     private const val ATYP_IPV6 = 4
-    const val REPLY_GENERAL_FAILURE = 0x01
-    const val REPLY_HOST_UNREACHABLE = 0x04
 
     /** Returns null when the peer accepts the no-auth greeting, otherwise a short technical reason. */
     fun greet(input: InputStream, output: OutputStream): String? {
@@ -173,39 +171,6 @@ internal data class PathResult(val viaBypass: Boolean, val stages: List<StageRes
 }
 
 internal data class NetworkCheckReport(val host: String, val direct: PathResult, val bypassed: PathResult?)
-
-internal enum class Verdict {
-    DIRECT_OK,
-    DNS_BLOCKED,
-    DNS_BLOCKS_BYPASS,
-    TCP_BLOCKED,
-    TLS_INTERFERENCE,
-    BYPASS_FIXES,
-    BYPASS_ALSO_FAILS,
-    BYPASS_UNAVAILABLE
-}
-
-/** Maps a staged report to the single most useful sentence for the user. */
-internal fun verdictOf(report: NetworkCheckReport): Verdict {
-    if (report.direct.ok) return Verdict.DIRECT_OK
-    val bypassed = report.bypassed
-    if (bypassed != null) {
-        return when {
-            bypassed.ok -> Verdict.BYPASS_FIXES
-            bypassed.failedStage == CheckStage.PROXY -> Verdict.BYPASS_UNAVAILABLE
-            report.direct.failedStage == CheckStage.DNS && bypassed.failed.let {
-                it?.stage == CheckStage.CONNECT &&
-                    (it.replyCode == Socks5.REPLY_HOST_UNREACHABLE || it.replyCode == Socks5.REPLY_GENERAL_FAILURE)
-            } -> Verdict.DNS_BLOCKS_BYPASS
-            else -> Verdict.BYPASS_ALSO_FAILS
-        }
-    }
-    return when (report.direct.failedStage) {
-        CheckStage.DNS -> Verdict.DNS_BLOCKED
-        CheckStage.TCP -> Verdict.TCP_BLOCKED
-        else -> Verdict.TLS_INTERFERENCE
-    }
-}
 
 internal fun interface SecureProbe {
     /** TLS handshake with SNI [host] over the already-connected [base] socket, then one HTTP request. */

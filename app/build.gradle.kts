@@ -102,22 +102,14 @@ android {
 }
 
 dependencies {
-    // ROADMAP.md Step 1 [CRITICAL, fixed]: 2026.08.00 does not exist --
-    // every other pinned version below clusters around Sept-Nov 2024
-    // (AGP 8.7.2, Kotlin 2.1.0, activity-compose 1.9.3, core-ktx 1.15.0,
-    // kotlinx-coroutines-core 1.9.0). 2024.11.00 is a real BOM release
-    // from that same window -- see
-    // https://developer.android.com/jetpack/compose/bom/bom-mapping
-    val composeBom = platform("androidx.compose:compose-bom:2024.11.00")
-    implementation(composeBom)
-    androidTestImplementation(composeBom)
+    // Every pinned version here is from the same window (AGP 8.7.2, Kotlin 2.1.0, activity-compose 1.9.3,
+    // core-ktx 1.15.0, coroutines 1.9.0); 2024.11.00 is the Compose BOM release from it (pulls Material3 1.3.1,
+    // see https://developer.android.com/jetpack/compose/bom/bom-mapping). Recheck API call sites if it is bumped.
+    implementation(platform("androidx.compose:compose-bom:2024.11.00"))
 
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.ui:ui")
-    implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.activity:activity-compose:1.9.3")
-
-    debugImplementation("androidx.compose.ui:ui-tooling")
 
     // Android wrapper around the yt-dlp executable (bundles yt-dlp +
     // a Python runtime). We depend on this instead of writing any

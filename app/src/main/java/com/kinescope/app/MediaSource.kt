@@ -21,6 +21,10 @@ enum class MediaSource {
     }
 }
 
+/** The site a stored job comes from. Derived from its canonical URL, so the journal format has no extra field. */
+internal val StoredDownloadJob.mediaSource: MediaSource
+    get() = MediaSource.fromCanonicalUrl(canonicalUrl)
+
 /**
  * yt-dlp format selectors for Instagram (patch 37, codec rule added in patch 38).
  *

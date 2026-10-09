@@ -167,7 +167,7 @@ still applies in full.
 The first post-roadmap sprint extends this system without changing its core palette or typography:
 
 - **Bottom navigation / glass treatment.** Home and Settings sit in a rounded translucent `surface` container with a subtle `outline` border, tonal elevation and soft shadow. The center Add action floats as a stronger circular `primary` element. This is the project's "glassmorphism 2.0" interpretation: layered translucency and depth using native Compose/Material primitives, not a fake screenshot blur or a new rendering dependency.
-- **Information architecture.** Home = queue + library. Center Add = focused URL/quality flow with clipboard prefill. Settings = defaults/storage/extractor/YouTube session. Icon-only navigation keeps chrome compact.
+- **Information architecture.** Home = queue + library. Center Add = focused URL/quality flow with clipboard prefill. Settings = defaults/storage/extractor/bypass/YouTube and Instagram sessions. Icon-only navigation keeps chrome compact.
 - **Launcher icon.** Original retro-TV silhouette; `#FAF9F5` background, `#D97757` shell, `#F3DDD2` glass, `#141413` controls, translucent white highlight. Geometry stays inside the adaptive safe zone and a dedicated monochrome layer supports themed icons.
 - **Localization.** Visual layouts must tolerate both English and Russian resources; avoid fixed text widths.
 
@@ -211,3 +211,8 @@ not identity.
   in-app chrome describe one product.
 - Settings' final low-emphasis label is `powered by ephedrine`; it uses `labelSmall` and secondary text
   color, centered, with no new decorative surface.
+
+## Patch 39 — one pattern for account sessions
+
+- Settings shows each account session (YouTube, Instagram) with the same block: header, saved/not-saved line, one warning sentence, then a primary `Sign in` / `Refresh session` button and, when a session exists, an outlined `Sign out`. Both open the same embedded sign-in screen with the same `Use this session` / `Cancel` row. No new colors, shapes or motion.
+- Error and hint texts that depend on the site name it (`Couldn't reach Instagram from this network.`) instead of assuming YouTube.

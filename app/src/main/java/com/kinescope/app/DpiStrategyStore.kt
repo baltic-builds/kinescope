@@ -17,7 +17,6 @@ object DpiPrefs {
     private const val KEY_VERIFIED_AT = "verified_at"
     private const val KEY_VERIFIED_FALLBACKS = "verified_fallbacks"
     private const val KEY_INITIAL_SEARCH_DONE = "initial_search_done"
-    private const val KEY_FIRST_RUN_NOTICE_SHOWN = "first_run_notice_shown"
     private const val KEY_PINNED = "pinned_strategy"
     private const val KEY_PROVEN = "proven_strategy"
     private const val KEY_PROVEN_AT = "proven_at"
@@ -36,15 +35,6 @@ object DpiPrefs {
     }
 
     internal fun storedStrategy(context: Context): String? = prefs(context).getString(KEY_STRATEGY, null)
-
-    fun setStrategy(context: Context, line: String) {
-        val store = prefs(context)
-        val editor = store.edit().putString(KEY_STRATEGY, line)
-        if (store.getString(KEY_VERIFIED_STRATEGY, null) != line) {
-            editor.remove(KEY_VERIFIED_STRATEGY).remove(KEY_VERIFIED_AT).putBoolean(KEY_ENABLED, false)
-        }
-        editor.apply()
-    }
 
     fun isStrategyVerified(context: Context, line: String): Boolean =
         prefs(context).getString(KEY_VERIFIED_STRATEGY, null) == line
@@ -82,14 +72,6 @@ object DpiPrefs {
 
     fun setHasRunInitialSearch(context: Context, done: Boolean) {
         prefs(context).edit().putBoolean(KEY_INITIAL_SEARCH_DONE, done).apply()
-    }
-
-    /** Patch 33: the first-launch popup is shown once per install, however often the check restarts. */
-    fun hasShownFirstRunNotice(context: Context): Boolean =
-        prefs(context).getBoolean(KEY_FIRST_RUN_NOTICE_SHOWN, false)
-
-    fun setFirstRunNoticeShown(context: Context) {
-        prefs(context).edit().putBoolean(KEY_FIRST_RUN_NOTICE_SHOWN, true).apply()
     }
 
     /** Patch 35: the strategy the user pinned in Settings; it always leads the chain. */

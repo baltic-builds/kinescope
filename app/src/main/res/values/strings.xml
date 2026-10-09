@@ -14,14 +14,11 @@
     <string name="quality_audio_mp3">Audio only (MP3)</string>
 
     <string name="status_queued">Queued</string>
-    <string name="status_starting">Starting…</string>
     <string name="status_pausing">Pausing…</string>
     <string name="status_paused">Paused</string>
     <string name="status_stopping">Stopping…</string>
-    <string name="status_stopped">Stopped</string>
     <string name="status_recovering_update">Refreshing the extractor…</string>
     <string name="status_recovering_retry">Recovery attempt %1$d of %2$d…</string>
-    <string name="status_saved_to">Saved to Downloads/%1$s</string>
     <string name="progress_percent_eta">%1$.0f%% (ETA %2$ds)</string>
 
     <string name="job_state_queued">Queued</string>
@@ -34,7 +31,6 @@
 
     <string name="notification_channel_downloads">Downloads</string>
     <string name="notification_starting">Starting downloads…</string>
-    <string name="notification_downloading">Downloading…</string>
     <string name="notification_progress">Downloading: %1$d%%</string>
 
     <string name="error_no_internet">No internet connection</string>
@@ -46,16 +42,14 @@
     <string name="error_download_generic">Download failed: %1$s</string>
     <string name="error_output_not_found">Downloaded output file was not found.</string>
     <string name="error_failed_to_save">Could not save the downloaded file.</string>
-    <string name="error_control_cleanup_failed">Couldn\'t undo a completed save after the control request. Delete the file from Library and try again.</string>
-    <string name="error_cancelled">Download was cancelled.</string>
-    <string name="error_only_youtube">Only youtube.com and youtu.be links are supported.</string>
+    <string name="error_control_cleanup_failed">Couldn’t undo a completed save after the control request. Delete the file from Library and try again.</string>
 
     <string name="banner_no_internet">No internet connection — some downloads could not start.</string>
     <string name="banner_youtube_verification">YouTube is asking for verification. Kinescope already tried automatic recovery; signing in can make the session more trustworthy.</string>
 
     <string name="empty_queue">Nothing queued. Use the center button below or share a YouTube or Instagram link into Kinescope.</string>
     <string name="quick_add_hint">Paste a YouTube or Instagram Reel link. If a valid link is already in the clipboard, Kinescope fills it automatically when you open this screen.</string>
-    <string name="youtube_link_placeholder">Paste a YouTube or Instagram link…</string>
+    <string name="link_placeholder">Paste a YouTube or Instagram link…</string>
     <string name="start_download">Start download</string>
 
     <string name="refresh">Refresh</string>
@@ -75,7 +69,7 @@
     <string name="settings_youtube_account">YouTube account</string>
     <string name="downloads_subfolder">Downloads subfolder name</string>
     <string name="storage_hint">New files are saved under Downloads/%1$s. Existing files are not moved when this changes.</string>
-    <string name="extractor_hint">yt-dlp powers every download. Kinescope uses the nightly channel so extractor fixes arrive faster when YouTube changes.</string>
+    <string name="extractor_hint">yt-dlp powers every download. Kinescope uses the nightly channel so extractor fixes arrive faster when YouTube or Instagram change.</string>
     <string name="last_updated_never">Last updated: Never</string>
     <string name="last_updated">Last updated: %1$s</string>
     <string name="check_for_update">Check for yt-dlp update</string>
@@ -88,10 +82,10 @@
     <string name="youtube_session_not_saved">No YouTube web session is saved.</string>
     <string name="youtube_login_warning">Optional. A signed-in session can help with verification and age-restricted videos, but YouTube may still rate-limit an IP or invalidate cookies. Google may also block sign-in inside embedded browsers. Avoid high-volume automated downloading with your main account.</string>
     <string name="youtube_sign_in_action">Sign in to YouTube</string>
-    <string name="youtube_refresh_session">Refresh session</string>
-    <string name="youtube_sign_out">Sign out</string>
+    <string name="session_refresh">Refresh session</string>
+    <string name="session_sign_out">Sign out</string>
     <string name="youtube_login_instructions">Sign in on the real YouTube page below, then tap “Use this session”. Cookies stay inside Kinescope’s private app storage and are passed to yt-dlp only for YouTube downloads.</string>
-    <string name="youtube_use_session">Use this session</string>
+    <string name="session_use">Use this session</string>
     <string name="youtube_session_captured">YouTube session saved.</string>
     <string name="youtube_session_capture_uncertain">Kinescope did not detect an authenticated session. Finish signing in to YouTube and try again.</string>
 
@@ -105,7 +99,6 @@
     <string name="cd_settings">Settings</string>
     <string name="cd_pause">Pause download</string>
     <string name="cd_resume">Resume download</string>
-    <string name="cd_stop">Stop download</string>
     <string name="cd_play">Play</string>
     <string name="cd_more_options">More options</string>
     <string name="cd_dismiss">Dismiss</string>
@@ -130,7 +123,7 @@
     <string name="error_service_timeout">Android stopped the long-running download service. Tap Resume to continue.</string>
     <string name="error_service_start">Could not start the download service. The job was saved; tap Resume to try again.</string>
     <string name="error_duplicate_job">This video is already queued or waiting for retry.</string>
-    <string name="error_only_youtube_video">Paste a YouTube video, Shorts, Live or youtu.be link, or an Instagram Reel link. Profiles and stories are not supported.</string>
+    <string name="error_unsupported_link">Paste a YouTube video, Shorts, Live or youtu.be link, or an Instagram Reel link. Profiles and stories are not supported.</string>
 
     <string name="update_waiting_for_idle">Waiting for the active download to finish before updating yt-dlp…</string>
     <string name="personal_use_notice">Use downloads only where you have the right to save the content. Kinescope does not bypass access controls or DRM.</string>
@@ -146,40 +139,14 @@
     <string name="library_untitled">(untitled)</string>
 
     <string name="bypass_title">Network bypass</string>
-    <string name="bypass_description">Test first. Once a working method is found, Kinescope can use it for downloads and for the YouTube app. This does not hide your location -- it only helps get past blocking on this network.</string>
+    <string name="bypass_description">Test first. Once a working method is found, Kinescope can use it for downloads and for the YouTube app. This does not hide your location — it only helps get past blocking on this network.</string>
     <string name="bypass_enable">Use the bypass for downloads</string>
-    <string name="bypass_strategy_label">Active strategy</string>
     <string name="bypass_find">Test strategies</string>
     <string name="bypass_find_progress">Trying strategy %1$d of %2$d…</string>
     <string name="bypass_stop_search">Stop the search</string>
     <string name="bypass_search_found">A working strategy was found and selected.</string>
     <string name="bypass_search_none">No strategy got through on this network. Repeat the search on the restricted network, or update the list.</string>
     <string name="bypass_search_stopped">The search was stopped.</string>
-    <string name="bypass_search_not_needed">YouTube is reachable directly on this network, so there is nothing to compare. Run the search on the restricted network.</string>
-    <string name="bypass_use">Use</string>
-    <string name="bypass_result_hosts">%1$d of %2$d hosts</string>
-    <string name="bypass_test">Test selected</string>
-    <string name="bypass_testing">Testing…</string>
-    <string name="bypass_test_title">Connection test</string>
-    <string name="bypass_test_direct">Direct: %1$s</string>
-    <string name="bypass_test_via">Through the bypass: %1$s</string>
-    <string name="bypass_test_ok">works</string>
-    <string name="bypass_test_failed_at">failed at %1$s</string>
-    <string name="bypass_engine_failed">The bypass could not start.</string>
-    <string name="bypass_stage_dns">Finding the address</string>
-    <string name="bypass_stage_tcp">Connecting</string>
-    <string name="bypass_stage_proxy">starting the bypass</string>
-    <string name="bypass_stage_connect">connecting through the bypass</string>
-    <string name="bypass_stage_tls">secure connection</string>
-    <string name="bypass_stage_http">loading the page</string>
-    <string name="bypass_verdict_direct_ok">The direct connection works, so the bypass is not needed here.</string>
-    <string name="bypass_verdict_dns_blocked">This network can\'t find YouTube\'s address at all. The bypass can\'t fix that.</string>
-    <string name="bypass_verdict_dns_blocks_bypass">This network blocks YouTube\'s address everywhere, even for the bypass. It can\'t fix that.</string>
-    <string name="bypass_verdict_tcp_blocked">This network refuses to connect to YouTube at all. The bypass usually can\'t fix that.</string>
-    <string name="bypass_verdict_tls_interference">The connection reaches YouTube but gets cut early. The bypass can often fix this -- run the strategy search.</string>
-    <string name="bypass_verdict_bypass_fixes">The direct connection is blocked but the bypass gets through. Switch the bypass on.</string>
-    <string name="bypass_verdict_bypass_also_fails">Neither the direct connection nor the bypass works. Try another strategy or update the list.</string>
-    <string name="bypass_verdict_bypass_unavailable">The bypass is not available.</string>
     <string name="bypass_update">Update list</string>
     <string name="bypass_updating">Updating…</string>
     <string name="bypass_update_done">Added %1$d new strategies (%2$d in total).</string>
@@ -187,10 +154,7 @@
     <string name="bypass_update_failed">Could not update: %1$s</string>
     <string name="bypass_list_updated">List updated: %1$s</string>
     <string name="bypass_list_builtin">Using the built-in list.</string>
-    <string name="bypass_engine_note">The bypass itself is built into the app and updates together with it. This only updates the list of strategies to try.</string>
-    <string name="bypass_close">Close</string>
 <string name="bypass_search_found_direct">Strategy verified. YouTube is also reachable directly on this network.</string>
-<string name="bypass_test_verified">The selected strategy passed every probe and is verified.</string>
 <string name="bypass_operation_failed">Something went wrong. Check Logs for details.</string>
 <string name="bypass_ready">Ready</string>
 <string name="bypass_not_ready">Test required</string>
@@ -226,7 +190,7 @@
     <string name="status_preparing_download">Preparing the download…</string>
     <string name="status_trying_another_way">Trying another way (%1$d of %2$d)…</string>
     <string name="status_trying_direct">Trying a direct connection…</string>
-    <string name="error_connection_blocked">Couldn’t reach YouTube from this network. Try again, switch networks, or run the check again in Settings.</string>
+    <string name="error_connection_blocked">Couldn’t reach %1$s from this network. Try again, switch networks, or run the check again in Settings.</string>
     <!-- Patch 34 -->
     <string name="copy_report">Copy report</string>
     <string name="report_copied">Report copied</string>

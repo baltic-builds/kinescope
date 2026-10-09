@@ -14,14 +14,11 @@
     <string name="quality_audio_mp3">Только аудио (MP3)</string>
 
     <string name="status_queued">В очереди</string>
-    <string name="status_starting">Запуск…</string>
     <string name="status_pausing">Приостанавливаем…</string>
     <string name="status_paused">На паузе</string>
     <string name="status_stopping">Останавливаем…</string>
-    <string name="status_stopped">Остановлено</string>
     <string name="status_recovering_update">Обновляем модуль загрузки…</string>
     <string name="status_recovering_retry">Попытка восстановления %1$d из %2$d…</string>
-    <string name="status_saved_to">Сохранено в Downloads/%1$s</string>
     <string name="progress_percent_eta">%1$.0f%% (осталось около %2$d с)</string>
 
     <string name="job_state_queued">В очереди</string>
@@ -34,7 +31,6 @@
 
     <string name="notification_channel_downloads">Загрузки</string>
     <string name="notification_starting">Запускаем загрузки…</string>
-    <string name="notification_downloading">Идёт загрузка…</string>
     <string name="notification_progress">Загрузка: %1$d%%</string>
 
     <string name="error_no_internet">Нет подключения к интернету</string>
@@ -47,15 +43,13 @@
     <string name="error_output_not_found">Не удалось найти загруженный файл.</string>
     <string name="error_failed_to_save">Не удалось сохранить загруженный файл.</string>
     <string name="error_control_cleanup_failed">Не удалось отменить уже завершённое сохранение. Удалите файл из библиотеки и повторите действие.</string>
-    <string name="error_cancelled">Загрузка отменена.</string>
-    <string name="error_only_youtube">Поддерживаются только ссылки youtube.com и youtu.be.</string>
 
     <string name="banner_no_internet">Нет подключения к интернету — некоторые загрузки не удалось запустить.</string>
     <string name="banner_youtube_verification">YouTube запрашивает дополнительную проверку. Kinescope уже выполнил автоматическое восстановление; вход в аккаунт может сделать сессию более доверенной.</string>
 
     <string name="empty_queue">Очередь пуста. Нажмите центральную кнопку ниже или поделитесь ссылкой YouTube или Instagram с Kinescope.</string>
     <string name="quick_add_hint">Вставьте ссылку YouTube или Instagram Reel. Если подходящая ссылка уже скопирована, Kinescope автоматически подставит её при открытии этого раздела.</string>
-    <string name="youtube_link_placeholder">Вставьте ссылку YouTube или Instagram…</string>
+    <string name="link_placeholder">Вставьте ссылку YouTube или Instagram…</string>
     <string name="start_download">Начать загрузку</string>
 
     <string name="refresh">Обновить</string>
@@ -75,7 +69,7 @@
     <string name="settings_youtube_account">Аккаунт YouTube</string>
     <string name="downloads_subfolder">Папка внутри Downloads</string>
     <string name="storage_hint">Новые файлы сохраняются в Downloads/%1$s. Уже загруженные файлы при смене папки не перемещаются.</string>
-    <string name="extractor_hint">Все загрузки выполняет yt-dlp. Kinescope использует канал nightly, чтобы быстрее получать исправления после изменений на стороне YouTube.</string>
+    <string name="extractor_hint">Все загрузки выполняет yt-dlp. Kinescope использует канал nightly, чтобы быстрее получать исправления после изменений на стороне YouTube или Instagram.</string>
     <string name="last_updated_never">Последнее обновление: никогда</string>
     <string name="last_updated">Последнее обновление: %1$s</string>
     <string name="check_for_update">Проверить обновление yt-dlp</string>
@@ -88,10 +82,10 @@
     <string name="youtube_session_not_saved">Сессия YouTube не сохранена.</string>
     <string name="youtube_login_warning">Необязательно. Авторизованная сессия может помочь при проверках и ограничениях по возрасту, но YouTube всё равно может ограничить IP или сбросить cookies. Google иногда запрещает вход во встроенных браузерах. Не используйте основной аккаунт для массовых автоматических загрузок.</string>
     <string name="youtube_sign_in_action">Войти в YouTube</string>
-    <string name="youtube_refresh_session">Обновить сессию</string>
-    <string name="youtube_sign_out">Выйти</string>
+    <string name="session_refresh">Обновить сессию</string>
+    <string name="session_sign_out">Выйти</string>
     <string name="youtube_login_instructions">Войдите на настоящей странице YouTube ниже, затем нажмите «Использовать эту сессию». Cookies хранятся только во внутреннем хранилище Kinescope и передаются yt-dlp только при загрузках с YouTube.</string>
-    <string name="youtube_use_session">Использовать эту сессию</string>
+    <string name="session_use">Использовать эту сессию</string>
     <string name="youtube_session_captured">Сессия YouTube сохранена.</string>
     <string name="youtube_session_capture_uncertain">Kinescope не обнаружил авторизованную сессию. Завершите вход в YouTube и повторите попытку.</string>
 
@@ -105,7 +99,6 @@
     <string name="cd_settings">Настройки</string>
     <string name="cd_pause">Поставить загрузку на паузу</string>
     <string name="cd_resume">Продолжить загрузку</string>
-    <string name="cd_stop">Остановить загрузку</string>
     <string name="cd_play">Воспроизвести</string>
     <string name="cd_more_options">Дополнительные действия</string>
     <string name="cd_dismiss">Закрыть</string>
@@ -130,7 +123,7 @@
     <string name="error_service_timeout">Android остановил длительную загрузку. Нажмите «Продолжить», чтобы возобновить её.</string>
     <string name="error_service_start">Не удалось запустить службу загрузки. Задача сохранена — нажмите «Продолжить», чтобы повторить.</string>
     <string name="error_duplicate_job">Это видео уже находится в очереди или ожидает повторной попытки.</string>
-    <string name="error_only_youtube_video">Вставьте ссылку на видео, Shorts или трансляцию YouTube, ссылку youtu.be либо ссылку на Instagram Reel. Профили и истории не поддерживаются.</string>
+    <string name="error_unsupported_link">Вставьте ссылку на видео, Shorts или трансляцию YouTube, ссылку youtu.be либо ссылку на Instagram Reel. Профили и истории не поддерживаются.</string>
 
     <string name="update_waiting_for_idle">Ждём завершения текущей загрузки, затем обновим yt-dlp…</string>
     <string name="personal_use_notice">Скачивайте только тот контент, который вы вправе сохранять. Kinescope не обходит ограничения доступа или DRM.</string>
@@ -148,38 +141,12 @@
     <string name="bypass_title">Обход блокировок сети</string>
     <string name="bypass_description">Сначала проверьте стратегию. Когда рабочий способ найден, Kinescope сможет использовать его для загрузок и для приложения YouTube. Это не скрывает ваше местоположение — только помогает обойти блокировки в этой сети.</string>
     <string name="bypass_enable">Использовать обход для загрузок</string>
-    <string name="bypass_strategy_label">Активная стратегия</string>
     <string name="bypass_find">Проверить стратегии</string>
     <string name="bypass_find_progress">Проверка стратегии %1$d из %2$d…</string>
     <string name="bypass_stop_search">Остановить поиск</string>
     <string name="bypass_search_found">Рабочая стратегия найдена и выбрана.</string>
     <string name="bypass_search_none">Ни одна стратегия не сработала в этой сети. Повторите поиск в сети с ограничениями или обновите список.</string>
     <string name="bypass_search_stopped">Поиск остановлен.</string>
-    <string name="bypass_search_not_needed">В этой сети YouTube доступен напрямую, сравнивать стратегии не с чем. Запустите поиск в сети с ограничениями.</string>
-    <string name="bypass_use">Выбрать</string>
-    <string name="bypass_result_hosts">%1$d из %2$d узлов</string>
-    <string name="bypass_test">Проверить выбранную</string>
-    <string name="bypass_testing">Проверка…</string>
-    <string name="bypass_test_title">Проверка соединения</string>
-    <string name="bypass_test_direct">Напрямую: %1$s</string>
-    <string name="bypass_test_via">Через обход: %1$s</string>
-    <string name="bypass_test_ok">работает</string>
-    <string name="bypass_test_failed_at">сбой на этапе: %1$s</string>
-    <string name="bypass_engine_failed">Обход не запустился.</string>
-    <string name="bypass_stage_dns">поиск адреса</string>
-    <string name="bypass_stage_tcp">соединение</string>
-    <string name="bypass_stage_proxy">запуск обхода</string>
-    <string name="bypass_stage_connect">соединение через обход</string>
-    <string name="bypass_stage_tls">защищённое соединение</string>
-    <string name="bypass_stage_http">загрузка страницы</string>
-    <string name="bypass_verdict_direct_ok">Прямое соединение работает, обход здесь не нужен.</string>
-    <string name="bypass_verdict_dns_blocked">Эта сеть вообще не находит адрес YouTube. Обход это не исправит.</string>
-    <string name="bypass_verdict_dns_blocks_bypass">Эта сеть блокирует адрес YouTube везде, даже для обхода. Это не исправить.</string>
-    <string name="bypass_verdict_tcp_blocked">Эта сеть вообще не соединяется с YouTube. Обход обычно тут не помогает.</string>
-    <string name="bypass_verdict_tls_interference">Соединение доходит до YouTube, но обрывается почти сразу. Обход часто может это исправить — запустите проверку стратегий.</string>
-    <string name="bypass_verdict_bypass_fixes">Прямое соединение блокируется, а через обход проходит. Включите обход.</string>
-    <string name="bypass_verdict_bypass_also_fails">Не работает ни прямое соединение, ни обход. Попробуйте другую стратегию или обновите список.</string>
-    <string name="bypass_verdict_bypass_unavailable">Обход недоступен.</string>
     <string name="bypass_update">Обновить список</string>
     <string name="bypass_updating">Обновление…</string>
     <string name="bypass_update_done">Добавлено новых стратегий: %1$d (всего %2$d).</string>
@@ -187,10 +154,7 @@
     <string name="bypass_update_failed">Не удалось обновить: %1$s</string>
     <string name="bypass_list_updated">Список обновлён: %1$s</string>
     <string name="bypass_list_builtin">Используется встроенный список.</string>
-    <string name="bypass_engine_note">Сам обход встроен в приложение и обновляется вместе с ним. Здесь обновляется только список стратегий.</string>
-    <string name="bypass_close">Закрыть</string>
 <string name="bypass_search_found_direct">Стратегия проверена. В этой сети YouTube также доступен напрямую.</string>
-<string name="bypass_test_verified">Выбранная стратегия прошла все проверки и готова к работе.</string>
 <string name="bypass_operation_failed">Что-то пошло не так. Подробности — в логах.</string>
 <string name="bypass_ready">Готово</string>
 <string name="bypass_not_ready">Нужна проверка</string>
@@ -226,7 +190,7 @@
     <string name="status_preparing_download">Готовим загрузку…</string>
     <string name="status_trying_another_way">Пробуем другой способ (%1$d из %2$d)…</string>
     <string name="status_trying_direct">Пробуем прямое подключение…</string>
-    <string name="error_connection_blocked">Не удалось подключиться к YouTube из этой сети. Повторите попытку, смените сеть или запустите проверку заново в настройках.</string>
+    <string name="error_connection_blocked">Не удалось подключиться к %1$s из этой сети. Повторите попытку, смените сеть или запустите проверку заново в настройках.</string>
     <!-- Patch 34 -->
     <string name="copy_report">Скопировать отчёт</string>
     <string name="report_copied">Отчёт скопирован</string>

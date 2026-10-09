@@ -8,9 +8,9 @@
 ![targetSdk](https://img.shields.io/badge/targetSdk-35-blue)
 ![Distribution](https://img.shields.io/badge/distribution-personal%20sideload-lightgrey)
 
-A personal Android app for downloading individual YouTube videos before travel and watching them offline later. Kinescope is sideload-only: no Google Play requirement, no Kinescope backend and no required paid service.
+A personal Android app for downloading individual YouTube videos and Instagram Reels before travel and watching them offline later. Kinescope is sideload-only: no Google Play requirement, no Kinescope backend and no required paid service.
 
-**Status after patch 28:** GitHub Actions builds successfully and the original embedded ByeDPI download path is user-confirmed on-device. Patch 28 adds a verified-strategy gate, a YouTube-only local Android VPN route, queue swipe removal, and a lighter navigation treatment. Remaining work is the focused device check in `ROADMAP.md`.
+**Status (patch 39):** builds succeed locally and on GitHub Actions, and downloads, the ByeDPI bypass and Instagram Reels are confirmed on the user's device. What is still unconfirmed on a phone, and the known limits, are listed in `ROADMAP.md`.
 
 ## Product flow
 
@@ -30,19 +30,19 @@ For YouTube verification / 403 / 429 failures the app uses a bounded recovery ch
 
 This is failure recovery, not a guarantee that YouTube will accept every IP/session. See `ROADMAP.md` for the remaining real-device verification and upstream compatibility limitations.
 
-## Instagram Reels (patch 37)
+## Instagram Reels
 
 Paste or share an `instagram.com/reel/...` link (or the `/share/reel/...` link the Instagram app's "Copy link" often gives). Everything still goes through `yt-dlp`; Kinescope writes no Instagram extraction code.
 
 Instagram no longer serves most Reels to anonymous downloaders, so Settings has an **Instagram account** row: sign in on the real Instagram page inside the app and Kinescope hands the resulting cookies to yt-dlp. Use a spare account, not your main one; Instagram may rate-limit or lock accounts used for automated downloading. The password is never seen or stored, the cookies stay in app-private storage, and signing out deletes them. A Reel that needs a login waits as a resumable Pause and continues after sign-in.
 
-Not supported: profiles, stories, highlights and playlists. See `ROADMAP.md` ("Patch 37") for what is still unverified on a device.
+Reels are saved as H.264 so they play on the phone (a VP9 file can play as sound with a black picture). Not supported: profiles, stories, highlights and playlists. See `ROADMAP.md` for what is still unverified on a device.
 
 ## Storage and privacy
 
 Finished files are committed through `MediaStore.Downloads` only after the copy succeeds; the private source is retained until `IS_PENDING` is cleared successfully. Library queries include both the current Kinescope download folder and historical folders previously configured by the user.
 
-Cookies, logs and the durable job journal remain in app-private storage. Android backup is disabled. Diagnostic logging redacts URLs, known cookie values and private app paths before writing to the rotating local journal or Logcat.
+Cookies, logs and the durable job journal remain in app-private storage. Android backup is disabled. Diagnostic logging redacts URLs, YouTube and Instagram cookie values and private app paths before writing to the rotating local journal or Logcat.
 
 ## Tech stack
 
@@ -59,13 +59,13 @@ Cookies, logs and the durable job journal remain in app-private storage. Android
 
 Third-party dependency/licensing inventory: `THIRD_PARTY_NOTICES.md`.
 
-## Network bypass (patch 28)
+## Network bypass
 
 Kinescope bundles the MIT `hufrea/byedpi` engine. In Settings -> ByeDPI, run **Test strategies** first; only a strategy that passes every probe can be enabled. The regular download switch routes yt-dlp through the local SOCKS5 engine.
 
 The Home **ByeDPI** action adds a second, deliberately narrow path for the official YouTube app: Android `VpnService` captures only `com.google.android.youtube`, `hev-socks5-tunnel` converts that TUN traffic to SOCKS5, and the existing ByeDPI engine opens the network connections. No remote VPN server is used, other apps are not captured, and the public IP is not hidden. Once active, open YouTube, choose a video, **Share -> Kinescope**, and download. Kinescope automatically starts its separate short-lived `:dpi` engine with the same verified strategy while the YouTube `:dpi_vpn` session stays active.
 
-The first start shows Android's standard VPN-consent dialog. Stop the session from Settings or its foreground notification. Building still requires the Android NDK; Patch 28 additionally vendors an arm64 `hev-socks5-tunnel` library built from its pinned MIT upstream tag.
+The first start shows Android's standard VPN-consent dialog. Stop the session from Settings or its foreground notification. Building still requires the Android NDK; the repository also vendors an arm64 `hev-socks5-tunnel` library built from its pinned MIT upstream tag.
 
 ## Building in Codespaces
 
@@ -99,9 +99,9 @@ See `RELEASE.md` for signing-key setup and the exact release process.
 
 - **`CLAUDE.md`** — non-negotiable project/product constraints and the user decision log.
 - **`AGENTS.md`** — coding-agent workflow, verification and patch-delivery rules.
-- **`HANDOFF.md`** — latest cross-session state; read this first when resuming work.
-- **`ROADMAP.md`** — only remaining verification gates / upstream blockers. The former lowercase audit roadmap has been consumed and remains deleted.
-- **`CHANGELOG.md`** — cumulative patch history and rationale.
+- **`HANDOFF.md`** — the current state, architecture and file map in one page; read this first when resuming work.
+- **`ROADMAP.md`** — only what is still open: device verification gates, technical debt, out of scope. The former lowercase audit roadmap has been consumed and remains deleted.
+- **`CHANGELOG.md`** — cumulative patch history and rationale (the place for "how did this get here").
 - **`CJM.md`** — customer journey behind reliability priorities.
 - **`design.md`** — current visual tokens, typography, navigation and icon rules.
 - **`RELEASE.md`** — release signing and CI publishing.

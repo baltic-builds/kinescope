@@ -3,8 +3,8 @@
 Read this file first in any new session working on this repo.
 
 ## What this project is
-A personal Android app that downloads YouTube videos for offline
-viewing. Built by Baltic, who travels for work to a region where
+A personal Android app that downloads YouTube videos and Instagram
+Reels for offline viewing. Built by Baltic, who travels for work to a region where
 YouTube is network-restricted. Videos are downloaded at home in the
 Netherlands (normal residential IP) and watched offline on the phone
 during trips.
@@ -31,8 +31,8 @@ during trips.
   expected).
 
 ## Current state
-See `ROADMAP.md` for phase status and `HANDOFF.md` for the latest
-session snapshot. **Read `HANDOFF.md` first** if you're starting a
+See `ROADMAP.md` for what is still open and `HANDOFF.md` for the
+current state, architecture and file map. **Read `HANDOFF.md` first** if you're starting a
 fresh conversation with no prior context on this repo.
 
 ## User instruction log
@@ -81,3 +81,4 @@ future sessions don't lose them.)
 - **Known upstream limitation (patch 25): do not claim 16 KB page-size compatibility yet.** Android 15 can run on 16 KB page-size devices, while the currently pinned `youtubedl-android 0.18.1` has an open upstream native-payload compatibility issue. Re-check this when a newer wrapper release is considered; do not paper over it locally with custom native binaries without an explicit user decision.
 - **Decision (patch 27): an optional in-app network bypass is now part of Kinescope, at the user's explicit request.** It vendors the MIT `hufrea/byedpi` C engine (not ByeByeDPI's own GPL Kotlin/Java code) behind Kinescope's own JNI glue, runs it in a dedicated `:dpi` process torn down after every use, and is off by default. Settings expose enable/disable, a strategy search against real YouTube-related hosts, manual strategy selection, a direct-vs-bypassed connection test (reusing patch 26's `NetworkCheck`), and a strategy-list update (plain HTTPS GET, no backend). It does not claim to fix DNS- or IP-level blocking, only DPI/header-based blocking. Do not remove or weaken the `DpiStrategyParser` allowlist (no listen-address, file-path, or connect-target options) to make a strategy "just work" -- that allowlist is the boundary that keeps a downloaded strategy list from ever controlling anything beyond the desync behavior itself.
 - **Decision (patch 37): Instagram Reels are a second supported source, at the user's explicit request** ("download by link, not only from YouTube, minimal GUI change"). Extraction stays entirely inside yt-dlp. Anonymous Instagram access needs browser TLS impersonation (curl_cffi) that the pinned `youtubedl-android 0.18.1` does not ship, and the only prebuilt bundle found with it is a paid fork, so Reels use an optional signed-in WebView session (`InstagramAuth`), preferably from a spare account, passed to yt-dlp with `--cookies`. Do not add a paid fork, a private-API library (aiograpi/instagrapi), a hosted downloader API or any hand-written Instagram scraping. `InstagramShareResolver` follows the HTTP redirect of `instagram.com/share/...` links and nothing else (no body is read, no cookie is sent, every hop must pass `InstagramUrlParser`); keep it that narrow. Profiles, stories and playlists stay out of scope.
+- **Request (patch 39): a final production review** (DRY, KISS, YAGNI, SOLID; remove dead code and repository leftovers; bring the documents, GUI and UI texts to the current state). Result: `CHANGELOG.md`, "Patch 39". Large structural refactors that cannot be verified without a device were deliberately not done; they are listed in `ROADMAP.md`.

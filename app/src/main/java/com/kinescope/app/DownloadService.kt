@@ -233,7 +233,7 @@ class DownloadService : Service() {
         // Patch 37: the site comes from the canonical URL. Only the YouTube session is re-captured
         // from the WebView before a run; the Instagram cookie file is rewritten by yt-dlp itself
         // when Instagram rotates a cookie, and a re-capture would overwrite that with older values.
-        val source = MediaSource.fromCanonicalUrl(job.canonicalUrl)
+        val source = job.mediaSource
         if (source == MediaSource.YOUTUBE && YouTubeAuth.hasSavedSession(this)) {
             YouTubeAuth.refreshSavedSession(this)
         }
@@ -275,6 +275,10 @@ class DownloadService : Service() {
             AppLog.e("DownloadService", "Engine execution failed job=${job.id}", e)
             failJob(job, FailureKind.ENGINE, friendlyError(e.message))
             return
+        } finally {
+            // Patch 39: the hold above was never released, so after the first download of a process
+            // every strategy search that started later waited for ever between two strategies.
+            DpiSearchController.releaseDownload()
         }
 
         requestedControls.remove(job.id)?.let {
@@ -312,7 +316,7 @@ class DownloadService : Service() {
         preset: QualityPreset,
         outputTemplate: String
     ) {
-        val source = MediaSource.fromCanonicalUrl(job.canonicalUrl)
+        val source = job.mediaSource
         val instagramSession = source == MediaSource.INSTAGRAM && InstagramAuth.hasSavedSession(this)
         // Patch 37: the YouTube player-client profiles mean nothing for Instagram. Its chain is the
         // plain run plus one retry after a nightly yt-dlp refresh (extractor fixes land there), and
@@ -637,7 +641,7 @@ class DownloadService : Service() {
         bypass: BypassSession?,
         limits: MonitorLimits? = null
     ) {
-        val mediaSource = MediaSource.fromCanonicalUrl(job.canonicalUrl)
+        val mediaSource = job.mediaSource
         val request = YoutubeDLRequest(job.canonicalUrl).apply {
             addOption("-o", outputTemplate)
             addOption("--no-playlist")
@@ -671,8 +675,7 @@ class DownloadService : Service() {
             profile.extractorArgs?.let { addOption("--extractor-args", it) }
             if (profile.forceIpv4) addOption("--force-ipv4")
             // socks5h: the bypass engine resolves the host name itself, not the device, so a
-            // network that filters DNS for these hosts does not defeat the bypass by itself
-            // (NetworkCheck's DNS_BLOCKS_BYPASS verdict names exactly this remaining case).
+            // network that filters DNS for these hosts does not defeat the bypass by itself.
             bypass?.let { addOption("--proxy", "socks5h://${DpiEngine.HOST}:${it.port}") }
         }
 
@@ -977,7 +980,10 @@ class DownloadService : Service() {
             FailureKind.AGE_RESTRICTED -> getString(R.string.error_age_restricted)
             FailureKind.UNAVAILABLE -> getString(R.string.error_video_unavailable)
             FailureKind.NO_INTERNET -> getString(R.string.error_no_internet)
-            FailureKind.CONNECTION_BLOCKED -> getString(R.string.error_connection_blocked)
+            FailureKind.CONNECTION_BLOCKED -> getString(
+                R.string.error_connection_blocked,
+                if (source == MediaSource.INSTAGRAM) "Instagram" else "YouTube"
+            )
             else -> if (message.isBlank()) {
                 getString(R.string.error_unknown)
             } else {

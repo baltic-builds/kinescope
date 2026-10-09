@@ -41,34 +41,6 @@ object DpiBypass {
     private const val SEARCH_STAGE_TIMEOUT_MS = 4_000
 
     /**
-     * Starts the engine for a download when the bypass is switched on. Tries the verified
-     * strategy, then its verified fallbacks in order, and returns the first one that actually
-     * starts. Returns null when the bypass is off, nothing is verified, or none of the
-     * verified strategies could start; the download then simply proceeds on the direct
-     * connection.
-     */
-    fun startIfEnabled(context: Context): BypassSession? {
-        val requestedByYouTubeJourney = BypassVpnController.state.value.active
-        if (!DpiPrefs.isEnabled(context) && !requestedByYouTubeJourney) return null
-        val chain = DpiStrategyStore.verifiedChain(context)
-        if (chain.isEmpty()) {
-            AppLog.w("DpiBypass", "No verified strategy; continuing without bypass")
-            return null
-        }
-        for (line in chain) {
-            val parsed = DpiStrategyParser.parse(line) as? DpiStrategyParser.Parsed.Ok ?: continue
-            val session = DpiEngine.start(context, parsed.args)
-            if (session != null) {
-                AppLog.i("DpiBypass", "Engine ready; strategy=\"$line\"")
-                return session
-            }
-            AppLog.w("DpiBypass", "Strategy did not start, trying the next verified one")
-        }
-        AppLog.w("DpiBypass", "No verified strategy could start; continuing without bypass")
-        return null
-    }
-
-    /**
      * Patch 33: the strategies a download may use, best first -- empty when the bypass is off or
      * nothing is verified, in which case the download simply goes direct.
      */
@@ -125,8 +97,6 @@ object DpiBypass {
         }
         return last
     }
-
-    internal fun isHealthy(port: Int): Boolean = checkHealth(port, tries = 1).ok
 
     /**
      * Patch 33: keeps the best [MAX_VERIFIED_STRATEGIES] of a finished search (primary first,
