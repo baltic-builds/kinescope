@@ -10,6 +10,7 @@ object Settings {
     private const val KEY_DOWNLOAD_SUBFOLDER = "download_subfolder"
     private const val KEY_KNOWN_SUBFOLDERS = "known_download_subfolders"
     private const val KEY_LAST_UPDATE_TIMESTAMP = "last_ytdlp_update_timestamp"
+    private const val KEY_INTERFACE_MODE = "interface_mode"
 
     const val DEFAULT_SUBFOLDER = "Kinescope"
     private const val LEGACY_SUBFOLDER = "YTOffline"
@@ -76,6 +77,14 @@ object Settings {
 
     fun setLastUpdateTimestamp(context: Context, timestampMillis: Long) {
         prefs(context).edit().putLong(KEY_LAST_UPDATE_TIMESTAMP, timestampMillis).apply()
+    }
+
+    /** Patch 41: Automatic (decide from the device), TV or Phone and tablet. */
+    internal fun getInterfaceMode(context: Context): InterfaceMode =
+        InterfaceMode.fromPersisted(prefs(context).getString(KEY_INTERFACE_MODE, null))
+
+    internal fun setInterfaceMode(context: Context, mode: InterfaceMode) {
+        prefs(context).edit().putString(KEY_INTERFACE_MODE, mode.persistedValue).apply()
     }
 
     private fun sanitizeSubfolder(name: String): String {

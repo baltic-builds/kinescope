@@ -9,14 +9,17 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.ExperimentalTextApi
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.googlefonts.GoogleFont
 import androidx.compose.ui.text.googlefonts.Font
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.isSpecified
 
 /**
  * Design tokens. See design.md for the reasoning and honesty caveats
@@ -188,15 +191,44 @@ private val YtOfflineShapes = Shapes(
     extraLarge = RoundedCornerShape(28.dp)
 )
 
+// Patch 41: a TV is read from across the room, so every text style grows by the same factor (the layout
+// spec decides it; 1 on phones and tablets). Sizes and line heights scale together.
+private fun TextStyle.scaled(factor: Float): TextStyle = copy(
+    fontSize = if (fontSize.isSpecified) fontSize * factor else fontSize,
+    lineHeight = if (lineHeight.isSpecified) lineHeight * factor else lineHeight
+)
+
+private fun Typography.scaled(factor: Float): Typography = copy(
+    displayLarge = displayLarge.scaled(factor),
+    displayMedium = displayMedium.scaled(factor),
+    displaySmall = displaySmall.scaled(factor),
+    headlineLarge = headlineLarge.scaled(factor),
+    headlineMedium = headlineMedium.scaled(factor),
+    headlineSmall = headlineSmall.scaled(factor),
+    titleLarge = titleLarge.scaled(factor),
+    titleMedium = titleMedium.scaled(factor),
+    titleSmall = titleSmall.scaled(factor),
+    bodyLarge = bodyLarge.scaled(factor),
+    bodyMedium = bodyMedium.scaled(factor),
+    bodySmall = bodySmall.scaled(factor),
+    labelLarge = labelLarge.scaled(factor),
+    labelMedium = labelMedium.scaled(factor),
+    labelSmall = labelSmall.scaled(factor)
+)
+
 @Composable
 fun YtOfflineTheme(content: @Composable () -> Unit) {
     val dark = isSystemInDarkTheme()
     val colorScheme = if (dark) DarkColors else LightColors
     val extendedColors = if (dark) DarkExtendedColors else LightExtendedColors
+    val typographyScale = LocalAdaptive.current.typographyScale
+    val typography = remember(typographyScale) {
+        if (typographyScale == 1f) YtOfflineTypography else YtOfflineTypography.scaled(typographyScale)
+    }
     CompositionLocalProvider(LocalYtOfflineExtendedColors provides extendedColors) {
         MaterialTheme(
             colorScheme = colorScheme,
-            typography = YtOfflineTypography,
+            typography = typography,
             shapes = YtOfflineShapes,
             content = content
         )

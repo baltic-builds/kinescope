@@ -154,7 +154,9 @@ fun BypassSettingsSection(requestNotifications: () -> Unit = {}) {
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(stringResource(R.string.bypass_youtube_active), style = MaterialTheme.typography.labelLarge)
-                    TextButton(onClick = { BypassVpnService.stop(context) }) { Text(stringResource(R.string.stop)) }
+                    FocusRing {
+                        TextButton(onClick = { BypassVpnService.stop(context) }) { Text(stringResource(R.string.stop)) }
+                    }
                 }
                 vpnState.starting -> Text(
                     stringResource(R.string.bypass_notification_starting),
@@ -186,12 +188,16 @@ fun BypassSettingsSection(requestNotifications: () -> Unit = {}) {
             modifier = Modifier.fillMaxWidth()
         )
         Spacer(Modifier.height(8.dp))
-        OutlinedButton(modifier = Modifier.fillMaxWidth(), onClick = { DpiSearchService.stop(context) }) {
-            Text(stringResource(R.string.bypass_stop_search))
+        FocusRing(modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(modifier = Modifier.fillMaxWidth(), onClick = { DpiSearchService.stop(context) }) {
+                Text(stringResource(R.string.bypass_stop_search))
+            }
         }
     } else {
-        Button(modifier = Modifier.fillMaxWidth(), enabled = controlsEnabled, onClick = startSearch) {
-            Text(stringResource(R.string.bypass_find))
+        FocusRing(modifier = Modifier.fillMaxWidth()) {
+            Button(modifier = Modifier.fillMaxWidth(), enabled = controlsEnabled, onClick = startSearch) {
+                Text(stringResource(R.string.bypass_find))
+            }
         }
     }
 
@@ -201,14 +207,16 @@ fun BypassSettingsSection(requestNotifications: () -> Unit = {}) {
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text(stringResource(R.string.bypass_enable), style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-        Switch(
-            checked = enabled,
-            enabled = verified && controlsEnabled,
-            onCheckedChange = {
-                enabled = it
-                DpiPrefs.setEnabled(context, it)
-            }
-        )
+        FocusRing(shape = MaterialTheme.shapes.extraLarge) {
+            Switch(
+                checked = enabled,
+                enabled = verified && controlsEnabled,
+                onCheckedChange = {
+                    enabled = it
+                    DpiPrefs.setEnabled(context, it)
+                }
+            )
+        }
     }
     if (downloadActive) {
         Text(
@@ -224,8 +232,10 @@ fun BypassSettingsSection(requestNotifications: () -> Unit = {}) {
         )
     }
 
-    TextButton(modifier = Modifier.fillMaxWidth(), enabled = controlsEnabled, onClick = runUpdate) {
-        Text(stringResource(if (busy == BypassBusy.UPDATING) R.string.bypass_updating else R.string.bypass_update))
+    FocusRing(modifier = Modifier.fillMaxWidth()) {
+        TextButton(modifier = Modifier.fillMaxWidth(), enabled = controlsEnabled, onClick = runUpdate) {
+            Text(stringResource(if (busy == BypassBusy.UPDATING) R.string.bypass_updating else R.string.bypass_update))
+        }
     }
 
     message?.let {

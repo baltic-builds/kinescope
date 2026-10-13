@@ -229,4 +229,17 @@
     <string name="instagram_session_capture_uncertain">Kinescope не обнаружил авторизованную сессию Instagram. Завершите вход и повторите попытку.</string>
     <string name="error_instagram_login">Для этого Reel Instagram требует вход в аккаунт. Войдите в Instagram в настройках, и загрузка продолжится.</string>
     <string name="banner_instagram_login">Instagram просит войти в аккаунт, прежде чем отдать этот Reel.</string>
+    <!-- Patch 41: navigation rail labels (TV), empty states for the rail layouts, interface mode, TV hints. -->
+    <string name="nav_home">Главная</string>
+    <string name="nav_add">Добавить</string>
+    <string name="nav_settings">Настройки</string>
+    <string name="empty_queue_side">Очередь пуста. Нажмите кнопку «Добавить» слева или поделитесь ссылкой YouTube или Instagram с Kinescope.</string>
+    <string name="empty_queue_tv">Очередь пуста. Выберите «Добавить» в меню слева и введите ссылку YouTube или Instagram.</string>
+    <string name="settings_interface">Интерфейс</string>
+    <string name="interface_hint">«Автоматически» подбирает вид под это устройство. Выберите «ТВ» для телевизора или приставки, «Телефон и планшет» — для сенсорного экрана.</string>
+    <string name="interface_auto">Автоматически</string>
+    <string name="interface_tv">ТВ</string>
+    <string name="interface_touch">Телефон и планшет</string>
+    <string name="no_player_tv">Не найден видеоплеер. Установите его, например VLC или Kodi, и повторите.</string>
+    <string name="web_session_unavailable">Вход здесь недоступен: на этом устройстве нет встроенного браузера.</string>
 </resources>

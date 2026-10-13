@@ -5,6 +5,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.widget.Toast
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -15,7 +16,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -31,39 +31,74 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 
 // The Logs screen (five taps on the Settings icon) and its copy/share actions.
-// Patch 40: moved out of MainActivity.kt unchanged.
+// Patch 40: moved out of MainActivity.kt unchanged. Patch 41: one row of four buttons when the window has room,
+// and on a TV every log line is a focus stop, so the list can be scrolled with the D-pad.
 
 @Composable
 internal fun LogsScreen() {
     val context = LocalContext.current
+    val spec = LocalAdaptive.current
     var lines by remember { mutableStateOf(AppLog.readLines()) }
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        // Patch 34: Copy report / Share put the report header plus the newest lines on the clipboard.
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
+    // Patch 34: Copy report / Share put the report header plus the newest lines on the clipboard.
+    val copyButton: @Composable () -> Unit = {
+        FocusRing {
             Button(onClick = { copyReport(context) }) {
                 Text(stringResource(R.string.copy_report))
             }
+        }
+    }
+    val shareButton: @Composable () -> Unit = {
+        FocusRing {
             OutlinedButton(onClick = { shareLogs(context) }) {
                 Text(stringResource(R.string.share_logs))
             }
         }
-        Spacer(modifier = Modifier.height(4.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
+    }
+    val refreshButton: @Composable () -> Unit = {
+        FocusRing {
             OutlinedButton(onClick = { lines = AppLog.readLines() }) {
                 Text(stringResource(R.string.refresh))
             }
+        }
+    }
+    val clearButton: @Composable () -> Unit = {
+        FocusRing {
             OutlinedButton(onClick = {
                 AppLog.clear()
                 lines = emptyList()
             }) {
                 Text(stringResource(R.string.clear_logs))
+            }
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        if (spec.useRail) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                copyButton()
+                shareButton()
+                refreshButton()
+                clearButton()
+            }
+        } else {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                copyButton()
+                shareButton()
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                refreshButton()
+                clearButton()
             }
         }
         Spacer(modifier = Modifier.height(8.dp))
@@ -78,13 +113,26 @@ internal fun LogsScreen() {
         } else {
             LazyColumn(modifier = Modifier.fillMaxSize()) {
                 itemsIndexed(lines) { _, line ->
-                    Text(
-                        text = line,
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 3.dp)
-                    )
+                    if (spec.isTv) {
+                        FocusRing(modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.small) {
+                            Text(
+                                text = line,
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .focusable()
+                                    .padding(vertical = 3.dp)
+                            )
+                        }
+                    } else {
+                        Text(
+                            text = line,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 3.dp)
+                        )
+                    }
                 }
             }
         }

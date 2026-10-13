@@ -4,7 +4,7 @@ The current state of Kinescope for anyone (human or AI agent) resuming work. It 
 appended to: per-patch history lives in `CHANGELOG.md`, open work in `ROADMAP.md`, process rules in `AGENTS.md`,
 product constraints in `CLAUDE.md`. Where this file and the code disagree, the code wins; fix this file.
 
-State as of patch 40 (2026-10-06).
+State as of patch 42 (2026-10-12).
 
 ## What Kinescope is
 
@@ -21,8 +21,10 @@ engine (ByeDPI) helps when the current network blocks YouTube.
 download, offline playback and background persistence; the DPI bypass (strategy search, ranking, download through
 the bypass); the compact log and Copy report; Instagram Reels download and play (after patch 38).
 **Implemented but not yet confirmed on a device:** patch 36 UX/lifecycle changes, the Instagram sign-in,
-`/share/` resolution and error texts (patches 37-38), and patch 39 (the strategy-search hold fix, the shared
-sign-in screen, the cleanup). The exact checklist is `ROADMAP.md`; do not tick a box without the user's report.
+`/share/` resolution and error texts (patches 37-38), patch 39 (the strategy-search hold fix, the shared
+sign-in screen, the cleanup), the file split of patch 40, and the tablet and TV layouts of patch 41 (audited and
+hardened in patch 42). The exact
+checklist is `ROADMAP.md`; do not tick a box without the user's report.
 **Open outside the code:** the Play Protect "App blocked" dialog on install (`RELEASE.md`), and `youtubedl-android`
 not yet being 16 KB page-size compatible (upstream).
 
@@ -68,6 +70,15 @@ not yet being 16 KB page-size compatible (upstream).
   `DiagnosticReport` adds the header for Settings -> Copy report. Backup is disabled.
 - **UI.** Home (queue + library, bypass card), Add, Settings, Logs (five taps on the Settings icon), sign-in
   screens. English default, Russian in `values-ru`; every string exists in both.
+- **Adaptive layout (patch 41).** One APK for phones, tablets and Android TV. `AdaptiveRoot` classifies the window
+  (`adaptiveSpecFor`, Material breakpoints 600/840dp) and provides `LocalAdaptive`; screens read it. Phone in
+  portrait: bottom bar, one column. Medium/expanded or short windows: a navigation rail and, when 700dp of content
+  fits, two panes (Home: queue | library; Settings: general | bypass). TV (device report or Settings -> Interface
+  override): rail with labels, 48dp x 27dp overscan margins, text x1.15, a `FocusRing` around every control, no
+  touch-only gestures. A new composable that can be focused must be wrapped in `FocusRing`; layout decisions go
+  through `AdaptiveSpec`, not through ad-hoc `if (isTv)` checks. `AppFrame` is ONE structure for every layout
+  (a Scaffold with empty bars in the rail layout, a Row, a Column, a single call of the screen content): a
+  second branch around the content would rebuild every screen when a phone is rotated.
 
 ## File map
 
@@ -90,7 +101,7 @@ Downloads and queue
 - `RunMonitor.kt` -- judges a running yt-dlp process (phase, speed, stall).
 - `EngineController.kt`, `YtDlpUpdater.kt` -- the yt-dlp/ffmpeg lock; nightly update wrapper.
 - `MediaStorage.kt` -- MediaStore publish/list/delete, MIME from the real output.
-- `Settings.kt` -- SharedPreferences for quality, storage folder history, update timestamp.
+- `Settings.kt` -- SharedPreferences for quality, storage folder history, update timestamp, interface mode.
 - `AppIntents.kt` -- notification tap target (brings the single-task activity to Home).
 - `YtOfflineApp.kt` -- `Application`: journal recovery, engine readiness, update cadence, crash log (main process only).
 
@@ -102,7 +113,8 @@ Links and sites
 
 UI
 - `MainActivity.kt` -- the activity, `AppSection`, `KinescopeApp` (state, navigation, handlers).
-- `AppChrome.kt` -- responsive column, bottom navigation, strategy-refresh notice.
+- `AdaptiveLayout.kt` -- window classification (`AdaptiveSpec`, `adaptiveSpecFor`), TV detection, `InterfaceMode`, `LocalAdaptive`, `AdaptiveRoot`, `FocusRing`.
+- `AppChrome.kt` -- `AppFrame` (top bar + bottom bar, or header + navigation rail), responsive column, strategy-refresh notice.
 - `HomeScreen.kt` -- Home: bypass card, queue/library lists, empty state, banners.
 - `QueueAndLibrary.kt` -- the queue-job row, the library-file row and the library file actions.
 - `QuickAddScreen.kt`, `SettingsScreen.kt`, `LogsScreen.kt` -- the Add, Settings and Logs screens.
@@ -124,7 +136,7 @@ Diagnostics
 
 Tests (`app/src/test/java/com/kinescope/app/`, pure JVM, run by `testDebugUnitTest`) cover link parsing, error
 classification, the cookie file, the route and chain ordering, the run monitor, the log format, the strategy
-parser/search/ranking/store, the network probe and the privacy redaction. Build and release: `.devcontainer/setup.sh`
+parser/search/ranking/store, the network probe, the privacy redaction and the window classification. Build and release: `.devcontainer/setup.sh`
 (pinned Android command-line tools), `.github/workflows/build-release.yml` (the only CI, manual, signed release),
 `RELEASE.md`.
 
@@ -177,6 +189,15 @@ parser/search/ranking/store, the network probe and the privacy redaction. Build 
 - **Hold/release pairs need a `finally`.** The strategy-search hold taken per download was never released until
   patch 39; a counter test pins the semantics, the `finally` at the call site is what fixes the leak.
 - **Move-only refactors are verifiable when the moves are mechanical.** Cut members out by anchor and keep the bodies verbatim (a `ContextWrapper` around the service lets code that calls `getString` or passes `this` as a Context move unchanged), audit the result line by line, and compile before and after. For Compose files without the Compose libraries, compile with name-resolving stubs for every imported symbol and compare the error profiles: a missing import or a `private`-in-file reference shows up as a difference.
+- **A layout switch must move the content, not rebuild it.** Compose keeps state by call site: if the screen content
+  is composed in two different branches (`if (rail) A { content() } else B { content() }`), crossing the breakpoint
+  (a phone turned to landscape, a resized window) discards the state of every screen below, including a WebView
+  sign-in. Keep one call site and vary only the siblings around it (patch 42).
+- **Focus on TV is not free in Compose.** `Modifier.onFocusChanged` on a parent reports the combined state of the
+  focus targets below it: `isFocused` when the nearest one is itself focused, `hasFocus` (without `isFocused`) when
+  a descendant is. `FocusRing` relies on that. It is a wrapper composable on purpose: a `@Composable` or
+  `composed` modifier factory may draw Compose lint findings (severity not checked) and `lintDebug` is a gate. Read
+  from the androidx source (main), not from the pinned tag.
 - **Format selection is not neutral.** yt-dlp's default sort prefers a labelled codec; always state the codec you
   want when a site labels only some streams.
 - **A later patch can silently break an earlier patch's idempotency check** when it rewrites text the earlier one

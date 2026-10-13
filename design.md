@@ -216,3 +216,25 @@ not identity.
 
 - Settings shows each account session (YouTube, Instagram) with the same block: header, saved/not-saved line, one warning sentence, then a primary `Sign in` / `Refresh session` button and, when a session exists, an outlined `Sign out`. Both open the same embedded sign-in screen with the same `Use this session` / `Cancel` row. No new colors, shapes or motion.
 - Error and hint texts that depend on the site name it (`Couldn't reach Instagram from this network.`) instead of assuming YouTube.
+
+## Patch 41 — one layout system for phone, tablet and TV
+
+The warm cream/terracotta system, the typography and the shapes are unchanged; this patch changes only how the
+same pieces are arranged. Everything below is a first approximation drawn without a tablet or a TV at hand (see the
+honesty check at the top): compare it on real screens and adjust the numbers in `adaptiveSpecFor`.
+
+- **Breakpoints** are Material 3's window width classes, taken from the window's own size in dp: compact below 600dp,
+  medium below 840dp, expanded from 840dp; a window under 480dp high is "short" (a landscape phone).
+- **Navigation:** compact and tall keeps the floating bottom bar. Everything else gets the same glass strip on the
+  left edge: `80dp` wide, icon-only, three 56dp targets, the Add action primary. On TV it is `96dp` wide, the targets
+  are `64dp` and every item has a label.
+- **Content:** a phone column caps at `640dp`; medium `720dp`; expanded `1200dp`; TV `1280dp`. Two panes (Home, Settings)
+  start when `700dp` of content fits next to the rail; the gap between panes is `24dp` (`32dp` on TV). Forms (Add) keep
+  `640dp` in the middle.
+- **TV:** margins `48dp` left and right and `27dp` top and bottom (the 5% overscan of a 960x540dp screen); every text
+  style 15% larger; no new colors. A control that can be focused shows a `3dp` ring in `onBackground` (it contrasts
+  with both the cream and the terracotta surfaces). The ring space is always reserved, so focus never shifts the layout.
+  No scale or glow animation: it would only add motion to a calm interface.
+- **Touch-only gestures get a visible twin on TV:** the swipe-to-remove of a queue row becomes a remove button; the
+  library row's overflow menu becomes inline Share and Delete.
+- Preserve whitespace: the phone layout gets none of the above; no label, border or surface was added to it.

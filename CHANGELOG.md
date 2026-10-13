@@ -13,6 +13,163 @@ patch's own `.py` script for the exact, idempotent, exact-match-guarded
 edits it makes.
 
 
+## Patch 42 — Audit of patch 41 and the codebase: a frame that keeps screen state, hardening, repository hygiene
+
+Requires patch 41. Requested: a deep, selective audit for optimization and simplification (KISS, YAGNI, DRY, SOLID),
+for security and for reliability, then fixes, documentation, a check, a push, and removal of old scripts and other
+junk. Method: objective scans of the whole tree first (unused strings, resources, imports and declarations; TODO and
+debug-print leftovers; longest functions; duplicated blocks), then a manual read of the places where a mistake costs
+most (manifest, link parsing, the WebView, storage paths, the incoming intent, cookie files, queue concurrency, the
+journal), then a line-by-line review of the patch-41 code against the four principles.
+
+### Fixed
+- **A bug in patch 41: rotating a phone threw away screen state.** `AppFrame` had two separate branches (a Scaffold
+  for the bottom-bar layout, a Row for the rail layout), so turning a phone from portrait to landscape (which
+  switches to the rail) or resizing a window rebuilt every screen: unsaved text in Settings, list positions, dismissed
+  banners and, worst, a half filled-in sign-in page in the WebView. `AppFrame` is now one structure (a Scaffold whose
+  bars are empty in the rail layout, then a Row, a Column and a single call of the screen content), so the same
+  composition is moved, not rebuilt. In the rail layout the Scaffold's own insets are switched off
+  (`contentWindowInsets`) because the frame applies the safe-drawing insets itself. Verified by reading Scaffold's
+  signature in the androidx source; the behavior itself needs the device checks in `ROADMAP.md`.
+- **YAGNI:** `AdaptiveSpec.widthClass`, `AdaptiveSpec.shortHeight` and the `WidthClass` enum were read by nobody but the
+  tests; removed. The rules are the same (the 14 tests now assert the observable behavior: rail, cap, panes).
+- **DRY:** the dismiss button of the two Home banners was written twice; it is `DismissButton` now.
+- **Security hardening:** the sign-in WebView no longer allows file or content-provider access (`allowFileAccess`,
+  `allowContentAccess` off). The page is a remote site and never needs either; the defaults are already off for
+  `targetSdk` 30+ on files, so this makes the intent explicit and closes the content-provider case.
+- **Repository hygiene:** `.gitignore` now ignores patch scripts, repomix packs and merge debris
+  (`/patch_*.py`, `/repomix-output.*`, `*.orig`, `*.rej`, `*.bak`), so they cannot be committed by `git add -A` and do
+  not end up in the next repomix pack. After a successful Gradle run this script removes such leftovers from the
+  repository root (including the patch-41 script) and then itself.
+
+### Checked, no change needed
+- **Manifest:** every service is `exported="false"`; the VPN service is guarded by `BIND_VPN_SERVICE`; `allowBackup` is
+  off; the only exported component is the launcher activity, whose only inputs are `text/plain` shares and a
+  navigation action.
+- **Link handling:** `MediaUrlParser` allows `http`/`https` only, an exact host allowlist, no user info, no unexpected
+  port, a strict video id (`[A-Za-z0-9_-]{6,20}`) and rebuilds the URL itself (`https://www.youtube.com/watch?v=<id>`),
+  so nothing the user pastes can reach yt-dlp as an option. A text longer than 4096 characters is refused before
+  parsing (`MAX_INPUT_LENGTH`).
+- **Storage:** the subfolder name drops `/`, `\` and control characters and falls back on `.`/`..`; a Library delete is
+  a scoped-storage delete of a row the app itself listed (filtered by `RELATIVE_PATH`); cookie files live in
+  `filesDir` (app-private, never backed up).
+- **Reliability:** the queue is guarded by one lock and `StateFlow.update`; the journal is written with `AtomicFile` and
+  a corrupt one is quarantined; the log rotates at 1 MB and redacts before writing; duplicate enqueues are answered with
+  `DUPLICATE`, so a double tap on Go or Start cannot queue a link twice.
+- **Hygiene scan of the whole tree** (58 main Kotlin files, 9.6k lines, 25 test files, 125 tests): no unused string,
+  resource, import or declaration; no TODO/FIXME; no `println`/`printStackTrace`; the only plain `Log` calls are in
+  `DpiEngineService`, which runs in its own process on purpose.
+
+### Recorded, not changed (see `ROADMAP.md`, "Technical debt")
+- `KinescopeApp` is the longest function (about 300 lines: navigation state, permissions, the bypass launch flow,
+  enqueue handling). Splitting it is the right next simplification, but not on top of two patches that no device has
+  confirmed yet.
+- `YouTubeUrlParser` and `InstagramUrlParser` repeat about 25 lines of scheme/user-info/port/host checks. They are
+  security-critical and well tested; a shared helper should wait for a device-confirmed baseline.
+- Smaller, deliberately left: `FocusRing` lives next to the layout model (one file of about 200 lines; a file per
+  concept would add churn without a second user); on a TV the rail's label is read in addition to its icon
+  description by a screen reader (TV screen readers are rare); the TV detection treats "no touch screen" as a TV
+  (the Settings override covers a wrong guess).
+
+### Principles, in one line each
+- **KISS:** one frame structure, one spec, one wrapper for focus; no new dependency. **YAGNI:** unused spec fields
+  removed; no in-app player, no extra form factors, no animation. **DRY:** one focus ring, one dismiss button, one
+  frame; the parser skeleton is the one known repetition (above). **SOLID:** `adaptiveSpecFor` is a pure function
+  with one reason to change; screens depend on `AdaptiveSpec`, not on device checks; new layouts are a new row in
+  that function, not an edit in every screen.
+
+### Verification status
+- Same harness as patch 41 (kotlinc 2.1.0, API 33 `android.jar`, stubs for Compose/AndroidX, real support files): the
+  thirteen touched Kotlin files compile with zero errors, the 14 layout tests pass, and the patch script applies to a
+  clean patch-41 tree and again (idempotent). `Scaffold(contentWindowInsets = ...)` and `WindowInsets(Dp)` were read in
+  the androidx source; `UnusedMaterial3ScaffoldPaddingParameter` (an error-level lint rule) is satisfied because the
+  Scaffold's padding is passed on.
+- Not verified: the real Gradle build and lint, and everything on a device, a tablet and a TV.
+
+
+## Patch 41 — Phones, tablets and Android TV: one adaptive layout
+
+Requires patch 40. Requested: an Android TV / set-top box version and a tablet version, both responsive. Delivered as
+one APK and one code base: the layout is chosen at run time from the window size and the device. No product flavor, no
+TV-only module and no new dependency (`androidx.tv` and the window-size-class artifact cannot be checked against the
+pinned versions offline, and the Material breakpoints are three numbers).
+
+### The layout model (`AdaptiveLayout.kt`, new)
+- `adaptiveSpecFor(widthDp, heightDp, tv)` classifies a window with Material 3's breakpoints (compact < 600dp, medium
+  < 840dp, expanded from 840dp) and returns one `AdaptiveSpec`: rail or bottom bar, one or two panes, content cap and
+  margins, TV overscan margins (48dp x 27dp, 5% of a 960x540dp screen) and the text scale. It is plain Kotlin with
+  `Int` dp values and is unit-tested (`AdaptiveLayoutTest`). `AdaptiveRoot` provides it as `LocalAdaptive` above the
+  theme; every screen reads it and none measures the window itself. The window's own dp size is used, so split
+  screen, freeform windows and folding screens follow the window and not the display.
+- A phone in portrait gets exactly the layout it had before: bottom bar, 20dp margins, 640dp cap, one column.
+- Interface mode (Settings -> Interface): Automatic, TV, or Phone and tablet. Automatic means TV when the device
+  reports the TV UI mode or the leanback feature, or declares no touch screen at all (a set-top box that does not
+  call itself a TV). The override exists for boxes that guess wrong, and it previews the TV layout on a phone, where
+  no emulator is available. It applies at once and is stored in `Settings` (`interface_mode`).
+
+### Tablets and wide windows (touch)
+- Medium and expanded windows, and any short landscape window (height under 480dp: a landscape phone), get a floating
+  glass navigation rail on the left instead of the bottom bar; the rail is the bottom bar stood on its edge (same
+  surface, border and 56dp targets, icons only). A plain header replaces the Material top bar, which is sized for a
+  phone.
+- Home shows two panes when 700dp of content fits next to the rail: bypass card, banners and queue on the left, the
+  library on the right, each scrolling on its own. Settings shows two columns: everyday settings, accounts and the
+  interface choice on the left, the long bypass section on the right. A portrait tablet keeps one column, wider (cap
+  720dp; 1200dp for expanded windows).
+- Add keeps a 640dp form in the middle of a wide window. The keyboard's action key (Go) now starts the download on
+  every device: a TV on-screen keyboard and a tablet's hardware keyboard have no other way to submit.
+- The Home empty state names the control the screen really has (the center button on a phone, the Add button on the
+  left of a rail layout, the menu on the left on a TV).
+
+### Android TV and set-top boxes
+- Manifest: `touchscreen` and `leanback` declared `required="false"` (the same APK installs on phones and TVs),
+  `LEANBACK_LAUNCHER` on the main activity, and a 320x180dp banner (`drawable-xhdpi/tv_banner.png`, the small-TV
+  mark and the name). `configChanges` gains `navigation|density|fontScale` so a mouse or gamepad, a display-size change
+  or DeX does not restart the activity; `uiMode` is deliberately not added, because a dark-mode switch must still
+  recreate it to refresh the system bar icons.
+- Focus: `FocusRing` wraps every control on TV with a 3dp ring in the text color (it contrasts with both the cream
+  surface and the terracotta accent). The ring's space is reserved all the time, so focus never moves the layout; off
+  TV the wrapper is a plain `Box`. The ring follows `isFocused` of the wrapped control only, so a library row keeps
+  its ring while the row is selected and hands it to its Share button once that is. Material's own focus state layer
+  is too faint across a room, which is why this exists.
+- Layout: overscan margins, a labelled rail (a remote has no long-press hint), and every text style 15% larger (the
+  theme scales sizes and line heights together). Back keeps its meaning; a header back button is added.
+- No touch-only operations: a queue row has an explicit remove button instead of the swipe (same rule: not while
+  saving); a library row shows Play (the row itself, OK on the remote), Share and Delete in the row instead of an
+  overflow menu; log lines are focus stops so the list scrolls with the D-pad.
+- Guards: the sign-in screen shows a message instead of crashing when the device has no WebView (some boxes ship
+  none); the "no player" toast on a TV says to install one (VLC, Kodi), because TV boxes often have none.
+
+### What did not change
+- Extraction, downloads, the journal, the bypass engine, the VPN tunnel, notifications, permissions and every string
+  that already existed. No new dependency. A phone in portrait looks and behaves as before.
+
+### Open on purpose (see `ROADMAP.md`)
+- No in-app player: playback is still `ACTION_VIEW`. If the target TV box has no player, a `VideoView`-based one is the
+  next step; it needs a device report first.
+- The YouTube-only tunnel allows the phone YouTube app's package only; the TV edition of the YouTube app is a
+  different package and is not tunnelled. The download bypass is unaffected.
+- Text fields and the WebView sign-in under a D-pad are unverified (whether the on-screen keyboard opens when focus
+  reaches the link field, and whether focus can leave the WebView).
+
+### Verification status
+- Sandbox, with kotlinc 2.1.0 (the project's version) and an API 33 `android.jar`; no Gradle, no Compose artifacts
+  (Google Maven is not reachable). The thirteen touched Kotlin files, plus the real `DownloadQueueBus`, `QualityPresets`,
+  `DpiStrategyStore`, `DpiResultsStore`, `DpiStrategies`, `ChainPlanner`, `DpiSearch`, `MediaSource` and the URL parsers
+  they depend on, compile with zero errors against hand-written stubs for every imported Compose, AndroidX and
+  coroutines symbol: first the original files (the baseline, zero errors), then the patched ones. A deliberately dropped
+  import, a misspelled property and a misspelled string resource were each reported, so the check does see them.
+- Signatures not already used by the existing code were read in the androidx source on GitHub (main branch, newer than
+  the pinned 1.7.x; the pinned tag could not be fetched): `onFocusChanged` reports a parent's state from its focus
+  targets (`ActiveParent` when a descendant has focus), `WindowInsets.safeDrawing`, `KeyboardActions(onGo = ...)`,
+  `ImeAction.Go`, `TextUnit.times(Float)`, `isSpecified`, `Modifier.focusable`.
+- 14 `AdaptiveLayoutTest` cases pass on a minimal JUnit-compatible runner, including a sweep over every window size
+  from 280x240dp to 2000x1400dp for phone and TV. The patch script was applied to a clean copy of the patch-40 tree
+  and again on the result (idempotent); XML, braces and the EN/RU string sets are checked by the script itself.
+- Not verified: the real Gradle build and lint, and everything on a device, a tablet and a TV. In particular the
+  rendering of the rail and the panes, and the D-pad behavior. The checklist is `ROADMAP.md`, "Tablet and TV layouts".
+
+
 ## Patch 40 — DownloadService and MainActivity split by responsibility (behavior unchanged)
 
 Requires patch 39, which left these two files whole because a move-only split could not be verified. It can be:

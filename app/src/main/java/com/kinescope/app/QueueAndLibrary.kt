@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -50,7 +51,9 @@ import java.text.DateFormat
 import java.util.Date
 
 // The two list rows of Home (a queue job, a library file) and the library file actions.
-// Patch 40: moved out of MainActivity.kt unchanged.
+// Patch 40: moved out of MainActivity.kt unchanged. Patch 41: on a TV (no touch) a queue row gets an explicit
+// remove button instead of the swipe gesture, and a library row shows Play/Share/Delete in the row itself
+// instead of an overflow menu; both get focus rings.
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -60,6 +63,12 @@ internal fun QueueRow(
     onResume: (String) -> Unit,
     onStop: (String) -> Unit
 ) {
+    if (LocalAdaptive.current.isTv) {
+        // A D-pad cannot swipe: the same removal (same rule, a row in SAVING cannot be removed) is a button.
+        val onRemove: (() -> Unit)? = if (job.state != JobState.SAVING) ({ onStop(job.id) }) else null
+        QueueRowCard(job = job, onPause = onPause, onResume = onResume, onRemove = onRemove)
+        return
+    }
     val dismissState = rememberSwipeToDismissBoxState(
         confirmValueChange = { value ->
             if (value == SwipeToDismissBoxValue.EndToStart && job.state != JobState.SAVING) {
@@ -93,85 +102,107 @@ internal fun QueueRow(
             }
         }
     ) {
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 4.dp),
-            shape = MaterialTheme.shapes.medium,
-            color = MaterialTheme.colorScheme.surfaceVariant,
-            tonalElevation = 0.dp
+        QueueRowCard(job = job, onPause = onPause, onResume = onResume, onRemove = null)
+    }
+}
+
+/** The card of one queue job. [onRemove] is null where removal is a swipe (touch) or not allowed (SAVING). */
+@Composable
+private fun QueueRowCard(
+    job: DownloadJobStatus,
+    onPause: (String) -> Unit,
+    onResume: (String) -> Unit,
+    onRemove: (() -> Unit)?
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        tonalElevation = 0.dp
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(
-                modifier = Modifier.padding(12.dp),
-                verticalAlignment = Alignment.CenterVertically
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(MaterialTheme.shapes.small)
+                    .background(MaterialTheme.colorScheme.primaryContainer),
+                contentAlignment = Alignment.Center
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clip(MaterialTheme.shapes.small)
-                        .background(MaterialTheme.colorScheme.primaryContainer),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.PlayArrow,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
+                Icon(
+                    imageVector = Icons.Default.PlayArrow,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "${job.qualityLabel} — ${job.url}",
+                    style = MaterialTheme.typography.titleSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                val statusColor = when (job.state) {
+                    JobState.QUEUED, JobState.STOPPED -> MaterialTheme.colorScheme.onSurfaceVariant
+                    JobState.PREPARING, JobState.RUNNING, JobState.PROCESSING, JobState.SAVING ->
+                        MaterialTheme.colorScheme.onPrimaryContainer
+                    JobState.PAUSED, JobState.INTERRUPTED -> YtOfflineExtras.colors.warning
+                    JobState.DONE -> YtOfflineExtras.colors.success
+                    JobState.FAILED -> MaterialTheme.colorScheme.error
                 }
-                Spacer(modifier = Modifier.width(12.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "${job.qualityLabel} — ${job.url}",
-                        style = MaterialTheme.typography.titleSmall,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    val statusColor = when (job.state) {
-                        JobState.QUEUED, JobState.STOPPED -> MaterialTheme.colorScheme.onSurfaceVariant
-                        JobState.PREPARING, JobState.RUNNING, JobState.PROCESSING, JobState.SAVING ->
-                            MaterialTheme.colorScheme.onPrimaryContainer
-                        JobState.PAUSED, JobState.INTERRUPTED -> YtOfflineExtras.colors.warning
-                        JobState.DONE -> YtOfflineExtras.colors.success
-                        JobState.FAILED -> MaterialTheme.colorScheme.error
-                    }
-                    Text(
-                        text = stringResource(R.string.job_status_line, jobStateLabel(job.state), job.progressText),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = statusColor,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    if (job.state in setOf(JobState.PREPARING, JobState.RUNNING, JobState.PROCESSING, JobState.SAVING)) {
-                        Spacer(modifier = Modifier.height(6.dp))
-                        val progressFraction = job.progressFraction
-                        if (progressFraction != null) {
-                            LinearProgressIndicator(
-                                progress = progressFraction,
-                                modifier = Modifier.fillMaxWidth(),
-                                color = MaterialTheme.colorScheme.primary,
-                                trackColor = MaterialTheme.colorScheme.surface
-                            )
-                        } else {
-                            LinearProgressIndicator(
-                                modifier = Modifier.fillMaxWidth(),
-                                color = MaterialTheme.colorScheme.primary,
-                                trackColor = MaterialTheme.colorScheme.surface
-                            )
-                        }
+                Text(
+                    text = stringResource(R.string.job_status_line, jobStateLabel(job.state), job.progressText),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = statusColor,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (job.state in setOf(JobState.PREPARING, JobState.RUNNING, JobState.PROCESSING, JobState.SAVING)) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    val progressFraction = job.progressFraction
+                    if (progressFraction != null) {
+                        LinearProgressIndicator(
+                            progress = progressFraction,
+                            modifier = Modifier.fillMaxWidth(),
+                            color = MaterialTheme.colorScheme.primary,
+                            trackColor = MaterialTheme.colorScheme.surface
+                        )
+                    } else {
+                        LinearProgressIndicator(
+                            modifier = Modifier.fillMaxWidth(),
+                            color = MaterialTheme.colorScheme.primary,
+                            trackColor = MaterialTheme.colorScheme.surface
+                        )
                     }
                 }
-                when (job.state) {
-                    JobState.RUNNING -> {
+            }
+            when (job.state) {
+                JobState.RUNNING -> {
+                    FocusRing {
                         IconButton(onClick = { onPause(job.id) }) {
                             Icon(painterResource(R.drawable.ic_pause), contentDescription = stringResource(R.string.cd_pause))
                         }
                     }
-                    JobState.PAUSED, JobState.INTERRUPTED, JobState.FAILED -> {
+                }
+                JobState.PAUSED, JobState.INTERRUPTED, JobState.FAILED -> {
+                    FocusRing {
                         IconButton(onClick = { onResume(job.id) }) {
                             Icon(Icons.Default.PlayArrow, contentDescription = stringResource(R.string.cd_resume))
                         }
                     }
-                    else -> Unit
+                }
+                else -> Unit
+            }
+            if (onRemove != null) {
+                FocusRing {
+                    IconButton(onClick = onRemove) {
+                        Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.cd_remove_download))
+                    }
                 }
             }
         }
@@ -204,66 +235,85 @@ internal fun LibraryRow(
     var menuExpanded by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
 
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp),
-        shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surfaceVariant
-    ) {
-        Row(
+    if (LocalAdaptive.current.isTv) {
+        // TV: the whole row is the Play target (OK on the remote); Share and Delete are the next two stops to
+        // the right, so no menu has to be opened and navigated.
+        FocusRing(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .padding(vertical = 4.dp),
+            shape = MaterialTheme.shapes.medium
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = item.displayName,
-                    style = MaterialTheme.typography.titleSmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                val mediaType = when {
-                    item.mimeType.startsWith("audio/") -> stringResource(R.string.media_type_audio)
-                    item.mimeType.startsWith("video/") -> stringResource(R.string.media_type_video)
-                    else -> item.mimeType
-                }
-                val mediaDate = if (item.dateAddedSeconds > 0) {
-                    DateFormat.getDateInstance(DateFormat.SHORT).format(Date(item.dateAddedSeconds * 1_000L))
-                } else {
-                    "—"
-                }
-                Text(
-                    text = stringResource(R.string.library_meta, mediaType, formatFileSize(item.sizeBytes), mediaDate),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            IconButton(onClick = onPlay) {
-                Icon(
-                    Icons.Default.PlayArrow,
-                    contentDescription = stringResource(R.string.cd_play),
-                    tint = MaterialTheme.colorScheme.primary
-                )
-            }
-            Box {
-                IconButton(onClick = { menuExpanded = true }) {
-                    Icon(Icons.Default.MoreVert, contentDescription = stringResource(R.string.cd_more_options))
-                }
-                DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.share)) },
-                        leadingIcon = { Icon(Icons.Default.Share, contentDescription = null) },
-                        onClick = { menuExpanded = false; onShare() }
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.medium,
+                color = MaterialTheme.colorScheme.surfaceVariant
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(onClick = onPlay)
+                        .padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    LibraryRowText(item = item, modifier = Modifier.weight(1f))
+                    Icon(
+                        Icons.Default.PlayArrow,
+                        contentDescription = stringResource(R.string.cd_play),
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(horizontal = 12.dp)
                     )
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.delete)) },
-                        leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) },
-                        onClick = { menuExpanded = false; confirmDelete = true }
+                    FocusRing {
+                        IconButton(onClick = onShare) {
+                            Icon(Icons.Default.Share, contentDescription = stringResource(R.string.share))
+                        }
+                    }
+                    FocusRing {
+                        IconButton(onClick = { confirmDelete = true }) {
+                            Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.delete))
+                        }
+                    }
+                }
+            }
+        }
+    } else {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp),
+            shape = MaterialTheme.shapes.medium,
+            color = MaterialTheme.colorScheme.surfaceVariant
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                LibraryRowText(item = item, modifier = Modifier.weight(1f))
+                IconButton(onClick = onPlay) {
+                    Icon(
+                        Icons.Default.PlayArrow,
+                        contentDescription = stringResource(R.string.cd_play),
+                        tint = MaterialTheme.colorScheme.primary
                     )
+                }
+                Box {
+                    IconButton(onClick = { menuExpanded = true }) {
+                        Icon(Icons.Default.MoreVert, contentDescription = stringResource(R.string.cd_more_options))
+                    }
+                    DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.share)) },
+                            leadingIcon = { Icon(Icons.Default.Share, contentDescription = null) },
+                            onClick = { menuExpanded = false; onShare() }
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.delete)) },
+                            leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) },
+                            onClick = { menuExpanded = false; confirmDelete = true }
+                        )
+                    }
                 }
             }
         }
@@ -275,14 +325,48 @@ internal fun LibraryRow(
             title = { Text(stringResource(R.string.delete_confirm_title)) },
             text = { Text(stringResource(R.string.delete_confirm_body)) },
             confirmButton = {
-                TextButton(onClick = {
-                    confirmDelete = false
-                    onDelete()
-                }) { Text(stringResource(R.string.delete)) }
+                FocusRing {
+                    TextButton(onClick = {
+                        confirmDelete = false
+                        onDelete()
+                    }) { Text(stringResource(R.string.delete)) }
+                }
             },
             dismissButton = {
-                TextButton(onClick = { confirmDelete = false }) { Text(stringResource(R.string.cancel)) }
+                FocusRing {
+                    TextButton(onClick = { confirmDelete = false }) { Text(stringResource(R.string.cancel)) }
+                }
             }
+        )
+    }
+}
+
+/** The file name and its type, size and date; the same text in every layout. */
+@Composable
+private fun LibraryRowText(item: LibraryItem, modifier: Modifier = Modifier) {
+    Column(modifier = modifier) {
+        Text(
+            text = item.displayName,
+            style = MaterialTheme.typography.titleSmall,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        val mediaType = when {
+            item.mimeType.startsWith("audio/") -> stringResource(R.string.media_type_audio)
+            item.mimeType.startsWith("video/") -> stringResource(R.string.media_type_video)
+            else -> item.mimeType
+        }
+        val mediaDate = if (item.dateAddedSeconds > 0) {
+            DateFormat.getDateInstance(DateFormat.SHORT).format(Date(item.dateAddedSeconds * 1_000L))
+        } else {
+            "—"
+        }
+        Text(
+            text = stringResource(R.string.library_meta, mediaType, formatFileSize(item.sizeBytes), mediaDate),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
     }
 }
@@ -305,7 +389,12 @@ internal fun playItem(context: Context, item: LibraryItem) {
         context.startActivity(intent)
         AppLog.i("Library", "Opened library item")
     } catch (e: ActivityNotFoundException) {
-        Toast.makeText(context, R.string.no_player, Toast.LENGTH_SHORT).show()
+        // A TV box often ships without any video player; say what to do about it.
+        Toast.makeText(
+            context,
+            if (isTelevisionDevice(context)) R.string.no_player_tv else R.string.no_player,
+            Toast.LENGTH_LONG
+        ).show()
         AppLog.e("Library", "No player for library item", e)
     }
 }

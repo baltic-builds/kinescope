@@ -17,19 +17,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.background
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -51,6 +38,7 @@ class MainActivity : ComponentActivity() {
 
     private val sharedUrl = mutableStateOf("")
     private val openHomeRequest = mutableLongStateOf(0L)
+    private val interfaceMode = mutableStateOf(InterfaceMode.AUTO)
 
     private val notificationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) {
@@ -63,15 +51,22 @@ class MainActivity : ComponentActivity() {
         // system dark mode, which is what YtOfflineTheme follows. Must run before super.onCreate.
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        interfaceMode.value = Settings.getInterfaceMode(this)
         handleIncomingIntent(intent)
 
+        // Patch 41: AdaptiveRoot classifies the window (phone, tablet, TV) for every screen and must sit
+        // above the theme, which scales text on a TV.
         setContent {
-            YtOfflineTheme {
-                KinescopeApp(
-                    prefillUrl = sharedUrl.value,
-                    openHomeRequest = openHomeRequest.longValue,
-                    requestNotifications = ::requestNotificationsIfNeeded
-                )
+            AdaptiveRoot(mode = interfaceMode.value) {
+                YtOfflineTheme {
+                    KinescopeApp(
+                        prefillUrl = sharedUrl.value,
+                        openHomeRequest = openHomeRequest.longValue,
+                        requestNotifications = ::requestNotificationsIfNeeded,
+                        interfaceMode = interfaceMode.value,
+                        onInterfaceModeChanged = ::changeInterfaceMode
+                    )
+                }
             }
         }
     }
@@ -83,6 +78,11 @@ class MainActivity : ComponentActivity() {
         ) {
             notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
+    }
+
+    private fun changeInterfaceMode(mode: InterfaceMode) {
+        Settings.setInterfaceMode(this, mode)
+        interfaceMode.value = mode
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -125,12 +125,13 @@ private fun openYouTubeApp(context: Context): Boolean {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun KinescopeApp(
     prefillUrl: String,
     openHomeRequest: Long,
-    requestNotifications: () -> Unit
+    requestNotifications: () -> Unit,
+    interfaceMode: InterfaceMode,
+    onInterfaceModeChanged: (InterfaceMode) -> Unit
 ) {
     val context = LocalContext.current
     val jobs by DownloadQueueBus.jobs.collectAsState()
@@ -294,12 +295,15 @@ private fun KinescopeApp(
         }
     }
 
-    BackHandler(enabled = section != AppSection.HOME) {
+    // Android Back and the on-screen back button (top bar or header) go the same way.
+    fun goBack() {
         section = when (section) {
             AppSection.LOGS, AppSection.YOUTUBE_AUTH, AppSection.INSTAGRAM_AUTH -> AppSection.SETTINGS
             else -> AppSection.HOME
         }
     }
+
+    BackHandler(enabled = section != AppSection.HOME) { goBack() }
 
     if (showStrategyRefreshNotice) {
         StrategyRefreshNoticeDialog(
@@ -311,58 +315,22 @@ private fun KinescopeApp(
         )
     }
 
-    Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
-        topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = when (section) {
-                            AppSection.HOME -> stringResource(R.string.app_name)
-                            AppSection.QUICK_ADD -> stringResource(R.string.quick_add_title)
-                            AppSection.SETTINGS -> stringResource(R.string.settings_title)
-                            AppSection.LOGS -> stringResource(R.string.logs_title)
-                            AppSection.YOUTUBE_AUTH -> stringResource(R.string.youtube_login_title)
-                            AppSection.INSTAGRAM_AUTH -> stringResource(R.string.instagram_login_title)
-                        },
-                        style = MaterialTheme.typography.headlineSmall
-                    )
-                },
-                navigationIcon = {
-                    if (section != AppSection.HOME) {
-                        IconButton(onClick = {
-                            section = if (
-                                section == AppSection.LOGS ||
-                                section == AppSection.YOUTUBE_AUTH ||
-                                section == AppSection.INSTAGRAM_AUTH
-                            ) {
-                                AppSection.SETTINGS
-                            } else {
-                                AppSection.HOME
-                            }
-                        }) {
-                            Icon(Icons.Default.ArrowBack, contentDescription = stringResource(R.string.cd_back))
-                        }
-                    }
-                },
-                // Patch 31: the small top-bar bypass action was easy to miss (a plain
-                // TextButton tucked in the corner). It moved to a large, centered card at the
-                // top of HomeScreen (BypassHomeCard) instead -- see CHANGELOG.md.
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
-                )
-            )
+    AppFrame(
+        section = section,
+        title = when (section) {
+            AppSection.HOME -> stringResource(R.string.app_name)
+            AppSection.QUICK_ADD -> stringResource(R.string.quick_add_title)
+            AppSection.SETTINGS -> stringResource(R.string.settings_title)
+            AppSection.LOGS -> stringResource(R.string.logs_title)
+            AppSection.YOUTUBE_AUTH -> stringResource(R.string.youtube_login_title)
+            AppSection.INSTAGRAM_AUTH -> stringResource(R.string.instagram_login_title)
         },
-        bottomBar = {
-            if (section != AppSection.YOUTUBE_AUTH && section != AppSection.INSTAGRAM_AUTH) {
-                GlassBottomBar(
-                    section = section,
-                    onHome = { section = AppSection.HOME },
-                    onQuickAdd = { openQuickAdd() },
-                    onSettings = { openSettingsWithSecretTap() }
-                )
-            }
-        }
+        showBack = section != AppSection.HOME,
+        showNavigation = section != AppSection.YOUTUBE_AUTH && section != AppSection.INSTAGRAM_AUTH,
+        onBack = { goBack() },
+        onHome = { section = AppSection.HOME },
+        onQuickAdd = { openQuickAdd() },
+        onSettings = { openSettingsWithSecretTap() }
     ) { innerPadding ->
         ResponsiveContent(innerPadding) {
             when (section) {
@@ -425,7 +393,9 @@ private fun KinescopeApp(
                     onCheckForUpdate = { runUpdate() },
                     onOpenYouTubeLogin = { section = AppSection.YOUTUBE_AUTH },
                     onOpenInstagramLogin = { section = AppSection.INSTAGRAM_AUTH },
-                    requestNotifications = requestNotifications
+                    requestNotifications = requestNotifications,
+                    interfaceMode = interfaceMode,
+                    onInterfaceModeChanged = onInterfaceModeChanged
                 )
                 AppSection.LOGS -> LogsScreen()
                 AppSection.YOUTUBE_AUTH -> WebSessionLoginScreen(

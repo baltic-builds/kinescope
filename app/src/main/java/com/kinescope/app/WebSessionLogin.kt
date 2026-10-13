@@ -3,6 +3,7 @@ package com.kinescope.app
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.webkit.CookieManager
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -97,6 +98,21 @@ internal fun WebSessionLoginScreen(site: WebSessionSite, onBack: () -> Unit, onS
         onDispose { webViewRef?.destroy() }
     }
 
+    // Patch 41: some TV boxes ship without a WebView; creating one would crash the app. Say so instead.
+    if (!context.packageManager.hasSystemFeature(PackageManager.FEATURE_WEBVIEW)) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Text(
+                text = stringResource(R.string.web_session_unavailable),
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            FocusRing {
+                OutlinedButton(onClick = onBack) { Text(stringResource(R.string.cancel)) }
+            }
+        }
+        return
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
         Text(
             text = stringResource(site.instructionsRes),
@@ -105,14 +121,18 @@ internal fun WebSessionLoginScreen(site: WebSessionSite, onBack: () -> Unit, onS
         )
         Spacer(modifier = Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = {
-                val signedIn = site.capture(context, webViewRef)
-                status = context.getString(if (signedIn) site.capturedRes else site.notDetectedRes)
-                if (signedIn) onSaved()
-            }) {
-                Text(stringResource(R.string.session_use))
+            FocusRing {
+                Button(onClick = {
+                    val signedIn = site.capture(context, webViewRef)
+                    status = context.getString(if (signedIn) site.capturedRes else site.notDetectedRes)
+                    if (signedIn) onSaved()
+                }) {
+                    Text(stringResource(R.string.session_use))
+                }
             }
-            OutlinedButton(onClick = onBack) { Text(stringResource(R.string.cancel)) }
+            FocusRing {
+                OutlinedButton(onClick = onBack) { Text(stringResource(R.string.cancel)) }
+            }
         }
         if (status.isNotBlank()) {
             Text(status, style = MaterialTheme.typography.bodySmall)
@@ -127,6 +147,9 @@ internal fun WebSessionLoginScreen(site: WebSessionSite, onBack: () -> Unit, onS
                     settings.javaScriptEnabled = true
                     settings.domStorageEnabled = true
                     settings.safeBrowsingEnabled = true
+                    // The page is a remote site: it has no business reading local files or content providers.
+                    settings.allowFileAccess = false
+                    settings.allowContentAccess = false
                     if (site.stripWebViewMarker) {
                         // Google rejects sign-in from the stock WebView user agent: it contains a
                         // "; wv" marker that Google's login explicitly detects and blocks with

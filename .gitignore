@@ -18,3 +18,10 @@ keystore.properties
 *.jks.b64
 *.jks.base64.txt
 
+
+# Patch 42: tooling leftovers that must never be committed (patch scripts, repomix packs, merge debris).
+/patch_*.py
+/repomix-output.*
+*.orig
+*.rej
+*.bak

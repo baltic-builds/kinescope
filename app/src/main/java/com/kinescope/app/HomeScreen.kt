@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -14,11 +15,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Home
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -41,7 +42,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 
 // Home: the bypass card, the queue and library lists, the empty state and the banners.
-// Patch 40: moved out of MainActivity.kt unchanged.
+// Patch 40: moved out of MainActivity.kt unchanged. Patch 41: two panes on wide windows (queue left, library
+// right), focus rings for TV, an empty-state text that names the control the screen really has.
 
 @Composable
 private fun BypassHomeCard(state: BypassVpnUiState, onClick: () -> Unit) {
@@ -84,25 +86,30 @@ private fun BypassHomeCard(state: BypassVpnUiState, onClick: () -> Unit) {
                 )
             }
             Spacer(modifier = Modifier.height(12.dp))
-            Button(
-                onClick = onClick,
-                enabled = !state.starting,
+            FocusRing(
                 modifier = Modifier
                     .fillMaxWidth(0.72f)
                     .widthIn(min = 180.dp, max = 280.dp)
-                    .height(48.dp),
-                contentPadding = PaddingValues(horizontal = 18.dp, vertical = 8.dp)
             ) {
-                Text(
-                    text = stringResource(
-                        when {
-                            state.active -> R.string.bypass_open_youtube
-                            state.starting -> R.string.bypass_starting_short
-                            else -> R.string.bypass_quick_action
-                        }
-                    ),
-                    style = MaterialTheme.typography.titleMedium
-                )
+                Button(
+                    onClick = onClick,
+                    enabled = !state.starting,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp),
+                    contentPadding = PaddingValues(horizontal = 18.dp, vertical = 8.dp)
+                ) {
+                    Text(
+                        text = stringResource(
+                            when {
+                                state.active -> R.string.bypass_open_youtube
+                                state.starting -> R.string.bypass_starting_short
+                                else -> R.string.bypass_quick_action
+                            }
+                        ),
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                }
             }
         }
     }
@@ -124,6 +131,7 @@ internal fun HomeScreen(
     onSignIn: () -> Unit,
     onSignInInstagram: () -> Unit
 ) {
+    val spec = LocalAdaptive.current
     val networkFailure = jobs.any {
         it.failureKind == FailureKind.NO_INTERNET && it.state in setOf(JobState.INTERRUPTED, JobState.FAILED)
     }
@@ -139,10 +147,9 @@ internal fun HomeScreen(
     }
     var instagramBannerDismissed by remember { mutableStateOf(false) }
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = 16.dp)
-    ) {
+    // The three blocks of Home. One column shows them one after another (a phone, a narrow window); two panes
+    // put the first two on the left and the library on the right, each scrolling on its own.
+    val topItems: LazyListScope.() -> Unit = {
         item {
             // Patch 31: a large, obvious, centered card -- previously the only bypass control
             // on Home was a small TextButton tucked into the top bar's corner.
@@ -178,7 +185,9 @@ internal fun HomeScreen(
                 Spacer(modifier = Modifier.height(12.dp))
             }
         }
+    }
 
+    val queueItems: LazyListScope.() -> Unit = {
         item {
             Text(text = stringResource(R.string.queue_title), style = MaterialTheme.typography.titleMedium)
             Spacer(modifier = Modifier.height(4.dp))
@@ -191,18 +200,24 @@ internal fun HomeScreen(
                 QueueRow(job, onPause, onResume, onStop)
             }
         }
+    }
 
+    val libraryItems: LazyListScope.() -> Unit = {
         item {
-            Spacer(modifier = Modifier.height(20.dp))
-            HorizontalDivider()
-            Spacer(modifier = Modifier.height(8.dp))
+            if (!spec.twoPane) {
+                Spacer(modifier = Modifier.height(20.dp))
+                HorizontalDivider()
+                Spacer(modifier = Modifier.height(8.dp))
+            }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(text = stringResource(R.string.library_title), style = MaterialTheme.typography.titleMedium)
-                TextButton(onClick = onRefreshLibrary) { Text(stringResource(R.string.refresh)) }
+                FocusRing {
+                    TextButton(onClick = onRefreshLibrary) { Text(stringResource(R.string.refresh)) }
+                }
             }
         }
 
@@ -226,10 +241,41 @@ internal fun HomeScreen(
             }
         }
     }
+
+    if (spec.twoPane) {
+        Row(
+            modifier = Modifier.fillMaxSize(),
+            horizontalArrangement = Arrangement.spacedBy(spec.paneGapDp.dp)
+        ) {
+            LazyColumn(
+                modifier = Modifier.weight(1f).fillMaxHeight(),
+                contentPadding = PaddingValues(bottom = 16.dp)
+            ) {
+                topItems()
+                queueItems()
+            }
+            LazyColumn(
+                modifier = Modifier.weight(1f).fillMaxHeight(),
+                contentPadding = PaddingValues(bottom = 16.dp)
+            ) {
+                libraryItems()
+            }
+        }
+    } else {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = 16.dp)
+        ) {
+            topItems()
+            queueItems()
+            libraryItems()
+        }
+    }
 }
 
 @Composable
 private fun EmptyQueueState() {
+    val spec = LocalAdaptive.current
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -252,7 +298,15 @@ private fun EmptyQueueState() {
         }
         Spacer(modifier = Modifier.height(12.dp))
         Text(
-            text = stringResource(R.string.empty_queue),
+            // The phone text points at "the center button below"; the rail layouts have no such button,
+            // and a TV has no share sheet to share a link from.
+            text = stringResource(
+                when {
+                    spec.isTv -> R.string.empty_queue_tv
+                    spec.useRail -> R.string.empty_queue_side
+                    else -> R.string.empty_queue
+                }
+            ),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -278,9 +332,16 @@ private fun ErrorBanner(text: String, onDismiss: () -> Unit) {
                 color = MaterialTheme.colorScheme.onErrorContainer,
                 modifier = Modifier.weight(1f)
             )
-            IconButton(onClick = onDismiss) {
-                Icon(Icons.Default.Close, contentDescription = stringResource(R.string.cd_dismiss))
-            }
+            DismissButton(onDismiss)
+        }
+    }
+}
+
+@Composable
+private fun DismissButton(onDismiss: () -> Unit) {
+    FocusRing {
+        IconButton(onClick = onDismiss) {
+            Icon(Icons.Default.Close, contentDescription = stringResource(R.string.cd_dismiss))
         }
     }
 }
@@ -305,11 +366,11 @@ private fun VerificationBanner(
                     color = MaterialTheme.colorScheme.onPrimaryContainer,
                     modifier = Modifier.weight(1f)
                 )
-                IconButton(onClick = onDismiss) {
-                    Icon(Icons.Default.Close, contentDescription = stringResource(R.string.cd_dismiss))
-                }
+                DismissButton(onDismiss)
             }
-            TextButton(onClick = onSignIn) { Text(stringResource(actionRes)) }
+            FocusRing {
+                TextButton(onClick = onSignIn) { Text(stringResource(actionRes)) }
+            }
         }
     }
 }

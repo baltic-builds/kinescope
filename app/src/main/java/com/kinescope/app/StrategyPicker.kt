@@ -62,8 +62,10 @@ internal fun StrategyPicker(
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         Text(stringResource(R.string.strategy_picker_title), style = MaterialTheme.typography.titleSmall)
-        TextButton(onClick = { expanded = !expanded }) {
-            Text(stringResource(if (expanded) R.string.strategy_hide else R.string.strategy_show))
+        FocusRing {
+            TextButton(onClick = { expanded = !expanded }) {
+                Text(stringResource(if (expanded) R.string.strategy_hide else R.string.strategy_show))
+            }
         }
     }
     if (!expanded) return
@@ -74,15 +76,17 @@ internal fun StrategyPicker(
         color = MaterialTheme.colorScheme.onSurfaceVariant
     )
     if (pinned != null) {
-        TextButton(
-            enabled = enabled,
-            onClick = {
-                DpiPrefs.unpin(context)
-                version++
-                onChanged()
-                onMessage(context.getString(R.string.strategy_unpinned))
-            }
-        ) { Text(stringResource(R.string.strategy_auto)) }
+        FocusRing {
+            TextButton(
+                enabled = enabled,
+                onClick = {
+                    DpiPrefs.unpin(context)
+                    version++
+                    onChanged()
+                    onMessage(context.getString(R.string.strategy_unpinned))
+                }
+            ) { Text(stringResource(R.string.strategy_auto)) }
+        }
     }
     Spacer(Modifier.height(4.dp))
 
@@ -107,22 +111,26 @@ internal fun StrategyPicker(
                             style = MaterialTheme.typography.titleSmall
                         )
                         Row {
-                            TextButton(
-                                enabled = enabled,
-                                onClick = {
-                                    onMessage(context.getString(R.string.strategy_testing))
-                                    DpiSearchService.startTest(context, row.line)
-                                }
-                            ) { Text(stringResource(R.string.strategy_test)) }
-                            TextButton(
-                                enabled = enabled && !isPinned,
-                                onClick = {
-                                    DpiPrefs.pin(context, row.line)
-                                    version++
-                                    onChanged()
-                                    onMessage(context.getString(R.string.strategy_pinned_done))
-                                }
-                            ) { Text(stringResource(R.string.strategy_use)) }
+                            FocusRing {
+                                TextButton(
+                                    enabled = enabled,
+                                    onClick = {
+                                        onMessage(context.getString(R.string.strategy_testing))
+                                        DpiSearchService.startTest(context, row.line)
+                                    }
+                                ) { Text(stringResource(R.string.strategy_test)) }
+                            }
+                            FocusRing {
+                                TextButton(
+                                    enabled = enabled && !isPinned,
+                                    onClick = {
+                                        DpiPrefs.pin(context, row.line)
+                                        version++
+                                        onChanged()
+                                        onMessage(context.getString(R.string.strategy_pinned_done))
+                                    }
+                                ) { Text(stringResource(R.string.strategy_use)) }
+                            }
                         }
                     }
                     Text(

@@ -95,6 +95,13 @@ The only GitHub Actions build workflow is `.github/workflows/build-release.yml`,
 
 See `RELEASE.md` for signing-key setup and the exact release process.
 
+## Devices
+
+The same APK adapts to the screen it runs on: phones (bottom navigation, one column), tablets and landscape windows
+(a navigation rail and two panes) and Android TV / set-top boxes (D-pad focus, large text, overscan margins).
+Settings -> Interface can override the automatic choice. Patches 40-42 (the file split, the tablet and TV
+layouts and their audit) are not yet confirmed on a device; see `ROADMAP.md`.
+
 ## Documentation map
 
 - **`CLAUDE.md`** — non-negotiable project/product constraints and the user decision log.

@@ -1,6 +1,6 @@
 # Roadmap
 
-State after patch 40 (2026-10-06). This file tracks only what is still open: device verification gates,
+State after patch 42 (2026-10-12). This file tracks only what is still open: device verification gates,
 technical debt and what is out of scope. How each item was closed lives in `CHANGELOG.md`; the state a new
 session needs is in `HANDOFF.md`.
 
@@ -42,6 +42,31 @@ session needs is in `HANDOFF.md`.
 - [ ] Copy report shows yt-dlp 2026.08.19 or newer, `run ... src=ig auth=true` and `fmt j=...` (a plain id or an
   `avc1` pair is the intended outcome, `dash-...vd+dash-...ad` means the VP9 route), and no cookie value or URL.
 - [ ] Two or three more Reels play with picture and sound; note any noticeably below the chosen height.
+
+### Tablet and TV layouts (patch 41)
+- [ ] A phone in portrait looks and behaves as before: bottom bar, one column, Home/Add/Settings/Logs.
+- [ ] A tablet in portrait (about 800dp wide): navigation rail on the left, one wider column. In landscape (840dp or
+  more): Home shows the queue and the library side by side, Settings shows two columns; both lists scroll on their
+  own. Rotating keeps the typed link. Split screen or a resized window switches the layout without a restart.
+- [ ] A phone in landscape: the rail replaces the bottom bar; two panes appear only when the window is wide enough.
+  Rotating back and forth keeps the screen: unsaved text in Settings, the list position, and a half filled-in
+  sign-in page (patch 42 made the frame one structure; this is the check that it worked).
+- [ ] Settings -> Interface: Automatic / TV / Phone and tablet applies at once and survives a restart. Forcing TV on a
+  phone shows the TV layout (rail with labels, larger text, margins); with a keyboard or D-pad the focus ring is
+  visible on every control. Record which devices Automatic gets right and wrong.
+- [ ] Android TV / Google TV / a set-top box (sideload with `adb install`): the app appears in the launcher with the
+  banner. The D-pad reaches every control on Home, Add, Settings (both columns, the bypass section, the strategy
+  list), Logs and the dialogs; the focus ring is always visible; nothing important is cut off at the screen edges;
+  text is readable from the couch; Back behaves as on the phone.
+- [ ] TV: a queue row shows Pause/Resume and a remove button (no swipe); a library row plays with OK and offers Share and
+  Delete; the delete confirmation and the strategy notice can be answered with the remote.
+- [ ] TV: the Add screen. Does focusing the link field with the D-pad open the on-screen keyboard, can focus leave the
+  field, and does the keyboard's Go key start the download? A phone's keyboard Go key does the same.
+- [ ] TV: Play on a box without a video player shows the "install a player" hint. Record whether the target box has
+  a player; if it has none, decide on an in-app player (technical debt).
+- [ ] TV: record whether the sign-in screens are usable with a D-pad (focus can enter and leave the WebView) and
+  that a box without WebView shows the message instead of crashing.
+- [ ] TV: record what Home -> Unblock YouTube does when only the TV edition of the YouTube app is installed.
 
 ### After the file split (patch 40)
 - [ ] One pass through the app behaves exactly as before: Home (queue, library, banners, bypass card), Add (paste,
@@ -116,6 +141,20 @@ session needs is in `HANDOFF.md`.
 
 ## Technical debt
 
+- **No in-app player.** Playback hands the file to another app (`ACTION_VIEW`). A TV box without a video player
+  cannot play a download. A `VideoView`/`MediaPlayer` screen would need no new dependency; build it only after a
+  device report says the target box has no player.
+- **The YouTube-only tunnel is tied to the phone YouTube app** (`BypassVpnService.YOUTUBE_PACKAGE`). The TV edition
+  of the YouTube app is a different package (name to be verified before any change); it is not tunnelled. The
+  download bypass does not depend on it.
+- **TV input details are unverified:** the on-screen keyboard and focus around the link field, and focus inside the
+  sign-in WebView, under a D-pad.
+- **`KinescopeApp` is about 300 lines** (navigation state, permissions, the bypass launch flow, enqueue handling).
+  Split it (a state holder, the bypass launcher) only after patches 40-42 are confirmed on a device.
+- **The two link parsers repeat about 25 lines** of scheme/user-info/port/host checks. A shared helper is a candidate,
+  but they are security-critical and tested: do it with a device-confirmed baseline and the existing tests as the net.
+- **Layout thresholds are first guesses** (700dp for two panes, 480dp for a short window, text x1.15 on TV). Tune
+  them from real screenshots, in `adaptiveSpecFor` and `AdaptiveLayoutTest` together.
 - **Instagram without a session** needs curl_cffi impersonation in the bundled Python. Revisit only if
   `youtubedl-android` ships it (the upstream request is open) or a free, maintained build appears; check the bundled
   Python version first (curl_cffi's Android wheel targets CPython 3.13, not verified here).
