@@ -184,7 +184,7 @@ fun BypassSettingsSection(requestNotifications: () -> Unit = {}) {
         )
         Spacer(Modifier.height(6.dp))
         LinearProgressIndicator(
-            progress = if (current == null || current.total == 0) 0f else current.index.toFloat() / current.total,
+            progress = { if (current == null || current.total == 0) 0f else current.index.toFloat() / current.total },
             modifier = Modifier.fillMaxWidth()
         )
         Spacer(Modifier.height(8.dp))

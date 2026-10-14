@@ -63,11 +63,15 @@ echo "== Installing platform-tools, platform 35, build-tools =="
 # If a specific build-tools version below is not found, run
 # `sdkmanager --list` in the Codespace terminal and swap in whatever
 # version is actually available (see ROADMAP.md notes).
-sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018"
+sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0" "ndk;27.0.12077973" "cmake;3.22.1"
 
 # Patch 27: the bundled DPI-bypass engine (app/src/main/cpp) is built by CMake against the NDK.
 # ANDROID_NDK_HOME/ndkVersion in app/build.gradle.kts resolve it by version; sdkmanager above
 # installs that exact version so a fresh Codespace can build it without a manual step.
+# Patch 43: ndkVersion really is pinned in app/build.gradle.kts now, to 27.0.12077973 (the version AGP 8.7.2
+# used all along; 27.2.12479018 used to be installed here and was never used), and CMake 3.22.1 is installed
+# up front instead of being downloaded by Gradle in the middle of a build. Keep this line, the release
+# workflow and app/build.gradle.kts in step.
 
 echo "== Persisting environment variables for future shells =="
 # Patch 10: only append once -- otherwise every re-run of this

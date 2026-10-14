@@ -1,6 +1,6 @@
 # Roadmap
 
-State after patch 42 (2026-10-12). This file tracks only what is still open: device verification gates,
+State after patch 43 (2026-10-13). This file tracks only what is still open: device verification gates,
 technical debt and what is out of scope. How each item was closed lives in `CHANGELOG.md`; the state a new
 session needs is in `HANDOFF.md`.
 
@@ -11,6 +11,9 @@ session needs is in `HANDOFF.md`.
   patch 38, 2026-10-04). Earlier install, share/paste, queue, offline playback and background persistence are also
   confirmed.
 - **Reported and not fixable from code:** the Play Protect "App blocked" dialog on install (see `RELEASE.md`).
+- **The release workflow was red at patch 42** (a unit test that no longer compiled); patch 43 fixes that and
+  restructures the workflow. Nothing behind the failing task had run, so it is green only once the user reports a
+  run (see "Release pipeline").
 - **Everything below needs the user's phone or a real GitHub Actions run.** Do not tick a box from code review, a
   local compile or a green build alone (`AGENTS.md`, "What done means").
 
@@ -127,6 +130,15 @@ session needs is in `HANDOFF.md`.
   confirmation, launcher and themed icon, notification permission timing and Stop action.
 
 ### Release pipeline
+- [ ] Patch 43: run the workflow once. The step "Run unit tests and lint" passes (every unit test, then lint), then
+  the signed build. In the log: no `android:extractNativeLibs` warning, no `llvm-strip` error lines, no NDK or CMake
+  download during the Gradle step, no deprecation warnings from `AppChrome.kt`, `BypassSettings.kt` or
+  `QueueAndLibrary.kt`. Record any new failure with its first error line. On a failed run the `build-reports`
+  artifact holds the test and lint reports (not yet seen).
+- [ ] Patch 43: install that release over the previous one: the yt-dlp engine starts and a download completes. The
+  native-library extraction moved from the manifest attribute to the packaging DSL and the NDK is now pinned (to
+  the version that was used all along); both should change nothing, and this is where that is shown. The APK size
+  stays about the same and `unzip -l` lists only `lib/arm64-v8a/`.
 - [ ] Run `.github/workflows/build-release.yml` with a fresh semantic version: unit tests, lint and the signature,
   zip, package, version and ABI checks pass; the run summary lists the signing certificate fingerprint and says
   "Play Protect high-risk declarations: none"; the Release holds the signed arm64 APK and no `.sha256` file.
@@ -168,6 +180,19 @@ session needs is in `HANDOFF.md`.
   new sign-in.
 - **Cookie rotation:** yt-dlp rewrites the Instagram cookie file when Instagram rotates a cookie and nothing
   re-reads it from the WebView, so an expired session needs a manual re-sign-in.
+- **The native toolchain pin is a decision, not a requirement.** NDK 27.0.12077973 (the AGP 8.7.2 default, used by
+  every build so far; the workflow and `setup.sh` installed 27.2 until patch 43, but it was never used) and CMake
+  3.22.1 are named in
+  `app/build.gradle.kts`, the release workflow and `.devcontainer/setup.sh`. Keep the three equal. A newer NDK only
+  with a device check of the bypass engine.
+- **A 32-bit TV box cannot install the APK.** The release is arm64-v8a only (the vendored `hev-socks5-tunnel`
+  library is arm64 only). Many Android TV boxes run a 32-bit userland: `adb shell getprop ro.product.cpu.abilist` on
+  the box shows `armeabi-v7a` first or only. If the target box is one of them, the fix is a second ABI in the same
+  APK (it needs a 32-bit `hev-socks5-tunnel` build and a larger APK), not a second workflow. Check the box first.
+- **Workflow action versions** (`actions/checkout`, `setup-java`, `upload-artifact` v4; `android-actions/setup-android`
+  v4) are Node 20-era majors. GitHub forces Node 24 onto them since 2026-06-02 and they still run. Newer majors exist
+  (checkout 6-7, setup-java 5, upload-artifact 7 appear in dependency-update PRs; not verified against this
+  workflow). Bump them in one deliberate patch, reading each release note, with a workflow run as the check.
 - **Leftovers kept on purpose:** `StageResult.replyCode` (SOCKS reply code of a failed check) is recorded but no
   longer read after the unused `Verdict` classifier was removed; the watchdog's internal log text still says
   "YouTube".

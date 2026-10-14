@@ -167,7 +167,7 @@ private fun QueueRowCard(
                     val progressFraction = job.progressFraction
                     if (progressFraction != null) {
                         LinearProgressIndicator(
-                            progress = progressFraction,
+                            progress = { progressFraction },
                             modifier = Modifier.fillMaxWidth(),
                             color = MaterialTheme.colorScheme.primary,
                             trackColor = MaterialTheme.colorScheme.surface

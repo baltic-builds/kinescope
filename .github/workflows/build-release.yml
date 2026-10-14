@@ -1,8 +1,11 @@
 name: Build and Publish Signed Release
 
-# Manual-only release pipeline. It builds one arm64-v8a signed APK,
-# verifies its signature, keeps a workflow artifact as backup, and
-# publishes the same APK to GitHub Releases.
+# Manual-only release pipeline. It checks the inputs and secrets first, runs the unit tests and lint before
+# anything expensive, builds one arm64-v8a signed APK, verifies its signature, keeps a workflow artifact as
+# backup, and publishes the same APK to GitHub Releases.
+#
+# One workflow and one APK serve every device (phone, tablet, Android TV): the layout is chosen at run time
+# (AdaptiveLayout.kt), so there is nothing to build twice.
 on:
   workflow_dispatch:
     inputs:
@@ -26,27 +29,9 @@ jobs:
   build-release:
     name: Build, verify and publish release
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Set up JDK 21 (Temurin)
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
-          cache: gradle
-
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v4
-        with:
-          # Patch 27: ndk;27.2.12479018 builds the bundled DPI-bypass engine (app/src/main/cpp).
-          packages: 'platform-tools platforms;android-35 build-tools;35.0.0 ndk;27.2.12479018'
-
       - name: Validate release inputs and signing secrets
         env:
           VERSION_NAME: ${{ inputs.version_name }}
@@ -67,7 +52,33 @@ jobs:
             fi
           done
 
-      - name: Prepare Gradle and signing material
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          # The NDK and CMake versions are pinned in app/build.gradle.kts (ndkVersion and
+          # externalNativeBuild.cmake.version). Installing exactly those here keeps Gradle from downloading
+          # them a second time in the middle of the build (patch 43).
+          packages: 'platform-tools platforms;android-35 build-tools;35.0.0 ndk;27.0.12077973 cmake;3.22.1'
+
+      # Tests and lint come before the signing material is written and before the native build starts, so a
+      # broken test fails the run in about a minute and the keystore never exists on the runner for it.
+      - name: Run unit tests and lint
+        run: |
+          set -euo pipefail
+          chmod +x ./gradlew
+          ./gradlew testDebugUnitTest lintDebug
+
+      - name: Prepare signing material
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
@@ -75,7 +86,6 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          chmod +x ./gradlew
           printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/kinescope-release.jks"
           {
             echo "storeFile=$RUNNER_TEMP/kinescope-release.jks"
@@ -90,7 +100,7 @@ jobs:
         run: |
           set -euo pipefail
           version_code=$((10000 + GITHUB_RUN_NUMBER))
-          ./gradlew --no-daemon clean testDebugUnitTest lintDebug assembleRelease \
+          ./gradlew assembleRelease \
             -PappVersionName="$VERSION_NAME" \
             -PappVersionCode="$version_code"
 
@@ -182,6 +192,17 @@ jobs:
             args+=(--generate-notes)
           fi
           gh "${args[@]}"
+
+      - name: Upload build reports (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-reports
+          path: |
+            app/build/reports/
+            app/build/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Clean up signing material
         if: always()

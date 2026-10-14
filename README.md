@@ -86,12 +86,15 @@ A plain `assembleDebug` is still useful for a quick compile, but patch delivery 
 The only GitHub Actions build workflow is `.github/workflows/build-release.yml`, triggered manually. It:
 
 1. validates the requested version and signing secrets;
-2. runs unit tests + Android lint;
+2. runs unit tests + Android lint as its own step (a failure attaches the reports as the `build-reports` artifact);
 3. builds the signed release APK;
 4. verifies APK signature, zip alignment, application ID, version name and arm64-only native payload;
 5. prints the signing certificate fingerprint in the run summary;
 6. uploads an Actions artifact backup;
 7. creates a versioned GitHub Release containing the APK.
+
+There is deliberately one workflow and one APK for phones, tablets and Android TV: the layout is chosen at run
+time, so there is nothing to build twice.
 
 See `RELEASE.md` for signing-key setup and the exact release process.
 

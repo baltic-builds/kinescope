@@ -4,7 +4,7 @@ The current state of Kinescope for anyone (human or AI agent) resuming work. It 
 appended to: per-patch history lives in `CHANGELOG.md`, open work in `ROADMAP.md`, process rules in `AGENTS.md`,
 product constraints in `CLAUDE.md`. Where this file and the code disagree, the code wins; fix this file.
 
-State as of patch 42 (2026-10-12).
+State as of patch 43 (2026-10-13).
 
 ## What Kinescope is
 
@@ -23,8 +23,11 @@ the bypass); the compact log and Copy report; Instagram Reels download and play 
 **Implemented but not yet confirmed on a device:** patch 36 UX/lifecycle changes, the Instagram sign-in,
 `/share/` resolution and error texts (patches 37-38), patch 39 (the strategy-search hold fix, the shared
 sign-in screen, the cleanup), the file split of patch 40, and the tablet and TV layouts of patch 41 (audited and
-hardened in patch 42). The exact
+hardened in patch 42), and the build and packaging changes of patch 43. The exact
 checklist is `ROADMAP.md`; do not tick a box without the user's report.
+**CI:** the release workflow was red at patch 42 (`AdaptiveLayoutTest` still referenced the removed
+`WidthClass`). Patch 43 fixes it, pins the NDK/CMake, and restructures the workflow (validate, tests + lint,
+then the signed build; reports uploaded on failure). It counts as green only after the user reports a run.
 **Open outside the code:** the Play Protect "App blocked" dialog on install (`RELEASE.md`), and `youtubedl-android`
 not yet being 16 KB page-size compatible (upstream).
 
@@ -179,8 +182,8 @@ parser/search/ranking/store, the network probe, the privacy redaction and the wi
 - **Verify library APIs against the pinned version's own tagged source**, not a README snippet or a newer
   doc: a Compose BOM version that did not exist, a wrong nested-class assumption (`YoutubeDL.UpdateChannel`) and a
   `painterResource()` crash on an animated framework drawable were each caught only by primary sources. The Compose
-  BOM 2024.11.00 pulls Material3 1.3.1; recheck call sites such as `LinearProgressIndicator(progress = Float)` if it
-  is bumped.
+  BOM 2024.11.00 pulls Material3 1.3.1; recheck call sites if it is bumped (1.3.1 deprecates
+  `LinearProgressIndicator(progress = Float)`; the call sites use the lambda overload since patch 43).
 - **A Codespace can carry several JDKs and Gradle has a hard JDK ceiling per version**, failing with a terse
   error; check the release notes early. A GitHub Actions runner is a different, clean environment.
 - **XML comments cannot contain `--`**, and an unescaped ASCII apostrophe in a string resource breaks AAPT; the
@@ -202,6 +205,10 @@ parser/search/ranking/store, the network probe, the privacy redaction and the wi
   want when a site labels only some streams.
 - **A later patch can silently break an earlier patch's idempotency check** when it rewrites text the earlier one
   looked for; run patch chains several times from a clean copy (`AGENTS.md`).
+- **`assembleDebug` does not compile the unit tests.** Patch 42 shipped a test that no longer compiled and only
+  the release workflow (`testDebugUnitTest`) noticed. The local gate is the full one (`AGENTS.md`).
+- **A pinned toolchain must be pinned in the build file.** The NDK was "required" in three docs and installed in
+  two scripts, but `ndkVersion` was unset, so AGP's default was what actually built the native code until patch 43.
 - `pipefail` plus `yes |` raises SIGPIPE in setup scripts; dot-directories are skipped by some transfer tools
   (`git add -A` from a terminal keeps them).
 

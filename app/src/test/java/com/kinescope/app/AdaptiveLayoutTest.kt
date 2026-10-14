@@ -11,7 +11,6 @@ class AdaptiveLayoutTest {
     @Test
     fun aPhoneInPortraitKeepsTheLayoutItAlwaysHad() {
         val spec = adaptiveSpecFor(widthDp = 360, heightDp = 800, tv = false)
-        assertEquals(WidthClass.COMPACT, spec.widthClass)
         assertFalse(spec.isTv)
         assertFalse(spec.useRail)
         assertFalse(spec.twoPane)
@@ -40,7 +39,6 @@ class AdaptiveLayoutTest {
     @Test
     fun aTabletInPortraitGetsTheRailAndOneWiderColumn() {
         val spec = adaptiveSpecFor(widthDp = 800, heightDp = 1280, tv = false)
-        assertEquals(WidthClass.MEDIUM, spec.widthClass)
         assertTrue(spec.useRail)
         assertFalse(spec.twoPane)
         assertEquals(720, spec.contentMaxWidthDp)
@@ -51,7 +49,6 @@ class AdaptiveLayoutTest {
     @Test
     fun aTabletInLandscapeGetsTwoPanes() {
         val spec = adaptiveSpecFor(widthDp = 1280, heightDp = 800, tv = false)
-        assertEquals(WidthClass.EXPANDED, spec.widthClass)
         assertTrue(spec.useRail)
         assertTrue(spec.twoPane)
         assertEquals(1200, spec.contentMaxWidthDp)

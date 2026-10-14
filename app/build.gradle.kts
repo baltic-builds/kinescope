@@ -23,6 +23,12 @@ android {
     namespace = "com.kinescope.app"
     compileSdk = 35
 
+    // Patch 43: pin the NDK. No version was pinned before, so AGP 8.7.2 used its own default,
+    // 27.0.12077973 (what every CI and Codespace build has used), and downloaded it in the middle of the
+    // build. The release workflow and .devcontainer/setup.sh install exactly this version and CMake 3.22.1
+    // (see `externalNativeBuild` below); keep the three places in step.
+    ndkVersion = "27.0.12077973"
+
     defaultConfig {
         applicationId = "com.kinescope.app"
         // Bumped from 26 to 29 in Phase 3: MediaStore.Downloads (used
@@ -88,6 +94,26 @@ android {
 
     buildFeatures {
         compose = true
+    }
+
+    packaging {
+        jniLibs {
+            // Patch 43: youtubedl-android ships its Python and ffmpeg payload as libpython.zip.so and
+            // libffmpeg.zip.so and needs them extracted to the app's native library directory at install
+            // time. This used to be `android:extractNativeLibs="true"` in the manifest, which AGP 8 warns
+            // about; this DSL is the same setting.
+            useLegacyPackaging = true
+            // Those two files are zip archives with a .so name, so llvm-strip cannot read them ("not a valid
+            // object file") and the build packaged them unstripped anyway. Skipping them only silences
+            // the error lines; the APK content is the same.
+            keepDebugSymbols += "**/*.zip.so"
+        }
+    }
+
+    lint {
+        // The release workflow runs `lintDebug` before the release build, over the same code. The extra
+        // fatal-only pass that `assembleRelease` would add repeats it, so it is switched off.
+        checkReleaseBuilds = false
     }
 
     // Patch 27: the bundled DPI-bypass engine (app/src/main/cpp) is vendored C, built by CMake.

@@ -13,6 +13,73 @@ patch's own `.py` script for the exact, idempotent, exact-match-guarded
 edits it makes.
 
 
+## Patch 43 — Fix the red CI build (a unit test that no longer compiled) and make the release workflow fail fast
+
+Requires patch 42. Requested: analyse the errors of the failed GitHub Actions build and fix them; review and optimise
+the workflows (a separate one for Android TV only if that is needed).
+
+### Fixed
+- **The build failed in `:app:compileDebugUnitTestKotlin`.** `AdaptiveLayoutTest` still asserted `WidthClass` and
+  `AdaptiveSpec.widthClass` (three assertions, lines 14, 43 and 54), which patch 42 had removed from
+  `AdaptiveLayout.kt` as unused. Patch 42's entry says the tests were updated; the file still contained them (why the
+  edit did not land is not known). The three assertions are deleted; every other assertion of those tests (rail,
+  content cap, panes, margins, text scale) is unchanged. Reproduced with kotlinc 2.1.0 against the real
+  `adaptiveSpecFor`: the same six errors at the same line and column as in the CI log, and 14 of 14 layout tests pass
+  after the fix. `assembleDebug` does not compile unit tests, which is why only the release workflow noticed;
+  `AGENTS.md` now says so.
+- **No other compile error was in the log, but nothing behind the failing task ran** (the other unit tests,
+  `lintDebug`, `assembleRelease`). A second failure behind this one cannot be ruled out; the next workflow run is the
+  check, and it now attaches the reports when it fails.
+
+### Warnings from the same log, cleaned up
+- `android:extractNativeLibs="true"` is removed from the manifest and set as `packaging.jniLibs.useLegacyPackaging =
+  true` (AGP 8.1+ warns about the manifest form and names the DSL as the replacement; it is the same setting:
+  `youtubedl-android`'s Python and ffmpeg payload must be extracted at install time).
+- Eight `llvm-strip: error: ... not a valid object file` lines: `libpython.zip.so` and `libffmpeg.zip.so` are zip
+  archives with a `.so` name, so they were never strippable and were packaged as they were ("Unable to strip ...,
+  packaging them as they are"). `keepDebugSymbols += "**/*.zip.so"` skips them on purpose. The APK content is the same.
+- Five deprecation warnings: `Icons.Default.ArrowBack` -> `Icons.AutoMirrored.Filled.ArrowBack` (two uses in
+  `AppChrome.kt`) and `LinearProgressIndicator(progress = Float)` -> `progress = { ... }` (`AppChrome.kt`,
+  `BypassSettings.kt`, `QueueAndLibrary.kt`). That replacement is the one the deprecation's own `ReplaceWith`
+  prescribes (read in the androidx `ProgressIndicator.kt`, main branch, because the 1.3.1 tag could not be fetched),
+  so the look should not change.
+- Left alone, harmless: "SDK XML versions up to 3 but ... version 4" (the command-line tools are newer than AGP 8.7.2).
+
+### NDK and CMake are pinned
+- The log showed Gradle downloading NDK 27.0.12077973 and CMake 3.22.1 in the middle of the build, while the workflow
+  had installed NDK 27.2.12479018 for nothing. `app/build.gradle.kts` pinned no `ndkVersion`, so AGP 8.7.2 used its own
+  default (27.0.12077973), in CI and in Codespaces alike; patch 27's "NDK 27.2 is required" was never true in practice.
+  `ndkVersion = "27.0.12077973"` now pins what every build already used, so the native binaries do not change. The
+  workflow and `.devcontainer/setup.sh` install that NDK and CMake 3.22.1 up front. Moving to 27.2 later is a one-line
+  change in those three places and deserves its own device check of the bypass engine.
+
+### Release workflow (`.github/workflows/build-release.yml`)
+- **Fail fast, in a useful order.** The version and the four secrets are validated before anything is downloaded;
+  unit tests and lint run as their own step right after the toolchain setup, before the keystore is written and before
+  the native build starts (in the failed run the test compile error surfaced only after the NDK build and the release
+  compile had already run). The keystore is written, and the release built, only after that step passes.
+- **Less work.** `clean` is gone (a fresh runner has nothing to clean; it also re-ran the native clean tasks), and so is
+  `--no-daemon` (the two Gradle steps now share one daemon). The checkout is shallow (`fetch-depth: 0` was not needed:
+  GitHub generates the release notes and the version code is the run number). `lint { checkReleaseBuilds = false }`
+  removes the fatal-only lint pass that `assembleRelease` added on top of the `lintDebug` that has just run.
+- **Easier to debug.** If a step fails, the test and lint reports are uploaded as the `build-reports` artifact (7 days).
+  The job timeout is 30 minutes instead of 45.
+- **One workflow, deliberately.** A separate TV workflow would build the same code, for the same ABI, with the same
+  signature, twice: the phone/tablet/TV layout is chosen at run time (patch 41), so there is nothing to split. The
+  only thing that could justify a second build is a TV box that needs another ABI (see `ROADMAP.md`).
+- Not changed: the action versions (`actions/checkout`, `setup-java`, `upload-artifact` v4, `setup-android` v4). GitHub
+  forces Node 24 onto them since 2026-06-02 and they run; bumping them is a separate, deliberate change.
+
+### Verification status
+- Done: the CI compile error reproduced and the fix run (above); `DocumentationTest` run against the repository (2 of
+  2); the workflow checked with actionlint 1.7.7 (with shellcheck) and parsed as YAML; this script applied to a clean
+  copy of the patch-42 tree and run a second time with no change; brackets balanced in the touched Kotlin files; the
+  manifest well-formed.
+- Not verified: the real Gradle build, lint, the rest of the unit-test run, the packaging DSL change, the pinned NDK
+  (no access to Google's Maven or SDK repository from the sandbox). The next release workflow run decides the first
+  four; a device install decides whether `useLegacyPackaging` and the NDK pin changed nothing (`ROADMAP.md`).
+
+
 ## Patch 42 — Audit of patch 41 and the codebase: a frame that keeps screen state, hardening, repository hygiene
 
 Requires patch 41. Requested: a deep, selective audit for optimization and simplification (KISS, YAGNI, DRY, SOLID),

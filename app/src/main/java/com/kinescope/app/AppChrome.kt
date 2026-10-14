@@ -26,8 +26,8 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
@@ -169,7 +169,7 @@ private fun CompactTopBar(title: String, showBack: Boolean, onBack: () -> Unit) 
         navigationIcon = {
             if (showBack) {
                 IconButton(onClick = onBack) {
-                    Icon(Icons.Default.ArrowBack, contentDescription = stringResource(R.string.cd_back))
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.cd_back))
                 }
             }
         },
@@ -194,7 +194,7 @@ private fun ScreenHeader(title: String, showBack: Boolean, onBack: () -> Unit) {
         if (showBack) {
             FocusRing {
                 IconButton(onClick = onBack) {
-                    Icon(Icons.Default.ArrowBack, contentDescription = stringResource(R.string.cd_back))
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.cd_back))
                 }
             }
             Spacer(modifier = Modifier.width(4.dp))
@@ -231,7 +231,7 @@ internal fun StrategyRefreshNoticeDialog(progress: SearchProgress?, onDismiss: (
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     LinearProgressIndicator(
-                        progress = progress.index.toFloat() / progress.total,
+                        progress = { progress.index.toFloat() / progress.total },
                         modifier = Modifier.fillMaxWidth()
                     )
                 }

@@ -33,7 +33,8 @@ before editing anything.
 - Development happens exclusively in **GitHub Codespaces** — no
   Android Studio GUI, no emulator, no connected device. Every build
   has to succeed headlessly.
-- Verification build: `./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug`. A plain `assembleDebug` is acceptable only as a quick compile while iterating. Signed releases are built by `.github/workflows/build-release.yml`; see `RELEASE.md`.
+- Verification build: `./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug`. A plain `assembleDebug` is acceptable only as a quick compile while iterating: it does not compile the unit tests
+  (patch 42 shipped a test that no longer compiled and only the release workflow noticed). Signed releases are built by `.github/workflows/build-release.yml`; see `RELEASE.md`.
 - If `gradlew` is missing or the devcontainer's `postCreateCommand`
   didn't finish, run `bash .devcontainer/setup.sh` manually.
 - CI: `.github/workflows/build-release.yml` only, manually triggered (`workflow_dispatch`) and hand-versioned per run. It publishes the signed APK to GitHub Releases. Debug CI was deliberately removed in patch 24; `./gradlew assembleDebug` remains the local sanity check.
