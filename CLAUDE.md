@@ -96,3 +96,7 @@ future sessions don't lose them.)
   extraction, downloads, the bypass and the tunnel are untouched. Result: `CHANGELOG.md`, "Patch 41"; the device
   checklist is in `ROADMAP.md`.
 - **Request (patch 40): split `DownloadService.kt` and `MainActivity.kt` by responsibility**, then apply patches 39 and 40 together and test on the phone. Result: `CHANGELOG.md`, "Patch 40". Behavior must not change; the post-split smoke test is in `ROADMAP.md`.
+- **Request (patch 44): the DPI bypass "stopped working" after patches 41-43; analyse the report, find the cause, fix it.**
+  Result: `CHANGELOG.md`, "Patch 44". The report held no failure, so the cause was not established; the patch
+  adds the missing measurement (the YouTube app's own traffic through the tunnel) and a reaction to it. Do not change
+  the tunnel's DNS, IPv6 or MTU on a guess: the next report's `tun win` lines decide.

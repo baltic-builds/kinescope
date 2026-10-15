@@ -4,7 +4,7 @@ The current state of Kinescope for anyone (human or AI agent) resuming work. It 
 appended to: per-patch history lives in `CHANGELOG.md`, open work in `ROADMAP.md`, process rules in `AGENTS.md`,
 product constraints in `CLAUDE.md`. Where this file and the code disagree, the code wins; fix this file.
 
-State as of patch 43 (2026-10-13).
+State as of patch 44 (2026-10-14).
 
 ## What Kinescope is
 
@@ -23,7 +23,7 @@ the bypass); the compact log and Copy report; Instagram Reels download and play 
 **Implemented but not yet confirmed on a device:** patch 36 UX/lifecycle changes, the Instagram sign-in,
 `/share/` resolution and error texts (patches 37-38), patch 39 (the strategy-search hold fix, the shared
 sign-in screen, the cleanup), the file split of patch 40, and the tablet and TV layouts of patch 41 (audited and
-hardened in patch 42), and the build and packaging changes of patch 43. The exact
+hardened in patch 42), the build and packaging changes of patch 43, and the tunnel traffic check of patch 44. The exact
 checklist is `ROADMAP.md`; do not tick a box without the user's report.
 **CI:** the release workflow was red at patch 42 (`AdaptiveLayoutTest` still referenced the removed
 `WidthClass`). Patch 43 fixes it, pins the NDK/CMake, and restructures the workflow (validate, tests + lint,
@@ -67,7 +67,9 @@ not yet being 16 KB page-size compatible (upstream).
   (the YouTube-only `VpnService` tunnel through `hev-socks5-tunnel`). `DpiStrategyParser` is an allowlist (no listen
   address, file path or connect target); never weaken it. `DpiSearchService` runs the strategy search as a
   foreground service and steps aside while a download holds the engine (`DpiSearchController.holdForDownload` /
-  `releaseDownload`, released in a `finally`).
+  `releaseDownload`, released in a `finally`). The tunnel also watches the YouTube app's own traffic through the
+  bridge counters (`TunnelFlow`, patch 44): three 10 s windows in a row in which the app sends and almost nothing
+  comes back switch the strategy, because the 30 s engine probe cannot see a failure between the app and the engine.
 - **Diagnostics.** `AppLog` is a rotating private journal: one line, `key=value` tokens, under 220 characters, no
   URLs, no cookies; `DiagnosticSanitizer` redacts URLs, YouTube and Instagram cookie values and private paths;
   `DiagnosticReport` adds the header for Settings -> Copy report. Backup is disabled.
@@ -132,6 +134,7 @@ Network bypass
 - `ChainPlanner.kt`, `BypassRoutes.kt`, `RouteScoreboard.kt` -- pure ordering rules for strategies and routes.
 - `NetworkCheck.kt`, `NetworkState.kt` -- layered reachability probe through the engine; third-party VPN detection.
 - `BypassVpnService.kt` -- `BypassVpnController` and the YouTube-only `VpnService` (`:dpi_vpn`).
+- `TunnelFlow.kt` -- pure judge of the YouTube app's traffic through the tunnel (idle / flowing / one-way, from the bridge counters).
 - `app/src/main/java/hev/htproxy/TProxyService.java` -- JNI contract of the vendored `hev-socks5-tunnel`; `app/src/main/cpp/` -- ByeDPI sources, `dpi_jni.c`, `CMakeLists.txt`; `app/src/main/jniLibs/` -- the tunnel library with its license and provenance.
 
 Diagnostics

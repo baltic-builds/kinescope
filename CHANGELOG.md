@@ -13,6 +13,87 @@ patch's own `.py` script for the exact, idempotent, exact-match-guarded
 edits it makes.
 
 
+## Patch 44 — YouTube tunnel: measure the YouTube app's own traffic, switch strategy when nothing comes back, fail loudly when the bridge dies
+
+Requires patch 43. Requested: after the previous patches the DPI bypass "stopped working"; analyse the attached
+report, find the cause, fix it. **The cause is not established by this patch.** The report holds no failure, and the
+one thing that could show one (the YouTube app's traffic through the tunnel) was not measured anywhere. This patch
+adds that measurement and a reaction to it; the next report decides what is wrong.
+
+### What the report shows (build 0.10.1 / 10025, OnePlus 5, Android 10, Wi-Fi, no third-party VPN)
+- The tunnel started and stayed up: `vpn chk s=1/4 ok=true ms=296` (a real TLS request through strategy 1 worked),
+  then `YouTube-only bypass active`, and no `transport stopped unexpectedly` in the 36 s the log covers. The header
+  is healthy too: `search_done=1`, `search_ver=10025` (the re-check for this build finished), `chain=4`, `proven=s1`,
+  `quar=0`, and the top strategies passed 6 of 6 parallel connections at 970-1325 KB/s.
+- The log was cleared before the test (no `boot` line, none of the search lines the header implies), so it is 36 s
+  long and every line in it is normal.
+- **Why it cannot show the failure.** The 30 s probe connects to the engine directly, not through the TUN, and it
+  starts 45 s after the tunnel comes up (the report was copied at 36 s). The strategy search is TCP/TLS only. So a
+  failure between the YouTube app and the engine (the TUN, the bridge, name lookups through the tunnel, UDP and
+  QUIC) leaves no trace in any log line the app writes. That is the gap, and it is why the engine can look healthy
+  while the YouTube app gets nothing.
+
+### What was ruled out, by reading (no device, no diff against a previous build)
+- **Patch 43's packaging and NDK pin.** `useLegacyPackaging = true` is the same `extractNativeLibs=true` that the
+  manifest carried; the pinned NDK (27.0.12077973) is the version AGP 8.7.2 used all along according to the CI log
+  quoted in patch 43; `keepDebugSymbols` only skips two zip archives that were never strippable. Neither changes the
+  bytes of `libkinescope_dpi.so`. The engine and the bridge both loaded and ran in this report, which a broken
+  native packaging would not allow.
+- **Patches 39-42.** No change they list reaches `BypassVpnService`, `DpiEngine`, `DpiEngineService` or the tunnel
+  configuration; the download path (`RouteLadder`) was moved, not changed (patch 40's own audit).
+- **hev-socks5-tunnel 2.17.1 against our configuration** (source read at the pinned tag): the JNI contract in
+  `TProxyService.java` matches the library (`Z` returns, `TProxyIsRunning`, `TProxyGetStats`); every key we write is
+  one it reads, `log-file: null` and `icmp: 'off'` are valid values.
+- **ByeDPI's UDP support** (vendored source): SOCKS5 UDP ASSOCIATE exists; a datagram to an address of a family
+  other than the listen address (an IPv6 destination on the IPv4 loopback listener) is dropped.
+
+### Differences from the reference app (ByeByeDPI, same ByeDPI + hev stack), recorded and NOT changed
+Nothing measured says they matter, and a blind change to a tunnel nobody can observe would hide the answer.
+- IPv6 is always on here (address, `::/0` route, an IPv6 DNS server); ByeByeDPI makes it optional and off by default.
+- DNS is a fixed `1.1.1.1` (plus its IPv6 twin) reached through the tunnel as UDP; the reference leaves the choice to
+  the user. A network that blocks or rewrites public DNS would leave the YouTube app without name resolution while
+  every download (resolved by the engine, `socks5h`) keeps working.
+- hev settings: MTU 1500 here and on the builder (the reference uses 8500 on hev and the builder default),
+  `max-session-count: 512`, `tcp-buffer-size: 65536` (reference: defaults).
+- The strategy ranking and the periodic probe are TCP/TLS only, so a strategy can rank first without ever being
+  tested on UDP or QUIC, which is what the YouTube app tries first.
+
+### Added
+- **`TunnelFlow.kt`** (pure, `TunnelFlowTest`): reads two values of the bridge's counters (`TProxyGetStats`: packets
+  and bytes the app sent into the tunnel, and what came back) and calls a window `idle` (fewer than 20 packets sent),
+  `flowing`, or `one_way` (at least 20 packets sent, under 24 KB back, and less than a third of what was sent).
+- **`BypassVpnService.checkTunnelFlow`** runs every 10 s on the existing monitor thread. It logs one line for every
+  window with traffic (and for the first window): `tun win=10s v=one_way tx=40p/24000B rx=40p/2100B streak=2`.
+  Three `one_way` windows in a row (30 s of an app that sends while nothing real comes back) switch the strategy
+  through the same rate-limited rotation as a failed probe (quarantine, next strategy, at most one switch per 90 s
+  and three per ten minutes). A window that is idle or flowing ends the run, so an app that is simply closed never
+  triggers it.
+- **`tun up mtu=1500 v6=1 dns=1.1.1.1 udp=udp s=1/4`** when the tunnel comes up, and **`tun end up=...s tx=...
+  rx=...`** when it is stopped: the configuration and the session totals in the report.
+- **A bridge that dies at start is an error.** `TProxyIsRunning` turns true as soon as the bridge's thread exists,
+  before it has read its configuration. The start now waits 250 ms and looks again; a bridge that already exited
+  gives the "tunnel failed" message (`tun bridge is not running after start`) instead of leaving the tunnel on
+  "starting" with the YouTube app never opened.
+
+### How to read the next report
+Start the tunnel, open the YouTube app, load a video for a minute, then Settings -> Copy report.
+- `tun win` lines with `v=flowing` while the video plays: the tunnel carries it; whatever is wrong is speed or the
+  strategy, and the `tx`/`rx` numbers say how much.
+- `v=one_way` (and later `rotate quarantined=1`): the app's packets enter the bridge and nothing real comes back.
+  The suspects are then the ones listed above (DNS through the tunnel, UDP/QUIC, IPv6), in that order of cost to test.
+- No `tun win` line with traffic at all while the app is open: its packets never reach the bridge (routing, the
+  allowed-app list or the YouTube package), which no engine-side check could have seen.
+
+### Verification status
+- Done in the sandbox: `TunnelFlow.kt` and `TunnelFlowTest.kt` compiled with kotlinc 2.1.0 and the 11 tests run;
+  `BypassVpnService.kt` compiled against the API 35 `android.jar` with stubs for androidx, coroutines, the resources
+  and the neighbouring classes; this script applied to a clean copy of the patch-43 tree and run again (no change).
+  The hev source and the ByeDPI source were read at the pinned versions.
+- Not verified: everything on a device. The thresholds (10 s window, 20 packets, 24 KB, a ratio of 3, three windows)
+  come from reasoning about what an acknowledgement-only reply looks like, not from a measurement; they are the first
+  thing to tune once a report has real numbers.
+
+
 ## Patch 43 — Fix the red CI build (a unit test that no longer compiled) and make the release workflow fail fast
 
 Requires patch 42. Requested: analyse the errors of the failed GitHub Actions build and fix them; review and optimise

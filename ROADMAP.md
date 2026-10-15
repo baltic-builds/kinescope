@@ -1,6 +1,6 @@
 # Roadmap
 
-State after patch 43 (2026-10-13). This file tracks only what is still open: device verification gates,
+State after patch 44 (2026-10-14). This file tracks only what is still open: device verification gates,
 technical debt and what is out of scope. How each item was closed lives in `CHANGELOG.md`; the state a new
 session needs is in `HANDOFF.md`.
 
@@ -11,6 +11,9 @@ session needs is in `HANDOFF.md`.
   patch 38, 2026-10-04). Earlier install, share/paste, queue, offline playback and background persistence are also
   confirmed.
 - **Reported and not fixable from code:** the Play Protect "App blocked" dialog on install (see `RELEASE.md`).
+- **Reported after patches 41-43 (2026-10-14):** the bypass "stopped working". The report holds no failure: the
+  YouTube tunnel starts and stays up, and no check looked at the YouTube app's own traffic. Patch 44 adds that
+  measurement (`tun win` lines) and a reaction to it; the cause is not established (`CHANGELOG.md`, Patch 44).
 - **The release workflow was red at patch 42** (a unit test that no longer compiled); patch 43 fixes that and
   restructures the workflow. Nothing behind the failing task had run, so it is green only once the user reports a
   run (see "Release pipeline").
@@ -30,6 +33,16 @@ session needs is in `HANDOFF.md`.
   "no authentication / no embedded browser" assumption stays superseded.
 
 ## Verification gates (open)
+
+### YouTube tunnel flow (patch 44)
+- [ ] Home -> Unblock YouTube, open the YouTube app, load a video for about a minute, return and Settings -> Copy
+  report. The report has `tun up ...`, then `tun win=10s v=...` lines. Record the verdicts and the numbers:
+  `flowing` while the video plays means the tunnel carries it; three `one_way` windows in a row are followed by
+  `rotate quarantined=1`; no `tun win` line with traffic means the YouTube app's packets do not reach the bridge.
+  Whichever it is, it is the first real evidence about why the YouTube app does not work through the tunnel.
+- [ ] Stop from the notification: the log ends with `tun end up=...s tx=...p/...B rx=...p/...B`.
+- [ ] If the verdict is `one_way`: test the suspects one at a time (DNS through the tunnel, UDP/QUIC, IPv6; see
+  `CHANGELOG.md`, Patch 44) rather than all at once, so the answer stays attributable.
 
 ### Instagram Reels (patches 37-39)
 - [ ] Settings -> Instagram account -> Sign in: a normal login completes, also with 2FA or a checkpoint prompt.

@@ -68,6 +68,13 @@ class BypassVpnService : VpnService() {
     @Volatile private var probeOkCount = 0
     private val rotations = ArrayDeque<Long>()
 
+    // Patch 44: the traffic of the YouTube app through the tunnel, read from the bridge's own counters.
+    @Volatile private var nextFlowCheckAt = 0L
+    @Volatile private var flowPrevious = TunnelCounters.ZERO
+    @Volatile private var oneWayStreak = 0
+    @Volatile private var flowWindows = 0
+    @Volatile private var tunnelStartedAt = 0L
+
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
@@ -200,20 +207,41 @@ class BypassVpnService : VpnService() {
                 }
                 Thread.sleep(50L)
             }
-            if (!running || stopRequested.get()) return
+            // Patch 44: the bridge reports "running" the moment its thread exists, before it has read its
+            // configuration, and a configuration it rejects ends that thread within milliseconds. Look again after
+            // a short settle time, so a bridge that died at once is an error and not a silent "starting".
+            if (running && !stopRequested.get()) {
+                Thread.sleep(BRIDGE_SETTLE_MS)
+                running = TProxyService.TProxyIsRunning()
+            }
+            if (stopRequested.get()) return
+            if (!running) {
+                AppLog.w("BypassVpnService", "tun bridge is not running after start")
+                throw BypassStartException(R.string.bypass_vpn_tunnel_failed)
+            }
 
             engineSession = engine
             tunInterface = tun
             tunnelRunning = true
             currentLine = chosenLine
             failStreak = 0
-            nextProbeAt = SystemClock.elapsedRealtime() + FIRST_PROBE_DELAY_MS
+            val startedNow = SystemClock.elapsedRealtime()
+            nextProbeAt = startedNow + FIRST_PROBE_DELAY_MS
+            tunnelStartedAt = startedNow
+            nextFlowCheckAt = startedNow + FLOW_INTERVAL_MS
+            flowPrevious = TunnelCounters.ZERO
+            oneWayStreak = 0
+            flowWindows = 0
             engine = null
             tun = null
             hevStarted = false
             BypassVpnController.active()
             getSystemService(NotificationManager::class.java)
                 .notify(NOTIFICATION_ID, buildNotification(active = true))
+            AppLog.i(
+                "BypassVpnService",
+                "tun up mtu=$TUN_MTU v6=1 dns=1.1.1.1 udp=udp s=${chain.indexOf(chosenLine) + 1}/${chain.size}"
+            )
             AppLog.i("BypassVpnService", "YouTube-only bypass active")
             if (monitorRunning.compareAndSet(false, true)) executor.execute { monitorTunnel() }
         } catch (e: BypassStartException) {
@@ -260,6 +288,7 @@ class BypassVpnService : VpnService() {
                     return
                 }
                 if (++ticks % NOTIFICATION_CHECK_TICKS == 0) ensureNotificationVisible()
+                if (!updating && !restarting && SystemClock.elapsedRealtime() >= nextFlowCheckAt) checkTunnelFlow()
                 if (!updating && !restarting && SystemClock.elapsedRealtime() >= nextProbeAt) probeTunnel()
             }
         } catch (e: InterruptedException) {
@@ -327,6 +356,48 @@ class BypassVpnService : VpnService() {
         failStreak++
         AppLog.w("BypassVpnService", "probe fail streak=$failStreak ${load.passed}/${load.total} hs=${load.medianHandshakeMs}ms")
         if (failStreak >= FAILS_BEFORE_ROTATE) rotateStrategy(line)
+    }
+
+    /**
+     * Patch 44: every [FLOW_INTERVAL_MS], what the YouTube app sent into the tunnel and what came back, from the
+     * bridge's own counters. [probeTunnel] talks to the engine directly, so it cannot see a failure between the
+     * app and the engine (the TUN, the bridge, name lookups, UDP); this can. Three one-way windows in a row (the
+     * app keeps sending, almost nothing real comes back) switch the strategy through the same rate-limited path
+     * as a failed probe.
+     */
+    private fun checkTunnelFlow() {
+        nextFlowCheckAt = SystemClock.elapsedRealtime() + FLOW_INTERVAL_MS
+        val line = currentLine ?: return
+        val current = TunnelCounters.fromStats(runCatching { TProxyService.TProxyGetStats() }.getOrNull()) ?: return
+        val previous = flowPrevious
+        val verdict = TunnelFlow.judge(previous, current)
+        flowPrevious = current
+        flowWindows++
+        oneWayStreak = TunnelFlow.streakAfter(oneWayStreak, verdict)
+        // One line per window with traffic, plus the first window: a quiet tunnel does not fill the log.
+        if (verdict != FlowVerdict.IDLE || flowWindows == 1) {
+            AppLog.i(
+                "BypassVpnService",
+                "tun win=${FLOW_INTERVAL_MS / 1000}s v=${verdict.name.lowercase()} " +
+                    "tx=${current.txPackets - previous.txPackets}p/${current.txBytes - previous.txBytes}B " +
+                    "rx=${current.rxPackets - previous.rxPackets}p/${current.rxBytes - previous.rxBytes}B streak=$oneWayStreak"
+            )
+        }
+        if (TunnelFlow.shouldRotate(oneWayStreak)) {
+            AppLog.w("BypassVpnService", "tun one-way windows=$oneWayStreak: the app sends, nothing comes back")
+            oneWayStreak = 0
+            rotateStrategy(line)
+        }
+    }
+
+    /** Patch 44: one line with the whole session's traffic, written when the tunnel is stopped. */
+    private fun logTunnelTotals() {
+        val totals = TunnelCounters.fromStats(runCatching { TProxyService.TProxyGetStats() }.getOrNull()) ?: return
+        val seconds = (SystemClock.elapsedRealtime() - tunnelStartedAt) / 1000L
+        AppLog.i(
+            "BypassVpnService",
+            "tun end up=${seconds}s tx=${totals.txPackets}p/${totals.txBytes}B rx=${totals.rxPackets}p/${totals.rxBytes}B"
+        )
     }
 
     /** Quarantines the failing strategy and reconnects on the next one; rate-limited so a dead network cannot thrash it. */
@@ -433,6 +504,7 @@ class BypassVpnService : VpnService() {
     }
 
     private fun stopTunnelInternal(publishStopped: Boolean = true) {
+        if (tunnelRunning) logTunnelTotals()
         if (tunnelRunning || runCatching { TProxyService.TProxyIsRunning() }.getOrDefault(false)) {
             runCatching { TProxyService.TProxyStopService() }
         }
@@ -557,6 +629,10 @@ class BypassVpnService : VpnService() {
         private const val MIN_ROTATION_GAP_MS = 90_000L
         private const val ROTATION_WINDOW_MS = 10L * 60L * 1000L
         private const val MAX_ROTATIONS = 3
+
+        // Patch 44: the traffic of the YouTube app through the tunnel (see checkTunnelFlow).
+        private const val FLOW_INTERVAL_MS = 10_000L
+        private const val BRIDGE_SETTLE_MS = 250L
 
         fun start(context: Context): Boolean {
             val intent = Intent(context, BypassVpnService::class.java).apply { action = ACTION_START }
