@@ -238,3 +238,30 @@ honesty check at the top): compare it on real screens and adjust the numbers in 
 - **Touch-only gestures get a visible twin on TV:** the swipe-to-remove of a queue row becomes a remove button; the
   library row's overflow menu becomes inline Share and Delete.
 - Preserve whitespace: the phone layout gets none of the above; no label, border or surface was added to it.
+
+
+## Patch 45 — the Home bypass dashboard
+
+The hero card on Home stops being one YouTube button and becomes a small dashboard. Palette, typography and shapes
+are unchanged; no new color, icon or animation was added.
+
+- **One card, three zones.** A header (the overall state in `titleMedium`, one `bodySmall` line under it), two channel
+  rows separated by hairline `outline` dividers (Downloads, YouTube app) and a footer with one text button. It is
+  left-aligned like the rows below it, no longer centered.
+- **State is told by the container and a dot.** The card is `primaryContainer` while the bypass is on (downloads through
+  it, or the tunnel starting or running) and `surfaceVariant` otherwise, as before. Each channel has a 10dp dot:
+  `success` while it carries traffic, `warning` when the tunnel is up but nothing comes back, `primary` while the
+  tunnel starts, `error` after a failed start, the muted text color when off. A dot never carries the meaning alone:
+  the line beside it says the same in words.
+- **One switch, on the row.** The whole Downloads row is the switch (a toggleable row with a read-only `Switch`), so a
+  screen reader and a D-pad meet one control that has a name. It is locked, and shown on, while the YouTube tunnel
+  runs, because the bypass is used then whatever the preference says.
+- **Load indicators.** A running strategy search shows "Checked N of M", a determinate bar (`primary` on a `surface`
+  track, the queue row's style) and Stop; the running tunnel shows its live speed (down and up) and the strategy in
+  use. Nothing animates except the bar.
+- **Buttons keep the patch 36 rule:** 48dp high and capped at 360dp wide, so the Home action does not outweigh the
+  navigation bar. Open and Stop sit side by side while the tunnel runs.
+- **Plain words.** The card says "ways" (as the queue does: "Trying another way"); "strategy" stays in Settings.
+- **TV:** every control is wrapped in `FocusRing`; no touch-only gesture was added.
+- **Not seen on a screen.** The card was composed without a device. Compare the two channel rows at 360dp with Russian
+  text and at the largest font size, and adjust the spacing here and in `BypassDashboard.kt` together.

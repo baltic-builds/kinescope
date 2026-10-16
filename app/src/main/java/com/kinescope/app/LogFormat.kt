@@ -34,6 +34,7 @@ internal object LogFormat {
         "MediaStorage" to "media",
         "Library" to "lib",
         "MainActivity" to "ui",
+        "BypassDashboard" to "ui",
         "App" to "app",
         "Logs" to "log",
         "Crash" to "crash"

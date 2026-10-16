@@ -164,7 +164,6 @@
 <string name="bypass_youtube_active">YouTube bypass active</string>
 <string name="bypass_home_hint">Watch YouTube even where it’s blocked</string>
 <string name="bypass_quick_action">Unblock YouTube</string>
-<string name="bypass_open_youtube">YouTube</string>
 <string name="bypass_starting_short">Starting…</string>
 <string name="bypass_need_test">Test the bypass in Settings first.</string>
 <string name="bypass_vpn_permission_denied">Android VPN permission was not granted.</string>
@@ -242,4 +241,31 @@
     <string name="interface_touch">Phone and tablet</string>
     <string name="no_player_tv">No video player found. Install one, for example VLC or Kodi, and try again.</string>
     <string name="web_session_unavailable">Signing in is not available here: this device has no built-in web browser.</string>
+    <!-- Patch 45: the Home bypass dashboard. -->
+    <string name="dash_headline_on">Bypass is on</string>
+    <string name="dash_headline_off">Bypass is off</string>
+    <string name="dash_headline_checking">Checking the ways…</string>
+    <string name="dash_headline_setup">Not set up yet</string>
+    <string name="dash_sub_checking">This can take a few minutes. You can leave the app; the check keeps running.</string>
+    <string name="dash_sub_setup">Check which ways around the blocking work on this network.</string>
+    <string name="dash_ways_ready">Ways ready: %1$d</string>
+    <string name="dash_ways_ready_checked">Ways ready: %1$d · checked %2$s</string>
+    <string name="dash_just_now">just now</string>
+    <string name="dash_downloads_label">Downloads</string>
+    <string name="dash_downloads_bypass">Through the bypass</string>
+    <string name="dash_downloads_direct">Direct connection</string>
+    <string name="dash_applies_next">Running downloads keep their current route; a change applies from the next one.</string>
+    <string name="dash_tunnel_keeps_on">Stays on while the YouTube tunnel is running.</string>
+    <string name="dash_youtube_label">YouTube app</string>
+    <string name="dash_youtube_on">Tunnel is on</string>
+    <string name="dash_youtube_idle">No traffic yet</string>
+    <string name="dash_youtube_no_answer">The app is sending, but nothing is coming back</string>
+    <string name="dash_rate">↓ %1$s · ↑ %2$s</string>
+    <string name="dash_way">Way %1$d of %2$d</string>
+    <string name="dash_open_youtube">Open YouTube</string>
+    <string name="dash_check_ways">Check the ways</string>
+    <string name="dash_check_again">Check again</string>
+    <string name="dash_check_progress">Checked %1$d of %2$d</string>
+    <string name="dash_recheck">Re-checking in the background · %1$d of %2$d</string>
+    <string name="dash_wait_download_check">Finish the current download before checking the ways.</string>
 </resources>

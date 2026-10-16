@@ -13,6 +13,80 @@ patch's own `.py` script for the exact, idempotent, exact-match-guarded
 edits it makes.
 
 
+## Patch 45 — Home bypass dashboard: the bypass on and off from Home, with state and load indicators
+
+Requires patch 44. Requested: turning the DPI bypass on and off is inconvenient; make it possible from the main screen
+and rework the Home hero card completely into a dashboard (on / off, state or load indicators), "think it through and
+implement it". GUI and UX only: nothing about extraction, the engine, the strategy parser or the tunnel's network
+configuration changes.
+
+### What the code showed (read before designing, not assumed)
+- "Bypass" is two things. Downloads use a verified ByeDPI strategy when `DpiPrefs.isEnabled` is on (the switch in
+  Settings); the YouTube app uses its own `VpnService` tunnel (`BypassVpnService`). The old Home card could only start
+  the tunnel and open YouTube; stopping it, and the downloads switch, needed Settings (or the notification).
+- `DpiBypass.activeChain` returns the chain when the preference is on OR the tunnel is active. While the tunnel runs the
+  preference changes nothing, which is why Settings locks the switch then. The dashboard shows it on and locked.
+- A manual strategy search switches the preference on when it finds something; a quiet background re-check (after an
+  app update) must not. So the switch stays usable during a background re-check and not during a visible one.
+- Settings also locks the switch while a download runs. Nothing in the code needs that: the switch writes one
+  preference and `RouteLadder` reads the chain once per attempt, so a running attempt keeps its route. Home keeps the
+  switch usable and says so under it; Settings is left as it was (technical debt in `ROADMAP.md`).
+- A search result message stays in `DpiSearchController` until the next search; only the three that still make sense on
+  a "not set up" card (none found, stopped, failed) are shown there.
+
+### Changed
+- **Home hero card -> dashboard** (`BypassDashboard.kt`, replacing `BypassHomeCard` in `HomeScreen.kt`):
+  - Header: the overall state ("Bypass is on / off", "Checking the ways...", "Not set up yet") and "Ways ready: N,
+    checked 3 hr. ago".
+  - Downloads row: one switch, the whole row (a toggleable row, so it has an accessible name and one D-pad stop).
+  - YouTube app row: "Unblock YouTube" (starts the tunnel and opens the app, as before); while the tunnel runs "Open
+    YouTube" and "Stop"; its live speed, the strategy in use ("Way 2 of 4") and a warning when the app sends and
+    nothing comes back.
+  - A progress strip for the first-run check, a manual check and the quiet background re-check, with Stop; "Check
+    again" in the footer.
+  - Not set up: one "Check the ways" button (the same search as Settings -> Test strategies).
+- **`BypassDashboardModel.kt`** (pure, `BypassDashboardTest`): all of the above as rules over primitives. The
+  composable decides nothing.
+- **`BypassVpnService` / `BypassVpnController`**: the tunnel now publishes what it already measures: its speed (from the
+  bridge counters every 2 s; `TunnelRate` in `TunnelFlow.kt`, `TunnelRateTest`), the verdict of the last 10 s window and
+  the strategy in use (`TunnelTraffic`). Nothing else in the service changed: no behavior, no configuration, no log
+  line.
+- `HomeScreen` takes `requestNotifications` (the notification permission before a search starts, as in Settings) and
+  `MainActivity` passes it. The log tag of the new component is `ui` (`LogFormat`).
+- Strings: 26 new ones in English and Russian (`dash_*`); `bypass_open_youtube` is gone (replaced by
+  `dash_open_youtube`); `bypass_home_hint` is now the "off" line of the YouTube row.
+
+### Not changed (on purpose)
+- The Settings bypass section, the strategy picker, the search service, the engine and the tunnel's configuration.
+- `MainActivity.openByeDpiYouTube` (VPN consent, notification permission, opening the app). Its "test first" branch is
+  no longer reachable from Home (the card offers the button only when a way is verified) and stays as a safety net.
+- There is no separate "Appendix" table in this file any more (patch 16 moved it to the technical-debt list in
+  `ROADMAP.md`); the three new debt items of this patch are recorded there.
+
+### Verification status
+- Done in the sandbox (no device, no Gradle, no Compose libraries):
+  - This script applied to a clean copy of the patch-44 tree (unpacked from the repomix export) and run a second time:
+    the second run skips every edit and changes nothing. Its own checks (bracket balance of the touched Kotlin files,
+    XML well-formedness, English/Russian string parity and format placeholders, the `HANDOFF.md` file map) pass before
+    the first write; the `DocumentationTest` rules were also re-run by hand.
+  - `TunnelFlow.kt`, `BypassDashboardModel.kt`, `LogFormat.kt` and the tests compiled with kotlinc 2.1.0 and all 30
+    tests ran (`BypassDashboardTest` 15, `TunnelRateTest` 4, the existing `TunnelFlowTest` 11), with a small JUnit
+    stand-in for the runner.
+  - `BypassVpnService.kt` and the engine and search files it uses compiled against the API 35 `android.jar` with stubs
+    for androidx, coroutines and the resources: the same 67 stub-related errors before and after the patch, none new.
+  - `BypassDashboard.kt` compiled against stubs of the Compose, Material3 and project APIs it uses (a deliberate typo
+    was reported, so the check does see this file). The signatures that are new to this repo (`Modifier.toggleable`,
+    `Role.Switch`, `Switch(onCheckedChange = null)`, `HorizontalDivider(color)`, `OutlinedButton`, `Box(modifier)`)
+    were read in the AndroidX source on GitHub (the `androidx-main` branch, which is newer than the BOM 2024.11.00
+    versions; the tagged sources were not reachable); the calls themselves have existed unchanged since the first
+    stable releases.
+  - Every `R.string` the code uses exists, every new string is used, and no string was left unused.
+- Not verified: Gradle itself (the script runs `testDebugUnitTest`, `lintDebug` and `assembleDebug` and keeps itself if
+  one fails), the Compose lint checks, everything on a device, and every visual choice (spacing at 360dp with Russian
+  text, dark mode, TV focus). The speed and verdict indicators were never run against a real tunnel. Nothing here is
+  closed until the checklist in `ROADMAP.md` is reported as done.
+
+
 ## Patch 44 — YouTube tunnel: measure the YouTube app's own traffic, switch strategy when nothing comes back, fail loudly when the bridge dies
 
 Requires patch 43. Requested: after the previous patches the DPI bypass "stopped working"; analyse the attached

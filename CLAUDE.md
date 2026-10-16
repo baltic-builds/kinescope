@@ -100,3 +100,10 @@ future sessions don't lose them.)
   Result: `CHANGELOG.md`, "Patch 44". The report held no failure, so the cause was not established; the patch
   adds the missing measurement (the YouTube app's own traffic through the tunnel) and a reaction to it. Do not change
   the tunnel's DNS, IPv6 or MTU on a guess: the next report's `tun win` lines decide.
+
+- **Request (patch 45): the bypass can be switched on and off from Home; the Home hero card becomes a dashboard**
+  (an on/off control plus state and load indicators; "think it through and implement it"). Decisions: the card
+  controls the two things the app calls "bypass" separately (the downloads switch is the same preference as in
+  Settings; the YouTube tunnel keeps its start / open / stop), nothing about extraction, the engine, the strategy
+  parser or the tunnel's network configuration changes, and the only service change is publishing numbers the tunnel
+  already measured. Result: `CHANGELOG.md`, "Patch 45"; the device checklist is in `ROADMAP.md`.

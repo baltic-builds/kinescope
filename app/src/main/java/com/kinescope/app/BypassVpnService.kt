@@ -21,6 +21,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 
 data class BypassVpnUiState(
     val starting: Boolean = false,
@@ -32,11 +33,40 @@ object BypassVpnController {
     private val mutableState = MutableStateFlow(BypassVpnUiState())
     val state = mutableState.asStateFlow()
 
-    internal fun starting() { mutableState.value = BypassVpnUiState(starting = true) }
-    internal fun active() { mutableState.value = BypassVpnUiState(active = true) }
-    internal fun stopped() { mutableState.value = BypassVpnUiState() }
-    internal fun failed(@StringRes errorRes: Int) { mutableState.value = BypassVpnUiState(errorRes = errorRes) }
+    // Patch 45: what the Home dashboard shows about a running tunnel: its speed, the verdict of the last traffic
+    // window and the strategy in use. It belongs to one run of the tunnel, so every state change but "active"
+    // (which the service follows with the strategy position) starts it again from nothing.
+    private val mutableTraffic = MutableStateFlow(TunnelTraffic())
+    internal val traffic = mutableTraffic.asStateFlow()
 
+    internal fun starting() {
+        mutableState.value = BypassVpnUiState(starting = true)
+        mutableTraffic.value = TunnelTraffic()
+    }
+
+    internal fun active() { mutableState.value = BypassVpnUiState(active = true) }
+
+    internal fun stopped() {
+        mutableState.value = BypassVpnUiState()
+        mutableTraffic.value = TunnelTraffic()
+    }
+
+    internal fun failed(@StringRes errorRes: Int) {
+        mutableState.value = BypassVpnUiState(errorRes = errorRes)
+        mutableTraffic.value = TunnelTraffic()
+    }
+
+    internal fun publishPosition(position: Int, total: Int) {
+        mutableTraffic.update { it.copy(position = position, total = total) }
+    }
+
+    internal fun publishRate(rate: TunnelRate) {
+        mutableTraffic.update { it.copy(rate = rate) }
+    }
+
+    internal fun publishVerdict(verdict: FlowVerdict) {
+        mutableTraffic.update { it.copy(verdict = verdict) }
+    }
 }
 
 /**
@@ -74,6 +104,10 @@ class BypassVpnService : VpnService() {
     @Volatile private var oneWayStreak = 0
     @Volatile private var flowWindows = 0
     @Volatile private var tunnelStartedAt = 0L
+
+    // Patch 45: the tunnel's speed for the Home dashboard, sampled from the same counters every few seconds.
+    @Volatile private var rateSample: TunnelCounters? = null
+    @Volatile private var rateSampleAt = 0L
 
     override fun onCreate() {
         super.onCreate()
@@ -230,12 +264,14 @@ class BypassVpnService : VpnService() {
             tunnelStartedAt = startedNow
             nextFlowCheckAt = startedNow + FLOW_INTERVAL_MS
             flowPrevious = TunnelCounters.ZERO
+            rateSample = null
             oneWayStreak = 0
             flowWindows = 0
             engine = null
             tun = null
             hevStarted = false
             BypassVpnController.active()
+            BypassVpnController.publishPosition(chain.indexOf(chosenLine) + 1, chain.size)
             getSystemService(NotificationManager::class.java)
                 .notify(NOTIFICATION_ID, buildNotification(active = true))
             AppLog.i(
@@ -288,6 +324,7 @@ class BypassVpnService : VpnService() {
                     return
                 }
                 if (++ticks % NOTIFICATION_CHECK_TICKS == 0) ensureNotificationVisible()
+                if (ticks % TRAFFIC_TICKS == 0) publishTrafficRate()
                 if (!updating && !restarting && SystemClock.elapsedRealtime() >= nextFlowCheckAt) checkTunnelFlow()
                 if (!updating && !restarting && SystemClock.elapsedRealtime() >= nextProbeAt) probeTunnel()
             }
@@ -371,6 +408,7 @@ class BypassVpnService : VpnService() {
         val current = TunnelCounters.fromStats(runCatching { TProxyService.TProxyGetStats() }.getOrNull()) ?: return
         val previous = flowPrevious
         val verdict = TunnelFlow.judge(previous, current)
+        BypassVpnController.publishVerdict(verdict)
         flowPrevious = current
         flowWindows++
         oneWayStreak = TunnelFlow.streakAfter(oneWayStreak, verdict)
@@ -388,6 +426,21 @@ class BypassVpnService : VpnService() {
             oneWayStreak = 0
             rotateStrategy(line)
         }
+    }
+
+    /**
+     * Patch 45: the tunnel's speed for the Home dashboard, from the same bridge counters as [checkTunnelFlow] but read
+     * every [TRAFFIC_TICKS] ticks (2 s). The first reading after a (re)start only sets the baseline. No log line: the
+     * `tun win` lines already record the traffic.
+     */
+    private fun publishTrafficRate() {
+        val now = SystemClock.elapsedRealtime()
+        val current = TunnelCounters.fromStats(runCatching { TProxyService.TProxyGetStats() }.getOrNull()) ?: return
+        val previous = rateSample
+        val elapsed = now - rateSampleAt
+        rateSample = current
+        rateSampleAt = now
+        if (previous != null) BypassVpnController.publishRate(TunnelRate.between(previous, current, elapsed))
     }
 
     /** Patch 44: one line with the whole session's traffic, written when the tunnel is stopped. */
@@ -633,6 +686,9 @@ class BypassVpnService : VpnService() {
         // Patch 44: the traffic of the YouTube app through the tunnel (see checkTunnelFlow).
         private const val FLOW_INTERVAL_MS = 10_000L
         private const val BRIDGE_SETTLE_MS = 250L
+
+        // Patch 45: the dashboard's speed reading, every 4th tick of the 500 ms monitor (2 s).
+        private const val TRAFFIC_TICKS = 4
 
         fun start(context: Context): Boolean {
             val intent = Intent(context, BypassVpnService::class.java).apply { action = ACTION_START }

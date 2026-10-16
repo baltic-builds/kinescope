@@ -164,7 +164,6 @@
 <string name="bypass_youtube_active">Обход для YouTube активен</string>
 <string name="bypass_home_hint">Смотрите YouTube, даже если он заблокирован</string>
 <string name="bypass_quick_action">Разблокировать YouTube</string>
-<string name="bypass_open_youtube">YouTube</string>
 <string name="bypass_starting_short">Запуск…</string>
 <string name="bypass_need_test">Сначала проверьте обход в настройках.</string>
 <string name="bypass_vpn_permission_denied">Разрешение Android VPN не предоставлено.</string>
@@ -242,4 +241,31 @@
     <string name="interface_touch">Телефон и планшет</string>
     <string name="no_player_tv">Не найден видеоплеер. Установите его, например VLC или Kodi, и повторите.</string>
     <string name="web_session_unavailable">Вход здесь недоступен: на этом устройстве нет встроенного браузера.</string>
+    <!-- Patch 45: the Home bypass dashboard. -->
+    <string name="dash_headline_on">Обход включён</string>
+    <string name="dash_headline_off">Обход выключен</string>
+    <string name="dash_headline_checking">Проверяем способы…</string>
+    <string name="dash_headline_setup">Ещё не настроено</string>
+    <string name="dash_sub_checking">Это может занять несколько минут. Можно выйти из приложения — проверка продолжится.</string>
+    <string name="dash_sub_setup">Проверьте, какие способы обхода блокировки работают в этой сети.</string>
+    <string name="dash_ways_ready">Готово способов: %1$d</string>
+    <string name="dash_ways_ready_checked">Готово способов: %1$d · проверено %2$s</string>
+    <string name="dash_just_now">только что</string>
+    <string name="dash_downloads_label">Загрузки</string>
+    <string name="dash_downloads_bypass">Через обход</string>
+    <string name="dash_downloads_direct">Напрямую</string>
+    <string name="dash_applies_next">Идущие загрузки сохраняют свой маршрут; изменение подействует со следующей.</string>
+    <string name="dash_tunnel_keeps_on">Остаётся включённым, пока работает туннель YouTube.</string>
+    <string name="dash_youtube_label">Приложение YouTube</string>
+    <string name="dash_youtube_on">Туннель включён</string>
+    <string name="dash_youtube_idle">Трафика пока нет</string>
+    <string name="dash_youtube_no_answer">Приложение отправляет данные, но ответа нет</string>
+    <string name="dash_rate">↓ %1$s · ↑ %2$s</string>
+    <string name="dash_way">Способ %1$d из %2$d</string>
+    <string name="dash_open_youtube">Открыть YouTube</string>
+    <string name="dash_check_ways">Проверить способы</string>
+    <string name="dash_check_again">Проверить снова</string>
+    <string name="dash_check_progress">Проверено %1$d из %2$d</string>
+    <string name="dash_recheck">Фоновая перепроверка · %1$d из %2$d</string>
+    <string name="dash_wait_download_check">Дождитесь окончания загрузки, чтобы проверить способы.</string>
 </resources>

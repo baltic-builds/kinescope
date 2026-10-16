@@ -4,7 +4,7 @@ The current state of Kinescope for anyone (human or AI agent) resuming work. It 
 appended to: per-patch history lives in `CHANGELOG.md`, open work in `ROADMAP.md`, process rules in `AGENTS.md`,
 product constraints in `CLAUDE.md`. Where this file and the code disagree, the code wins; fix this file.
 
-State as of patch 44 (2026-10-14).
+State as of patch 45 (2026-10-15).
 
 ## What Kinescope is
 
@@ -23,7 +23,7 @@ the bypass); the compact log and Copy report; Instagram Reels download and play 
 **Implemented but not yet confirmed on a device:** patch 36 UX/lifecycle changes, the Instagram sign-in,
 `/share/` resolution and error texts (patches 37-38), patch 39 (the strategy-search hold fix, the shared
 sign-in screen, the cleanup), the file split of patch 40, and the tablet and TV layouts of patch 41 (audited and
-hardened in patch 42), the build and packaging changes of patch 43, and the tunnel traffic check of patch 44. The exact
+hardened in patch 42), the build and packaging changes of patch 43, the tunnel traffic check of patch 44, and the Home bypass dashboard of patch 45. The exact
 checklist is `ROADMAP.md`; do not tick a box without the user's report.
 **CI:** the release workflow was red at patch 42 (`AdaptiveLayoutTest` still referenced the removed
 `WidthClass`). Patch 43 fixes it, pins the NDK/CMake, and restructures the workflow (validate, tests + lint,
@@ -73,7 +73,7 @@ not yet being 16 KB page-size compatible (upstream).
 - **Diagnostics.** `AppLog` is a rotating private journal: one line, `key=value` tokens, under 220 characters, no
   URLs, no cookies; `DiagnosticSanitizer` redacts URLs, YouTube and Instagram cookie values and private paths;
   `DiagnosticReport` adds the header for Settings -> Copy report. Backup is disabled.
-- **UI.** Home (queue + library, bypass card), Add, Settings, Logs (five taps on the Settings icon), sign-in
+- **UI.** Home (bypass dashboard, queue + library), Add, Settings, Logs (five taps on the Settings icon), sign-in
   screens. English default, Russian in `values-ru`; every string exists in both.
 - **Adaptive layout (patch 41).** One APK for phones, tablets and Android TV. `AdaptiveRoot` classifies the window
   (`adaptiveSpecFor`, Material breakpoints 600/840dp) and provides `LocalAdaptive`; screens read it. Phone in
@@ -84,6 +84,12 @@ not yet being 16 KB page-size compatible (upstream).
   through `AdaptiveSpec`, not through ad-hoc `if (isTv)` checks. `AppFrame` is ONE structure for every layout
   (a Scaffold with empty bars in the rail layout, a Row, a Column, a single call of the screen content): a
   second branch around the content would rebuild every screen when a phone is rotated.
+- **Home dashboard (patch 45).** The hero card on Home (`BypassDashboard`) shows and controls both things the app
+  calls "bypass": a switch for the downloads (`DpiPrefs.enabled`, the same preference as Settings) and the start / open /
+  stop of the YouTube tunnel, plus a progress strip for a running search and the tunnel's live speed, strategy position
+  and traffic verdict (`TunnelTraffic`, published by `BypassVpnService` through `BypassVpnController.traffic`). Every
+  rule (what is shown, which controls are enabled) lives in the pure `bypassDashboardModel`; the composable maps state
+  in and draws. The preferences are read when a watched state changes, not through a live observer.
 
 ## File map
 
@@ -120,7 +126,9 @@ UI
 - `MainActivity.kt` -- the activity, `AppSection`, `KinescopeApp` (state, navigation, handlers).
 - `AdaptiveLayout.kt` -- window classification (`AdaptiveSpec`, `adaptiveSpecFor`), TV detection, `InterfaceMode`, `LocalAdaptive`, `AdaptiveRoot`, `FocusRing`.
 - `AppChrome.kt` -- `AppFrame` (top bar + bottom bar, or header + navigation rail), responsive column, strategy-refresh notice.
-- `HomeScreen.kt` -- Home: bypass card, queue/library lists, empty state, banners.
+- `HomeScreen.kt` -- Home: the bypass dashboard slot, queue/library lists, empty state, banners.
+- `BypassDashboard.kt` -- the Home hero card: header, downloads switch, YouTube-tunnel controls, search strip (Compose; draws the model).
+- `BypassDashboardModel.kt` -- pure rules of that card (`bypassDashboardModel`, `formatTransferRate`).
 - `QueueAndLibrary.kt` -- the queue-job row, the library-file row and the library file actions.
 - `QuickAddScreen.kt`, `SettingsScreen.kt`, `LogsScreen.kt` -- the Add, Settings and Logs screens.
 - `BypassSettings.kt`, `StrategyPicker.kt` -- the bypass section of Settings and the manual strategy list.
@@ -134,7 +142,7 @@ Network bypass
 - `ChainPlanner.kt`, `BypassRoutes.kt`, `RouteScoreboard.kt` -- pure ordering rules for strategies and routes.
 - `NetworkCheck.kt`, `NetworkState.kt` -- layered reachability probe through the engine; third-party VPN detection.
 - `BypassVpnService.kt` -- `BypassVpnController` and the YouTube-only `VpnService` (`:dpi_vpn`).
-- `TunnelFlow.kt` -- pure judge of the YouTube app's traffic through the tunnel (idle / flowing / one-way, from the bridge counters).
+- `TunnelFlow.kt` -- pure judge of the YouTube app's traffic through the tunnel (idle / flowing / one-way, from the bridge counters), plus the tunnel's speed (`TunnelRate`) and the snapshot the dashboard reads (`TunnelTraffic`).
 - `app/src/main/java/hev/htproxy/TProxyService.java` -- JNI contract of the vendored `hev-socks5-tunnel`; `app/src/main/cpp/` -- ByeDPI sources, `dpi_jni.c`, `CMakeLists.txt`; `app/src/main/jniLibs/` -- the tunnel library with its license and provenance.
 
 Diagnostics
@@ -142,7 +150,7 @@ Diagnostics
 
 Tests (`app/src/test/java/com/kinescope/app/`, pure JVM, run by `testDebugUnitTest`) cover link parsing, error
 classification, the cookie file, the route and chain ordering, the run monitor, the log format, the strategy
-parser/search/ranking/store, the network probe, the privacy redaction and the window classification. Build and release: `.devcontainer/setup.sh`
+parser/search/ranking/store, the network probe, the privacy redaction, the window classification and the Home dashboard model. Build and release: `.devcontainer/setup.sh`
 (pinned Android command-line tools), `.github/workflows/build-release.yml` (the only CI, manual, signed release),
 `RELEASE.md`.
 
@@ -162,6 +170,10 @@ parser/search/ranking/store, the network probe, the privacy redaction and the wi
   only prebuilt bundle found is a paid fork). Its URL pattern excludes `/share/` and `/reels/audio/`. A dead
   session logs "account cookies are no longer valid" and then "empty media response". DASH video streams are
   labelled VP9; the progressive H.264 files have no codec label (yt-dlp issue 12394).
+- `DpiBypass.activeChain` returns the verified chain when `DpiPrefs.isEnabled` is on OR the YouTube tunnel is active, so
+  while the tunnel runs the downloads preference has no effect (Settings locks the switch then; the Home dashboard
+  shows it on and locked). `RouteLadder` reads the chain once per attempt, so changing the preference never affects a
+  download that is already running.
 - Log format: `HH:mm:ss.d L tag message | err="..."`, legend in every report header. Tags: dl, byp, srch, vpn,
   job, eng, upd, auth, ui, lib, media. Keys: `j` job (8 hex), `p` yt-dlp profile, `src` site (`yt`/`ig`), `fmt`
   chosen format ids, `r` route (`s2/4` = strategy 2 of 4), `chk` live check, `hb` heartbeat, `end` run summary,

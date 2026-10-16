@@ -1,6 +1,6 @@
 # Roadmap
 
-State after patch 44 (2026-10-14). This file tracks only what is still open: device verification gates,
+State after patch 45 (2026-10-15). This file tracks only what is still open: device verification gates,
 technical debt and what is out of scope. How each item was closed lives in `CHANGELOG.md`; the state a new
 session needs is in `HANDOFF.md`.
 
@@ -33,6 +33,28 @@ session needs is in `HANDOFF.md`.
   "no authentication / no embedded browser" assumption stays superseded.
 
 ## Verification gates (open)
+
+### Home bypass dashboard (patch 45)
+- [ ] Home shows the new card: header, the Downloads and YouTube app rows, "Check again". On a fresh install (or after
+  clearing the app's data) it says "Not set up yet" with one "Check the ways" button; the first-run check shows
+  "Checked N of M" with a bar and Stop, and Home returns to the normal card when it ends.
+- [ ] The Downloads switch on Home: off and on again survives leaving and reopening the app, and Settings -> Network
+  bypass shows the same position. A download started with it on shows `ladder` and `route ... ok` lines in the report;
+  with it off the report shows a direct run (no `ladder` line).
+- [ ] With a download running the switch still works, the line "Running downloads keep their current route..." is
+  visible and the running download is not interrupted.
+- [ ] Tap Unblock YouTube: Android's VPN consent (first time), the YouTube app opens, the card shows "Tunnel is on" with
+  a speed (down and up) that moves while a video loads, and "Way N of M". The Downloads row is on and locked ("Stays on
+  while the YouTube tunnel is running"). Stop on the card ends the tunnel and unlocks the switch.
+- [ ] If the YouTube app sends but nothing comes back, the row turns to the warning text within about 10 s (it follows
+  the `tun win` verdict); a later `flowing` or idle window clears it.
+- [ ] The strategy "Update" from the tunnel notification and a quiet background re-check after an app update leave Home
+  usable: the card keeps its controls and shows "Re-checking in the background" with a bar.
+- [ ] Russian locale: no clipped or overlapping text at 360dp wide and at the largest font size; in dark mode the dots
+  and the secondary text are readable on both card colors. Tablet and TV: the card sits at the top of the left pane or
+  the column, and every control is reachable with the D-pad and shows the focus ring.
+- [ ] Copy report shows `ui home bypass=on|off ...`, `ui home check start ...` and `ui home tunnel stop` lines for the
+  taps above, and no URL or cookie.
 
 ### YouTube tunnel flow (patch 44)
 - [ ] Home -> Unblock YouTube, open the YouTube app, load a video for about a minute, return and Settings -> Copy
@@ -166,6 +188,16 @@ session needs is in `HANDOFF.md`.
 
 ## Technical debt
 
+- **The Home dashboard reads the bypass preferences when something it watches changes**, not through a live observer:
+  a search starting or finishing, the tunnel coming up or going down, or its own switch. A change made elsewhere
+  without one of those (none is known today) would show on the next one. If that ever matters, `DpiPrefs` needs a
+  `StateFlow`.
+- **Settings and Home disagree on one rule.** Settings still locks the "Use the bypass for downloads" switch while a
+  download runs (and says so); Home does not, because the switch only writes a preference and a running download keeps
+  its route. Align Settings (and its hint text) after a device report on the Home behavior.
+- **The tunnel's speed is sampled every 2 s from the bridge's counters** and shown in fixed English units (`KB/s`,
+  `MB/s`, as yt-dlp prints them in the queue rows). Nothing here was read against a real tunnel yet; the first report
+  with the card on shows whether 2 s is a readable rate.
 - **No in-app player.** Playback hands the file to another app (`ACTION_VIEW`). A TV box without a video player
   cannot play a download. A `VideoView`/`MediaPlayer` screen would need no new dependency; build it only after a
   device report says the target box has no player.

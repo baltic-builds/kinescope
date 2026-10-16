@@ -13,14 +13,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -38,82 +36,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 
-// Home: the bypass card, the queue and library lists, the empty state and the banners.
+// Home: the bypass dashboard slot, the queue and library lists, the empty state and the banners.
 // Patch 40: moved out of MainActivity.kt unchanged. Patch 41: two panes on wide windows (queue left, library
 // right), focus rings for TV, an empty-state text that names the control the screen really has.
-
-@Composable
-private fun BypassHomeCard(state: BypassVpnUiState, onClick: () -> Unit) {
-    val errorRes = state.errorRes
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
-        color = if (state.active) {
-            MaterialTheme.colorScheme.primaryContainer
-        } else {
-            MaterialTheme.colorScheme.surfaceVariant
-        },
-        tonalElevation = 1.dp
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 20.dp, horizontal = 16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text(
-                text = stringResource(
-                    if (state.active) R.string.bypass_youtube_active else R.string.bypass_home_hint
-                ),
-                style = MaterialTheme.typography.titleSmall,
-                textAlign = TextAlign.Center,
-                color = if (state.active) {
-                    MaterialTheme.colorScheme.onPrimaryContainer
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                }
-            )
-            if (errorRes != null) {
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = stringResource(errorRes),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                    textAlign = TextAlign.Center
-                )
-            }
-            Spacer(modifier = Modifier.height(12.dp))
-            FocusRing(
-                modifier = Modifier
-                    .fillMaxWidth(0.72f)
-                    .widthIn(min = 180.dp, max = 280.dp)
-            ) {
-                Button(
-                    onClick = onClick,
-                    enabled = !state.starting,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp),
-                    contentPadding = PaddingValues(horizontal = 18.dp, vertical = 8.dp)
-                ) {
-                    Text(
-                        text = stringResource(
-                            when {
-                                state.active -> R.string.bypass_open_youtube
-                                state.starting -> R.string.bypass_starting_short
-                                else -> R.string.bypass_quick_action
-                            }
-                        ),
-                        style = MaterialTheme.typography.titleMedium
-                    )
-                }
-            }
-        }
-    }
-}
 
 @Composable
 internal fun HomeScreen(
@@ -121,6 +48,7 @@ internal fun HomeScreen(
     library: List<LibraryItem>,
     bypassState: BypassVpnUiState,
     onOpenBypass: () -> Unit,
+    requestNotifications: () -> Unit,
     onRefreshLibrary: () -> Unit,
     onPlay: (LibraryItem) -> Unit,
     onShare: (LibraryItem) -> Unit,
@@ -132,6 +60,12 @@ internal fun HomeScreen(
     onSignInInstagram: () -> Unit
 ) {
     val spec = LocalAdaptive.current
+    // Patch 45: the dashboard says when a bypass change applies and when a new check must wait; these are the
+    // same states Settings uses for its own controls.
+    val activeDownloads = jobs.count {
+        it.state == JobState.PREPARING || it.state == JobState.RUNNING ||
+            it.state == JobState.PROCESSING || it.state == JobState.SAVING
+    }
     val networkFailure = jobs.any {
         it.failureKind == FailureKind.NO_INTERNET && it.state in setOf(JobState.INTERRUPTED, JobState.FAILED)
     }
@@ -151,9 +85,14 @@ internal fun HomeScreen(
     // put the first two on the left and the library on the right, each scrolling on its own.
     val topItems: LazyListScope.() -> Unit = {
         item {
-            // Patch 31: a large, obvious, centered card -- previously the only bypass control
-            // on Home was a small TextButton tucked into the top bar's corner.
-            BypassHomeCard(state = bypassState, onClick = onOpenBypass)
+            // Patch 45: the hero card is a dashboard (see BypassDashboard.kt). Before, it held one YouTube
+            // button (patch 31) and the bypass switch needed a trip into Settings.
+            BypassDashboard(
+                tunnel = bypassState,
+                activeDownloads = activeDownloads,
+                onOpenYouTube = onOpenBypass,
+                requestNotifications = requestNotifications
+            )
             Spacer(modifier = Modifier.height(16.dp))
         }
         if (networkFailure && !networkBannerDismissed) {

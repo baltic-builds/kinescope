@@ -339,6 +339,7 @@ private fun KinescopeApp(
                     library = library,
                     bypassState = bypassState,
                     onOpenBypass = { openByeDpiYouTube() },
+                    requestNotifications = requestNotifications,
                     onRefreshLibrary = { refreshLibrary() },
                     onPlay = { playItem(context, it) },
                     onShare = { shareItem(context, it) },
