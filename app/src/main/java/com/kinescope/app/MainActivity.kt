@@ -193,8 +193,14 @@ private fun KinescopeApp(
     // Patch 46: the re-check no longer follows an app update (every sideloaded update used to start a long full scan
     // and a "keep the app open" popup). It is due 25 days after the last finished search, runs quietly with no popup,
     // and a download that starts meanwhile uses the stored and learned strategies (DpiPrefs.isMaintenanceDue).
+    // Patch 47: it also waits for an unmetered network (the scan moves tens of megabytes); no attempt is noted then,
+    // so the next launch on Wi-Fi starts it.
     LaunchedEffect(Unit) {
-        if (DpiPrefs.isMaintenanceDue(context) && !DpiSearchController.state.value.running) {
+        if (
+            DpiPrefs.isMaintenanceDue(context) &&
+            !DpiSearchController.state.value.running &&
+            !NetworkState.isMetered(context)
+        ) {
             DpiSearchService.startBackground(context)
         }
     }

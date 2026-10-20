@@ -23,7 +23,7 @@ internal data class DpiSearchUiState(
     val progress: SearchProgress? = null,
     @StringRes val resultMessageRes: Int? = null,
     val resultDirectWorks: Boolean = false,
-    /** Patch 35: a quiet re-check after an update; downloads keep using the previous strategies. */
+    /** Patch 35: the quiet 25-day re-check (patch 46); downloads keep using the stored strategies. */
     val background: Boolean = false
 )
 
@@ -90,8 +90,18 @@ class DpiSearchService : Service() {
                     val only = intent?.getStringArrayExtra(EXTRA_ONLY)?.toList()
                     stopRequested.set(false)
                     DpiSearchController.starting(background = mode == MODE_BACKGROUND)
-                    startForegroundCompat(buildNotification(null))
-                    executor.execute { runSearch(mode, only) }
+                    // Patch 47: when the system refuses the foreground start (Android 12+ restricts it), nothing would
+                    // ever end the "running" state: Home would show a re-check forever, downloads would wait for a
+                    // search that never runs and no later search could start. Give the state back and stop instead.
+                    val foreground = runCatching { startForegroundCompat(buildNotification(null)) }
+                        .onFailure { AppLog.e("DpiSearchService", "Could not enter the foreground", it) }
+                        .isSuccess
+                    if (foreground) {
+                        executor.execute { runSearch(mode, only) }
+                    } else {
+                        DpiSearchController.finished(R.string.bypass_operation_failed)
+                        stopSelf()
+                    }
                 }
             }
         }

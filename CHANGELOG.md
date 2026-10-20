@@ -13,6 +13,53 @@ patch's own `.py` script for the exact, idempotent, exact-match-guarded
 edits it makes.
 
 
+## Patch 47 — Audit of patch 46: stability, cost, DRY and compatibility fixes
+
+Requires patch 46. An audit of patch 46 for stability, security, DRY, SOLID, KISS, YAGNI and for old and new Android
+(minSdk 29, targetSdk 35), done by reading the code that patch 46 touches and the code around it.
+
+### Changed
+- **A refused foreground start no longer freezes the search (`DpiSearchService`).** `onStartCommand` marked the search
+  "running" and then entered the foreground without a guard. When the system refuses (Android 12+ restricts foreground
+  starts), `running` stayed true for good: Home showed "Re-checking" forever, a download waited for a search that never
+  ran (`awaitStrategySearch`), and `MainActivity` never started another. It was a latent fault of every automatic start
+  (the old version-based one included), and the quiet start of patch 46 made it silent. Now the failure is logged, the
+  state is released (`operation failed`) and the service stops.
+- **The quiet re-check waits for an unmetered network (`NetworkState.isMetered`, `MainActivity`).** One scan moves
+  tens of megabytes (a real transfer and a load test per strategy, up to 270 candidates with a full list), which is
+  real money on mobile data or in roaming. No attempt is noted when it waits, so the next launch on Wi-Fi starts it.
+- **Changes that read and then write take turns, and the chain is read under the same lock (`DpiPrefs`,
+  `DpiStrategyStore.verifiedChain`).** `promoteVerified`, `quarantine`, `clearQuarantine`, `markStrategiesVerified`
+  and the record update now share one lock (it was a lock for the record only). Since patch 46 a download and the
+  tunnel can both promote at once, and a promotion could write an older chain over a fresh search result. A two-thread
+  stress run of `DpiPrefs` on a fake preferences store also showed a reader landing between the two writes of a
+  promotion: the primary did not match its verified mark and the chain came back empty for that instant. The chain is
+  read from three keys, so `verifiedChain` now reads under the lock the writers take.
+- **One definition of the chain size (`ChainPlanner.MAX_CHAIN`).** `DpiBypass` and `DpiPrefs` each had a constant that
+  had to stay equal to the other by comment. Both now derive from it. `PROVEN_MAX_AGE_MS` reuses the day constant.
+- **One two-decimal formatter in the report (`DiagnosticReport`).**
+- **Stale comments fixed:** the version-triggered re-check was still described in `DpiStrategyStore`,
+  `BypassDashboardModel`, `AppChrome` and `DpiSearchService`.
+- **Tests (`StrategyMemoryRobustnessTest`):** the text form with very small and very large numbers (scientific
+  notation), a clock that jumps back or far forward, and the single chain cap.
+
+### Checked and left as it is
+- **Security.** Strategy lines reach the native engine only through the allowlist parser: the stored chain, the
+  learned record (filtered on every read) and the community list (HTTPS only, redirects checked, 8 s timeouts, 64 KB
+  and 200 lines at most). The automatic list refresh adds no new surface beyond what the Settings button had, and a
+  new strategy still has to pass the search's real-transfer probe before it enters the chain. `allowBackup` is off,
+  so the record does not travel to another device. The patch scripts write only inside the repository and run no
+  shell strings.
+- **Compatibility.** No call above API 23 was added; `minSdk 29` and `targetSdk 35` are unaffected. Android 14+
+  foreground-service types, the Android 15 `dataSync` timeout (`DownloadService.onTimeout` exists) and the Android 13
+  notification permission were reviewed; the search service is `specialUse`, which has no timeout.
+- **SOLID.** `DpiPrefs` now carries the chain, the quarantine, the record and the calendar. It was not split: it is
+  the project's single persistence seam, every new part is small and pure logic already lives outside it
+  (`StrategyMemory`, `ChainPlanner`, `MaintenanceSchedule`), and a split would add indirection with no second user.
+- **YAGNI.** The probe-failure outcome and `onlyIfKnown` stay: without them a strategy that stopped working keeps its
+  good record until real failures pile up. WorkManager stays out (see patch 46). A bounded quiet scan stays a
+  documented option in `ROADMAP.md`, not code.
+
 ## Patch 46 — Learned strategies and a 25-day upkeep: the re-check is no longer tied to app updates
 
 Requires patch 45. Requested: after every app update the app spent a long time checking all the strategies; make that

@@ -16,10 +16,10 @@ internal data class BypassDiagnosis(
 object DpiBypass {
     /**
      * How many strategies the chain keeps: one primary + fallbacks. Patch 46: six instead of four, so the strategies
-     * that carried real traffic before (see StrategyMemory) fit beside the best of the last search. Keep it equal to
-     * DpiPrefs's fallback cap plus one.
+     * that carried real traffic before (see StrategyMemory) fit beside the best of the last search. Patch 47: the one
+     * definition is ChainPlanner.MAX_CHAIN, which DpiPrefs derives its fallback cap from too.
      */
-    private const val MAX_VERIFIED_STRATEGIES = 6
+    private const val MAX_VERIFIED_STRATEGIES = ChainPlanner.MAX_CHAIN
 
     /**
      * Patch 33: after the first launch (which scans every candidate) a manual search stops once

@@ -209,7 +209,7 @@ private fun ScreenHeader(title: String, showBack: Boolean, onBack: () -> Unit) {
 }
 
 /**
- * Patch 36: explains automatic strategy work on a fresh install and after an app update. Android
+ * Patch 36: explains the automatic first strategy check on a fresh install (patch 46: not after an app update). Android
  * selects values-ru only for a Russian locale; every other locale falls back to English values/.
  */
 @Composable

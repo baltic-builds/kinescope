@@ -23,6 +23,7 @@ internal object DiagnosticReport {
         val ytdlp = runCatching { YoutubeDL.getInstance().versionName(context.applicationContext) }.getOrNull()
         val now = System.currentTimeMillis()
         val learned = DpiPrefs.learned(context)
+        val two = { value: Double -> String.format(Locale.US, "%.2f", value) }
         val header = buildString {
             append("#kinescope-report fmt=2 app=")
             append(info?.versionName ?: "?").append('(').append(info?.longVersionCode ?: 0L).append(')')
@@ -56,9 +57,9 @@ internal object DiagnosticReport {
                 val place = chain.indexOf(line).let { if (it >= 0) "s${it + 1}" else "out" }
                 val faded = StrategyMemory.faded(entry, now)
                 append("#learn pos=").append(place)
-                append(" ok=").append(String.format(Locale.US, "%.2f", faded.okWeight))
-                append(" bad=").append(String.format(Locale.US, "%.2f", faded.badWeight))
-                append(" sc=").append(String.format(Locale.US, "%.2f", StrategyMemory.score(entry, now)))
+                append(" ok=").append(two(faded.okWeight))
+                append(" bad=").append(two(faded.badWeight))
+                append(" sc=").append(two(StrategyMemory.score(entry, now)))
                 append(" s=").append(line.take(60)).append('\n')
             }
             DpiResultsStore.load(context).values.filter { it.passed }.sortedByDescending { it.score }.take(3).forEach {

@@ -12,6 +12,9 @@ package com.kinescope.app
  * real use ([StrategyMemory]), not only by the last search's ranking; see [byScore], [merge] and [promote].
  */
 internal object ChainPlanner {
+    /** Patch 47: how many strategies the stored chain holds -- the primary and five fallbacks. The one definition of it. */
+    const val MAX_CHAIN = 6
+
     fun order(stored: List<String>, pinned: String?, quarantined: Set<String>): List<String> {
         val base = buildList {
             if (pinned != null) add(pinned)

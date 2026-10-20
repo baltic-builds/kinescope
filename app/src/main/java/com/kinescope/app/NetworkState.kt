@@ -31,4 +31,15 @@ internal object NetworkState {
     }
 
     fun systemVpnActive(context: Context): Boolean = snapshot(context).vpn
+
+    /**
+     * Patch 47: whether the active network is metered (mobile data, a phone hotspot) or there is no network at all.
+     * The quiet 25-day re-check moves tens of megabytes (a real transfer and a load test per strategy), so it waits
+     * for an unmetered one. Uses only API 23 calls, like [snapshot].
+     */
+    fun isMetered(context: Context): Boolean {
+        val manager = context.applicationContext.getSystemService(ConnectivityManager::class.java) ?: return true
+        val capabilities = runCatching { manager.getNetworkCapabilities(manager.activeNetwork) }.getOrNull() ?: return true
+        return !capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
+    }
 }

@@ -25,16 +25,26 @@ object DpiPrefs {
     private const val KEY_SEARCH_AT = "search_at"
     private const val KEY_MAINTENANCE_TRY_AT = "maintenance_try_at"
     private const val KEY_LEARNED = "learned"
-    private const val PROVEN_MAX_AGE_MS = 14L * 24L * 60L * 60L * 1000L
+    private const val PROVEN_MAX_AGE_MS = 14L * MaintenanceSchedule.DAY_MS
     private const val QUARANTINE_MS = 10L * 60L * 1000L
 
     // Patch 46: the chain holds six strategies (the primary and five fallbacks), up from four: the best of the last
-    // search plus the ones that carried real traffic before (StrategyMemory). Keep DpiBypass.MAX_VERIFIED_STRATEGIES
-    // equal to this plus one.
-    private const val MAX_FALLBACKS = 5
-    private val learnedLock = Any()
+    // search plus the ones that carried real traffic before (StrategyMemory). Patch 47: the one definition of the size is
+    // ChainPlanner.MAX_CHAIN.
+    private const val MAX_FALLBACKS = ChainPlanner.MAX_CHAIN - 1
+
+    // Patch 47: the chain, the quarantine and the learned record are changed from several threads (the download
+    // ladder, the tunnel monitor, the search) and every change reads and then writes, so the changes take turns.
+    private val writeLock = Any()
 
     private fun prefs(context: Context) = context.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE)
+
+    /**
+     * Patch 47: runs [block] while no change to the chain, the quarantine or the record is half written. A chain is read
+     * from three preference keys, and a read between the two writes of a promotion saw a primary that did not match its
+     * verified mark and reported no strategies for that instant.
+     */
+    internal fun <T> consistently(block: () -> T): T = synchronized(writeLock) { block() }
 
     fun isEnabled(context: Context): Boolean = prefs(context).getBoolean(KEY_ENABLED, false)
 
@@ -60,12 +70,15 @@ object DpiPrefs {
             .filter { it != primary && DpiStrategyParser.parse(it) is DpiStrategyParser.Parsed.Ok }
             .distinct()
             .take(MAX_FALLBACKS)
-        prefs(context).edit()
-            .putString(KEY_STRATEGY, primary)
-            .putString(KEY_VERIFIED_STRATEGY, primary)
-            .putLong(KEY_VERIFIED_AT, System.currentTimeMillis())
-            .putString(KEY_VERIFIED_FALLBACKS, validFallbacks.joinToString("\n"))
-            .apply()
+        // Patch 47: under the lock, so a download's promotion cannot write an older chain over a fresh search result.
+        synchronized(writeLock) {
+            prefs(context).edit()
+                .putString(KEY_STRATEGY, primary)
+                .putString(KEY_VERIFIED_STRATEGY, primary)
+                .putLong(KEY_VERIFIED_AT, System.currentTimeMillis())
+                .putString(KEY_VERIFIED_FALLBACKS, validFallbacks.joinToString("\n"))
+                .apply()
+        }
     }
 
     fun verifiedFallbacks(context: Context): List<String> {
@@ -107,12 +120,14 @@ object DpiPrefs {
     /** Keeps [line] out of the front of the chain for ten minutes after it failed in real use. */
     fun quarantine(context: Context, line: String, forMs: Long = QUARANTINE_MS) {
         val now = System.currentTimeMillis()
-        val current = QuarantineList.parse(prefs(context).getString(KEY_QUARANTINE, null), now)
-        val next = QuarantineList.add(current, line, now + forMs)
-        prefs(context).edit().putString(KEY_QUARANTINE, QuarantineList.serialize(next)).apply()
-        // Patch 46: a failure in real use also goes into the long-term record (StrategyMemory), where it lowers the
-        // strategy's place among the fallbacks long after the ten minutes are over.
-        recordOutcome(context, line, StrategyOutcome.REAL_BAD, now)
+        synchronized(writeLock) {
+            val current = QuarantineList.parse(prefs(context).getString(KEY_QUARANTINE, null), now)
+            val next = QuarantineList.add(current, line, now + forMs)
+            prefs(context).edit().putString(KEY_QUARANTINE, QuarantineList.serialize(next)).apply()
+            // Patch 46: a failure in real use also goes into the long-term record (StrategyMemory), where it lowers the
+            // strategy's place among the fallbacks long after the ten minutes are over.
+            recordOutcome(context, line, StrategyOutcome.REAL_BAD, now)
+        }
     }
 
     fun quarantined(context: Context): Set<String> =
@@ -125,11 +140,13 @@ object DpiPrefs {
             return
         }
         val now = System.currentTimeMillis()
-        val next = QuarantineList.parse(store.getString(KEY_QUARANTINE, null), now) - line
-        store.edit().putString(KEY_QUARANTINE, QuarantineList.serialize(next)).apply()
+        synchronized(writeLock) {
+            val next = QuarantineList.parse(store.getString(KEY_QUARANTINE, null), now) - line
+            store.edit().putString(KEY_QUARANTINE, QuarantineList.serialize(next)).apply()
+        }
     }
 
-    /** The app version code at the last finished strategy search; a new build triggers a background re-check. */
+    /** The app version code at the last finished strategy search. Diagnostics only: since patch 46 a new build does not trigger a re-check. */
     fun lastSearchVersion(context: Context): Long = prefs(context).getLong(KEY_SEARCH_VERSION, 0L)
 
     fun setLastSearchVersion(context: Context, version: Long) {
@@ -198,7 +215,7 @@ object DpiPrefs {
         onlyIfKnown: Boolean = false
     ) {
         if (lines.isEmpty()) return
-        synchronized(learnedLock) {
+        synchronized(writeLock) {
             var memory = learned(context)
             for (line in lines) {
                 if (DpiStrategyParser.parse(line) !is DpiStrategyParser.Parsed.Ok) continue
@@ -220,18 +237,22 @@ object DpiPrefs {
     fun promoteVerified(context: Context, line: String) {
         val store = prefs(context)
         val now = System.currentTimeMillis()
-        recordOutcome(context, line, StrategyOutcome.REAL_OK, now)
-        // Patch 35: a download really finished through this strategy; a background re-check keeps it in front.
-        store.edit().putString(KEY_PROVEN, line).putLong(KEY_PROVEN_AT, now).apply()
-        val primary = store.getString(KEY_VERIFIED_STRATEGY, null) ?: return
-        val chain = (listOf(primary) + verifiedFallbacks(context)).distinct()
-        val ordered = ChainPlanner.promote(chain, line, scorer(context, now), MAX_FALLBACKS + 1)
-        if (ordered == chain) return
-        store.edit()
-            .putString(KEY_STRATEGY, ordered.first())
-            .putString(KEY_VERIFIED_STRATEGY, ordered.first())
-            .putString(KEY_VERIFIED_FALLBACKS, ordered.drop(1).joinToString("\n"))
-            .apply()
+        // Patch 47: one turn for the whole read-order-write, because a download and the tunnel can finish together.
+        synchronized(writeLock) {
+            recordOutcome(context, line, StrategyOutcome.REAL_OK, now)
+            // Patch 35: a download really finished through this strategy; a background re-check keeps it in front.
+            store.edit().putString(KEY_PROVEN, line).putLong(KEY_PROVEN_AT, now).apply()
+            val primary = store.getString(KEY_VERIFIED_STRATEGY, null) ?: return
+            val chain = (listOf(primary) + verifiedFallbacks(context)).distinct()
+            // Patch 46: the winner leads, the others follow by their score instead of staying in the order of the last search.
+            val ordered = ChainPlanner.promote(chain, line, scorer(context, now), MAX_FALLBACKS + 1)
+            if (ordered == chain) return
+            store.edit()
+                .putString(KEY_STRATEGY, ordered.first())
+                .putString(KEY_VERIFIED_STRATEGY, ordered.first())
+                .putString(KEY_VERIFIED_FALLBACKS, ordered.drop(1).joinToString("\n"))
+                .apply()
+        }
     }
 
     fun listUpdatedAt(context: Context): Long = prefs(context).getLong(KEY_LIST_UPDATED_AT, 0L)
@@ -325,10 +346,11 @@ object DpiStrategyStore {
         return ChainPlanner.order(stored, pinned, DpiPrefs.quarantined(context))
     }
 
-    fun verifiedChain(context: Context): List<String> {
+    // Patch 47: read under the lock the writers take, so a promotion that is half written is never seen.
+    fun verifiedChain(context: Context): List<String> = DpiPrefs.consistently {
         val primary = selected(context)
-        if (!DpiPrefs.isStrategyVerified(context, primary)) return emptyList()
-        return (listOf(primary) + DpiPrefs.verifiedFallbacks(context)).distinct()
+        if (!DpiPrefs.isStrategyVerified(context, primary)) return@consistently emptyList<String>()
+        (listOf(primary) + DpiPrefs.verifiedFallbacks(context)).distinct()
     }
 
     /** Blocking network call: run it on a background thread. */

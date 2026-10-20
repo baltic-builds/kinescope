@@ -4,7 +4,7 @@ The current state of Kinescope for anyone (human or AI agent) resuming work. It 
 appended to: per-patch history lives in `CHANGELOG.md`, open work in `ROADMAP.md`, process rules in `AGENTS.md`,
 product constraints in `CLAUDE.md`. Where this file and the code disagree, the code wins; fix this file.
 
-State as of patch 46 (2026-10-17).
+State as of patch 47 (2026-10-17).
 
 ## What Kinescope is
 
@@ -102,7 +102,10 @@ not yet being 16 KB page-size compatible (upstream).
   day) decides, `MainActivity` starts the quiet `MODE_BACKGROUND` search with no popup (`DpiSearchService` refreshes
   the community list first), and `YtOfflineApp` applies the same interval to the yt-dlp update. The first-run
   search and its popup are unchanged. The calendar is kept in `DpiPrefs` (`search_at`, `maintenance_try_at`); a
-  build from before patch 46 starts its 25 days the first time it is asked.
+  build from before patch 46 starts its 25 days the first time it is asked. Patch 47 (audit): the quiet re-check
+  also waits for an unmetered network (`NetworkState.isMetered`) and for a successful foreground start of the
+  search service; `DpiPrefs` makes the chain, quarantine and record changes take turns with one lock; the chain
+  size is `ChainPlanner.MAX_CHAIN`.
 
 ## File map
 

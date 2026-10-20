@@ -23,7 +23,7 @@ internal data class BypassDashInputs(
     /** The verdict of the tunnel's last traffic window; only meaningful while the tunnel is active. */
     val flow: FlowVerdict,
     val searching: Boolean,
-    /** A quiet re-check after an app update: downloads keep using the previous ways and the switch stays usable. */
+    /** The quiet 25-day re-check: downloads keep using the stored ways and the switch stays usable. */
     val searchBackground: Boolean,
     val activeDownloads: Int
 )

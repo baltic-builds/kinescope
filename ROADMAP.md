@@ -1,6 +1,6 @@
 # Roadmap
 
-State after patch 46 (2026-10-17). This file tracks only what is still open: device verification gates,
+State after patch 47 (2026-10-17). This file tracks only what is still open: device verification gates,
 technical debt and what is out of scope. How each item was closed lives in `CHANGELOG.md`; the state a new
 session needs is in `HANDOFF.md`.
 
@@ -21,6 +21,9 @@ session needs is in `HANDOFF.md`.
   update; the app remembers which strategies really carried traffic and keeps them in the fallback chain, ordered by
   how well they worked; the yt-dlp update and the strategy re-check now run every 25 days. None of it is confirmed on a
   device yet (see "Learned strategies and the 25-day upkeep" below).
+- **Patch 47 (2026-10-17) is the audit of patch 46.** The quiet re-check waits for an unmetered network; a refused
+  foreground start of the search no longer leaves it "running" forever; the chain, the quarantine and the learned
+  record take turns when several threads change them; the chain size has one definition; stale comments are fixed.
 - **Everything below needs the user's phone or a real GitHub Actions run.** Do not tick a box from code review, a
   local compile or a green build alone (`AGENTS.md`, "What done means").
 
@@ -56,6 +59,8 @@ session needs is in `HANDOFF.md`.
   future count as due, so one more upkeep runs.
 - [ ] After the re-check the `#s` list holds up to six strategies: the best of the search and the learned ones,
   ordered by their record, not only by the search ranking.
+- [ ] Patch 47: with the 25 days due and Wi-Fi off (mobile data only), opening the app starts no re-check: Home shows
+  no "Re-checking" strip and the report has no new `list ...` line. With Wi-Fi on, the next launch starts it.
 
 ### Home bypass dashboard (patch 45)
 - [ ] Home shows the new card: header, the Downloads and YouTube app rows, "Check again". On a fresh install (or after
@@ -210,6 +215,8 @@ session needs is in `HANDOFF.md`.
 
 ## Technical debt
 
+- **The quiet re-check never runs on a metered network.** A phone that is only ever on mobile data (or a hotspot) never
+  re-checks by itself; the manual search in Settings is the way, and the stored and learned strategies keep working.
 - **The learned record is global, not per network.** It does not know on which network a success or a failure
   happened; the weekly halving of old evidence is the only protection against a record made at home steering a
   strategy choice on a hotel network. A per-network key (the Wi-Fi name needs a location permission; the network type
