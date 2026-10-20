@@ -14,8 +14,12 @@ internal data class BypassDiagnosis(
 
 /** Glue between the settings, the engine and the download service. */
 object DpiBypass {
-    /** How many working strategies the search keeps looking for: one primary + fallbacks. */
-    private const val MAX_VERIFIED_STRATEGIES = 4
+    /**
+     * How many strategies the chain keeps: one primary + fallbacks. Patch 46: six instead of four, so the strategies
+     * that carried real traffic before (see StrategyMemory) fit beside the best of the last search. Keep it equal to
+     * DpiPrefs's fallback cap plus one.
+     */
+    private const val MAX_VERIFIED_STRATEGIES = 6
 
     /**
      * Patch 33: after the first launch (which scans every candidate) a manual search stops once
@@ -111,6 +115,9 @@ object DpiBypass {
         val ranked = DpiStrategySearch.ranked(results)
         if (ranked.isEmpty()) return false
         val failed = results.filter { !it.fullPass }.map { it.line }.toSet()
+        learnFromSearch(context, ranked, results)
+        val now = System.currentTimeMillis()
+        val learned = DpiPrefs.learnedGood(context, now)
         val merged = ChainPlanner.merge(
             ranked = ranked.map { it.line },
             failed = failed,
@@ -119,7 +126,11 @@ object DpiBypass {
             keepProven = keepProven,
             max = MAX_VERIFIED_STRATEGIES,
             // A search that was stopped early only saw part of the list: keep the old chain behind what it found.
-            fill = if (partial) DpiStrategyStore.verifiedChain(context) else emptyList()
+            fill = if (partial) DpiStrategyStore.verifiedChain(context) else emptyList(),
+            // Patch 46: strategies that carried real traffic before join the chain even when this search did not rank
+            // them, and the whole pool is ordered by how well each has worked in real use.
+            learned = learned,
+            score = DpiPrefs.scorer(context, now)
         )
         val primary = merged.firstOrNull() ?: return false
         DpiPrefs.markStrategiesVerified(context, primary, merged.drop(1))
@@ -127,9 +138,24 @@ object DpiBypass {
         AppLog.i(
             "DpiBypass",
             "kept n=${merged.size} partial=$partial keep=$keepProven pin=${DpiPrefs.pinned(context) != null} " +
-                "top sc=${best.score()} kbps=${best.throughputKbps} load=${best.loadPassed}/${best.loadTotal}"
+                "learned=${learned.size} top sc=${best.score()} kbps=${best.throughputKbps} load=${best.loadPassed}/${best.loadTotal}"
         )
         return true
+    }
+
+    /**
+     * Patch 46: what a finished search says about the strategies, written to the long-term memory. Only the
+     * strategies the chain can keep, and only those that moved a real transfer, are vouched for (a search on an
+     * unblocked network passes everything and must not fill the memory); a strategy the app already knows from real
+     * use and that now fails its probes loses ground. A search in which nothing passed never gets here: the network is
+     * more likely down than every strategy broken.
+     */
+    private fun learnFromSearch(context: Context, ranked: List<StrategyResult>, results: List<StrategyResult>) {
+        val now = System.currentTimeMillis()
+        val vouched = ranked.take(MAX_VERIFIED_STRATEGIES).filter { it.deepOk }.map { it.line }
+        DpiPrefs.recordOutcomes(context, vouched, StrategyOutcome.PROBE_OK, now)
+        val failing = results.filter { it.started && !it.fullPass }.map { it.line }
+        DpiPrefs.recordOutcomes(context, failing, StrategyOutcome.PROBE_BAD, now, onlyIfKnown = true)
     }
 
     /** Direct-only check of every probe host. True when nothing on this network needs bypassing. */

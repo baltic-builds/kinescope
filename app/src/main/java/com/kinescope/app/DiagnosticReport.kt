@@ -21,6 +21,8 @@ internal object DiagnosticReport {
         val network = NetworkState.snapshot(context)
         val chain = DpiStrategyStore.chain(context)
         val ytdlp = runCatching { YoutubeDL.getInstance().versionName(context.applicationContext) }.getOrNull()
+        val now = System.currentTimeMillis()
+        val learned = DpiPrefs.learned(context)
         val header = buildString {
             append("#kinescope-report fmt=2 app=")
             append(info?.versionName ?: "?").append('(').append(info?.longVersionCode ?: 0L).append(')')
@@ -39,8 +41,26 @@ internal object DiagnosticReport {
             append(" proven=").append(DpiPrefs.provenLine(context)?.let { proven -> chain.indexOf(proven).let { if (it >= 0) "s${it + 1}" else "other" } } ?: "none")
             append(" quar=").append(DpiPrefs.quarantined(context).size)
             append(" search_ver=").append(DpiPrefs.lastSearchVersion(context))
+            // Patch 46: strategies with real-use evidence, and the age of the last finished search (the 25-day calendar).
+            append(" learned=").append(StrategyMemory.good(learned, now).size)
+            append(" search_age=").append(
+                DpiPrefs.lastSearchAt(context).let { at ->
+                    if (at <= 0L) "none" else "${(now - at).coerceAtLeast(0L) / MaintenanceSchedule.DAY_MS}d"
+                }
+            )
             append('\n')
             chain.forEachIndexed { index, line -> append("#s").append(index + 1).append(' ').append(line).append('\n') }
+            // Patch 46: the best of what the app has learned: its place in the chain ("out" when it is not in it), the
+            // good and bad evidence (1.0 = a finished download, half of that for a search probe) and the score.
+            learned.entries.sortedByDescending { StrategyMemory.score(it.value, now) }.take(4).forEach { (line, entry) ->
+                val place = chain.indexOf(line).let { if (it >= 0) "s${it + 1}" else "out" }
+                val faded = StrategyMemory.faded(entry, now)
+                append("#learn pos=").append(place)
+                append(" ok=").append(String.format(Locale.US, "%.2f", faded.okWeight))
+                append(" bad=").append(String.format(Locale.US, "%.2f", faded.badWeight))
+                append(" sc=").append(String.format(Locale.US, "%.2f", StrategyMemory.score(entry, now)))
+                append(" s=").append(line.take(60)).append('\n')
+            }
             DpiResultsStore.load(context).values.filter { it.passed }.sortedByDescending { it.score }.take(3).forEach {
                 append("#top sc=").append(it.score).append(" kbps=").append(it.kbps)
                 append(" load=").append(it.loadPassed).append('/').append(it.loadTotal)
@@ -51,7 +71,9 @@ internal object DiagnosticReport {
                     "j=job(8) p=yt-dlp profile s=strategy(pos/total, see #s lines) r=route " +
                     "chk=health check st=stage why=reason ms=elapsed |=error summary " +
                     "hb=heartbeat(ph=start|js|dl|quiet pct kbps=yt-dlp speed rx=network KB/s idle last) " +
-                    "end=run summary slow/stall=route abandoned rotate=tunnel strategy switch probe=tunnel load probe\n"
+                    "end=run summary slow/stall=route abandoned rotate=tunnel strategy switch probe=tunnel load probe " +
+                    "learned=strategies with real-use evidence #learn=their record(pos in chain, ok/bad weights, sc score) " +
+                    "search_age=days since the last finished search\n"
             )
         }
         return header + AppLog.readLines(maxLines).joinToString("\n")

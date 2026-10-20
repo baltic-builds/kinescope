@@ -177,8 +177,8 @@ private fun KinescopeApp(
         }
     }
 
-    // Patch 36: MainActivity is the single owner of automatic strategy refreshes. Fresh installs
-    // and the first launch after an app update both explain the background work before starting it.
+    // Patch 36: MainActivity is the single owner of automatic strategy refreshes. A fresh install
+    // explains the first check before starting it; the periodic re-check (patch 46) is quiet.
     LaunchedEffect(Unit) {
         if (
             !DpiPrefs.hasRunInitialSearch(context) &&
@@ -190,14 +190,11 @@ private fun KinescopeApp(
         }
     }
 
+    // Patch 46: the re-check no longer follows an app update (every sideloaded update used to start a long full scan
+    // and a "keep the app open" popup). It is due 25 days after the last finished search, runs quietly with no popup,
+    // and a download that starts meanwhile uses the stored and learned strategies (DpiPrefs.isMaintenanceDue).
     LaunchedEffect(Unit) {
-        val version = DpiSearchService.appVersionCode(context)
-        if (
-            DpiPrefs.hasRunInitialSearch(context) &&
-            DpiPrefs.lastSearchVersion(context) != version &&
-            !DpiSearchController.state.value.running
-        ) {
-            showStrategyRefreshNotice = true
+        if (DpiPrefs.isMaintenanceDue(context) && !DpiSearchController.state.value.running) {
             DpiSearchService.startBackground(context)
         }
     }

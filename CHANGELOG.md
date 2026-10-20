@@ -13,6 +13,65 @@ patch's own `.py` script for the exact, idempotent, exact-match-guarded
 edits it makes.
 
 
+## Patch 46 — Learned strategies and a 25-day upkeep: the re-check is no longer tied to app updates
+
+Requires patch 45. Requested: after every app update the app spent a long time checking all the strategies; make that
+check a background one and not a mandatory one, refresh yt-dlp and the strategies in the background every 25 days,
+and, when the user wants to start downloading at once, record the working and successful strategies (the ones traffic
+really went through), use them, and add them to the fallback chain by how successfully they ran.
+
+### What the code showed (read before designing, not assumed)
+- The re-check was triggered by the app version (`MainActivity`: `lastSearchVersion != versionCode`), came with the
+  "Updating strategies / keep the app open" popup, and was a full scan of every candidate with the real-transfer and
+  load probes (`fullScan = ... || background`). A sideloaded app is updated often, so the scan ran often.
+- yt-dlp was refreshed at process start when the last update was older than 12 hours (`YtOfflineApp`). The community
+  strategy list (`DpiStrategyStore.update`) was refreshed only by the Settings "Update" button.
+- The only memory of real use was `promoteVerified`: one "proven" strategy for 14 days, moved to the front. Which
+  fallbacks had worked before, and how often, was not recorded; the chain was whatever the last search ranked (four).
+- A search already yields to downloads (`holdForDownload`), and `RouteLadder.awaitStrategySearch` waits for a running
+  search only when no strategy is stored, so with a stored chain a download starts at once. That needed no change.
+- `BypassVpnService` and `DpiSearchService` run in the main process (only the two engine hosts have their own), so one
+  SharedPreferences file is safe for the new record.
+
+### Changed
+- **`StrategyMemory.kt` (new, pure, `StrategyMemoryTest`)**: per strategy, faded sums of good and bad evidence. A finished
+  download or a tunnel window with real data counts 1.0 good, a search that moved a real transfer 0.5 good, a failure
+  that another route survived 1.0 bad. The score is `(ok + 1) / (ok + 2 * bad + 2)`: 0.5 for a strategy nothing is
+  known about, higher with a good record, lower with a bad one. Evidence halves every 7 days, at most 40 strategies are
+  kept (the weakest go first), and a strategy with a single old probe pass is not worth a place in the chain.
+- **Where it learns:** `DpiPrefs.promoteVerified` (a download finished through a route; now also called by the tunnel),
+  `DpiPrefs.quarantine` (a route failed in real use while a later one finished, or the tunnel switched away from a
+  strategy that stopped carrying traffic), and `DpiBypass.applySearchResults`
+  (the strategies the chain can keep that moved a real transfer; a known strategy that now fails its probes). A search
+  in which nothing passed records nothing: the network is more likely down than every strategy broken.
+- **`BypassVpnService` + `TunnelFlow.proves`**: a 10 s window in which the YouTube app sent traffic, it was not one-way
+  and at least 64 KB came back counts as proof once per tunnel run; the strategy is promoted and logged (`tun proven`).
+- **The fallback chain by success:** `ChainPlanner.merge` now takes the learned-good strategies and a score, so a
+  strategy that carried real traffic joins the chain even when the last search did not rank it (unless that search
+  tested it and it failed), and the pool is ordered by score with the search ranking breaking ties. `promote` puts the
+  winner of a download first and orders the rest by score. The chain holds six strategies (`MAX_VERIFIED_STRATEGIES`
+  and `MAX_FALLBACKS`), up from four, so the learned ones fit beside the best of the search.
+- **`MaintenanceSchedule.kt` (new, pure, `MaintenanceScheduleTest`)**: one calendar, 25 days, with at most one attempt a
+  day. `DpiPrefs` keeps `search_at` (the last finished search, a manual one included) and `maintenance_try_at`.
+  A build from before this patch has no `search_at`; its 25 days start the first time it is asked, so installing this
+  patch does not itself start a re-check.
+- **`MainActivity`**: the version-based re-check and its popup are gone. When the upkeep is due the quiet
+  `MODE_BACKGROUND` search starts with no popup; the first-run search and its popup are unchanged.
+- **`DpiSearchService`**: the quiet run first notes the attempt and refreshes the community strategy list, then scans
+  as before; a finished search of any kind records `search_at`.
+- **`YtOfflineApp`**: the yt-dlp update at process start follows the same 25-day interval (it was 12 hours). The
+  recovery chain's refresh after a failed download and Settings -> Update are unchanged.
+- **Diagnostics**: the report header gains `learned=` and `search_age=`, and up to four `#learn` lines (place in the
+  chain, ok/bad weights, score).
+
+### Not changed
+- The strategy parser, the engine, the search algorithm and its probes, the first-run search, the route ladder's
+  logic, the quarantine, the pin, and everything about extraction. The re-check is still a full scan; only its
+  trigger, its visibility and its effect on downloads changed.
+- No new dependency and no UI string. There is no WorkManager: the upkeep runs when the app is opened (Android 12+
+  does not let a background job start the search's foreground service), so "every 25 days" means the first launch
+  after 25 days. See `ROADMAP.md`, technical debt.
+
 ## Patch 45 — Home bypass dashboard: the bypass on and off from Home, with state and load indicators
 
 Requires patch 44. Requested: turning the DPI bypass on and off is inconvenient; make it possible from the main screen

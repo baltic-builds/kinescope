@@ -4,7 +4,7 @@ The current state of Kinescope for anyone (human or AI agent) resuming work. It 
 appended to: per-patch history lives in `CHANGELOG.md`, open work in `ROADMAP.md`, process rules in `AGENTS.md`,
 product constraints in `CLAUDE.md`. Where this file and the code disagree, the code wins; fix this file.
 
-State as of patch 45 (2026-10-15).
+State as of patch 46 (2026-10-17).
 
 ## What Kinescope is
 
@@ -23,7 +23,8 @@ the bypass); the compact log and Copy report; Instagram Reels download and play 
 **Implemented but not yet confirmed on a device:** patch 36 UX/lifecycle changes, the Instagram sign-in,
 `/share/` resolution and error texts (patches 37-38), patch 39 (the strategy-search hold fix, the shared
 sign-in screen, the cleanup), the file split of patch 40, and the tablet and TV layouts of patch 41 (audited and
-hardened in patch 42), the build and packaging changes of patch 43, the tunnel traffic check of patch 44, and the Home bypass dashboard of patch 45. The exact
+hardened in patch 42), the build and packaging changes of patch 43, the tunnel traffic check of patch 44, the Home bypass dashboard of patch 45, and the learned strategies with the
+25-day upkeep of patch 46. The exact
 checklist is `ROADMAP.md`; do not tick a box without the user's report.
 **CI:** the release workflow was red at patch 42 (`AdaptiveLayoutTest` still referenced the removed
 `WidthClass`). Patch 43 fixes it, pins the NDK/CMake, and restructures the workflow (validate, tests + lint,
@@ -90,6 +91,18 @@ not yet being 16 KB page-size compatible (upstream).
   and traffic verdict (`TunnelTraffic`, published by `BypassVpnService` through `BypassVpnController.traffic`). Every
   rule (what is shown, which controls are enabled) lives in the pure `bypassDashboardModel`; the composable maps state
   in and draws. The preferences are read when a watched state changes, not through a live observer.
+- **Learned strategies and the 25-day upkeep (patch 46).** `StrategyMemory` (pure) keeps, per strategy, faded sums of
+  good and bad evidence: a finished download or a `tun proven` window counts 1.0 good, a search that moved a real
+  transfer 0.5 good, a failure while another route finished the job 1.0 bad (it weighs double in the score), and all
+  evidence halves every week. `DpiPrefs.promoteVerified` (success) and `DpiPrefs.quarantine` (failure) feed it,
+  `DpiBypass.applySearchResults` adds the search's own findings, and `ChainPlanner.merge` / `promote` put the
+  learned-good strategies into the chain and order the pool by score, so the fallbacks are in order of how well they
+  have worked (the chain holds six). The record is one preference string (`DpiPrefs.learned`), global rather than
+  per network. The re-check no longer follows the app version: `MaintenanceSchedule` (25 days, at most one attempt a
+  day) decides, `MainActivity` starts the quiet `MODE_BACKGROUND` search with no popup (`DpiSearchService` refreshes
+  the community list first), and `YtOfflineApp` applies the same interval to the yt-dlp update. The first-run
+  search and its popup are unchanged. The calendar is kept in `DpiPrefs` (`search_at`, `maintenance_try_at`); a
+  build from before patch 46 starts its 25 days the first time it is asked.
 
 ## File map
 
@@ -136,10 +149,11 @@ UI
 
 Network bypass
 - `DpiNative.kt`, `DpiEngineService.kt`, `DpiEngine.kt` -- JNI binding, the `:dpi` host service, the bind/start/close client.
-- `DpiStrategies.kt` -- allowlist parser and built-in strategies; `DpiStrategyStore.kt` -- bypass preferences (`DpiPrefs`) and the verified chain.
+- `DpiStrategies.kt` -- allowlist parser and built-in strategies; `DpiStrategyStore.kt` -- bypass preferences (`DpiPrefs`: the verified chain, the learned record, the upkeep calendar).
 - `DpiSearch.kt`, `DpiSearchService.kt` -- the strategy search and its foreground service/controller; `DpiResultsStore.kt` -- last test results.
 - `DpiBypass.kt` -- glue used by downloads and Settings (active chain, health check, applying results).
 - `ChainPlanner.kt`, `BypassRoutes.kt`, `RouteScoreboard.kt` -- pure ordering rules for strategies and routes.
+- `StrategyMemory.kt` -- pure record of which strategies really carried traffic (outcomes, fading score, text form); `MaintenanceSchedule.kt` -- pure 25-day calendar of the upkeep (strategy re-check, yt-dlp update).
 - `NetworkCheck.kt`, `NetworkState.kt` -- layered reachability probe through the engine; third-party VPN detection.
 - `BypassVpnService.kt` -- `BypassVpnController` and the YouTube-only `VpnService` (`:dpi_vpn`).
 - `TunnelFlow.kt` -- pure judge of the YouTube app's traffic through the tunnel (idle / flowing / one-way, from the bridge counters), plus the tunnel's speed (`TunnelRate`) and the snapshot the dashboard reads (`TunnelTraffic`).
@@ -177,7 +191,8 @@ parser/search/ranking/store, the network probe, the privacy redaction, the windo
 - Log format: `HH:mm:ss.d L tag message | err="..."`, legend in every report header. Tags: dl, byp, srch, vpn,
   job, eng, upd, auth, ui, lib, media. Keys: `j` job (8 hex), `p` yt-dlp profile, `src` site (`yt`/`ig`), `fmt`
   chosen format ids, `r` route (`s2/4` = strategy 2 of 4), `chk` live check, `hb` heartbeat, `end` run summary,
-  `rotate` tunnel strategy switch.
+  `rotate` tunnel strategy switch. Patch 46 adds `tun proven`, the header tokens `learned=` and `search_age=`, and
+  `#learn` lines (place in the chain, ok/bad weights, score).
 
 ## How to read the next report
 

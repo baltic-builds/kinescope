@@ -98,16 +98,25 @@ class DpiSearchService : Service() {
         return START_NOT_STICKY
     }
 
-    /** Patch 35: one strategy search. [mode] is manual, background (after an update) or test (one strategy, [only]). */
+    /**
+     * Patch 35: one strategy search. [mode] is manual, background (the quiet 25-day upkeep, patch 46) or test (one
+     * strategy, [only]).
+     */
     private fun runSearch(mode: String, only: List<String>?) {
         val context = applicationContext
         val testOnly = only != null
         val background = mode == MODE_BACKGROUND
         try {
+            if (background) {
+                // Patch 46: note the attempt first, so a run that is stopped or fails is not retried at once, then
+                // fetch the community list so the re-check below looks at the current one.
+                DpiPrefs.markMaintenanceTried(context)
+                refreshStrategyList(context)
+            }
             val directWorks = DpiBypass.directConnectionWorks()
             val results = DpiBypass.search(
                 context,
-                // The first launch, a re-check after an update and a strategy test look at everything.
+                // The first launch, the quiet 25-day re-check and a strategy test look at everything.
                 fullScan = testOnly || background || !DpiPrefs.hasRunInitialSearch(context),
                 only = only,
                 isCancelled = { stopRequested.get() },
@@ -135,6 +144,8 @@ class DpiSearchService : Service() {
                     // A finished (not stopped) search counts as the one-time first check.
                     DpiPrefs.setHasRunInitialSearch(context, true)
                     DpiPrefs.setLastSearchVersion(context, appVersionCode(context))
+                    // Patch 46: the 25-day upkeep counts from the last finished search, a manual one included.
+                    DpiPrefs.setLastSearchAt(context, System.currentTimeMillis())
                     if (DpiBypass.applySearchResults(context, results, keepProven = background)) {
                         // A quiet re-check must not switch a bypass the user turned off back on.
                         if (!background) DpiPrefs.setEnabled(context, true)
@@ -157,6 +168,16 @@ class DpiSearchService : Service() {
 
     private fun awaitDownloadsIdle() {
         while (DpiSearchController.isHeld() && !stopRequested.get()) Thread.sleep(300L)
+    }
+
+    /** Patch 46: the community strategy list, refreshed as part of the quiet upkeep; a failure only goes to the log. */
+    private fun refreshStrategyList(context: Context) {
+        val outcome = when (val result = DpiStrategyStore.update(context)) {
+            is StrategyListUpdate.Updated -> "updated added=${result.added} total=${result.total}"
+            is StrategyListUpdate.Unchanged -> "same total=${result.total}"
+            is StrategyListUpdate.Failed -> "failed ${LogFormat.shortReason(result.reason)}"
+        }
+        AppLog.i("DpiSearchService", "list $outcome")
     }
 
     override fun onDestroy() {
@@ -225,7 +246,10 @@ class DpiSearchService : Service() {
 
         fun start(context: Context) = dispatch(context, MODE_MANUAL, null)
 
-        /** Patch 35: a quiet full re-check after an update; the previous strategies keep working meanwhile. */
+        /**
+         * Patch 35: a quiet full re-check; the stored and learned strategies keep working meanwhile. Patch 46: started by
+         * the 25-day upkeep (`DpiPrefs.isMaintenanceDue`), no longer by an app update.
+         */
         fun startBackground(context: Context) = dispatch(context, MODE_BACKGROUND, null)
 
         /** Patch 35: tests one strategy from Settings; the chain is not changed. */

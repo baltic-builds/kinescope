@@ -32,10 +32,12 @@ class YtOfflineApp : Application() {
             isReady = EngineController.ensureReady(this@YtOfflineApp)
             if (isReady) {
                 // Best-effort freshness without hitting the updater on every
-                // process start. Recovery inside DownloadService can still
-                // force an immediate nightly refresh after a YouTube block.
+                // process start. Patch 46: every 25 days (MaintenanceSchedule),
+                // not every 12 hours. Recovery inside DownloadService can still
+                // force an immediate nightly refresh after a YouTube block, and
+                // Settings has a manual Update.
                 val lastUpdate = Settings.getLastUpdateTimestamp(this@YtOfflineApp)
-                if (System.currentTimeMillis() - lastUpdate >= STARTUP_UPDATE_INTERVAL_MS) {
+                if (MaintenanceSchedule.isStale(lastUpdate, System.currentTimeMillis())) {
                     YtDlpUpdater.updateBlocking(this@YtOfflineApp)
                 }
             }
@@ -48,9 +50,5 @@ class YtOfflineApp : Application() {
             AppLog.e("Crash", "Uncaught exception on ${thread.name}", throwable)
             previous?.uncaughtException(thread, throwable)
         }
-    }
-
-    companion object {
-        private const val STARTUP_UPDATE_INTERVAL_MS = 12L * 60L * 60L * 1_000L
     }
 }

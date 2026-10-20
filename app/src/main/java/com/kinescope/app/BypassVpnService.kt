@@ -105,6 +105,9 @@ class BypassVpnService : VpnService() {
     @Volatile private var flowWindows = 0
     @Volatile private var tunnelStartedAt = 0L
 
+    // Patch 46: the strategy that already proved it carries real traffic in this tunnel run, so it is recorded once.
+    @Volatile private var provedLine: String? = null
+
     // Patch 45: the tunnel's speed for the Home dashboard, sampled from the same counters every few seconds.
     @Volatile private var rateSample: TunnelCounters? = null
     @Volatile private var rateSampleAt = 0L
@@ -267,6 +270,7 @@ class BypassVpnService : VpnService() {
             rateSample = null
             oneWayStreak = 0
             flowWindows = 0
+            provedLine = null
             engine = null
             tun = null
             hevStarted = false
@@ -420,6 +424,15 @@ class BypassVpnService : VpnService() {
                     "tx=${current.txPackets - previous.txPackets}p/${current.txBytes - previous.txBytes}B " +
                     "rx=${current.rxPackets - previous.rxPackets}p/${current.rxBytes - previous.rxBytes}B streak=$oneWayStreak"
             )
+        }
+        // Patch 46: a window in which real data came back to the YouTube app is proof that this strategy carries real
+        // traffic. Remember it once per tunnel run; the chain then puts it first and keeps the others in order of success.
+        if (provedLine != line && TunnelFlow.proves(previous, current)) {
+            provedLine = line
+            DpiPrefs.promoteVerified(this, line)
+            val chain = DpiStrategyStore.chain(this)
+            BypassVpnController.publishPosition(chain.indexOf(line) + 1, chain.size)
+            AppLog.i("BypassVpnService", "tun proven s=${chain.indexOf(line) + 1}/${chain.size}")
         }
         if (TunnelFlow.shouldRotate(oneWayStreak)) {
             AppLog.w("BypassVpnService", "tun one-way windows=$oneWayStreak: the app sends, nothing comes back")

@@ -22,9 +22,17 @@ object DpiPrefs {
     private const val KEY_PROVEN_AT = "proven_at"
     private const val KEY_QUARANTINE = "quarantine"
     private const val KEY_SEARCH_VERSION = "search_version"
+    private const val KEY_SEARCH_AT = "search_at"
+    private const val KEY_MAINTENANCE_TRY_AT = "maintenance_try_at"
+    private const val KEY_LEARNED = "learned"
     private const val PROVEN_MAX_AGE_MS = 14L * 24L * 60L * 60L * 1000L
     private const val QUARANTINE_MS = 10L * 60L * 1000L
-    private const val MAX_FALLBACKS = 3
+
+    // Patch 46: the chain holds six strategies (the primary and five fallbacks), up from four: the best of the last
+    // search plus the ones that carried real traffic before (StrategyMemory). Keep DpiBypass.MAX_VERIFIED_STRATEGIES
+    // equal to this plus one.
+    private const val MAX_FALLBACKS = 5
+    private val learnedLock = Any()
 
     private fun prefs(context: Context) = context.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE)
 
@@ -102,6 +110,9 @@ object DpiPrefs {
         val current = QuarantineList.parse(prefs(context).getString(KEY_QUARANTINE, null), now)
         val next = QuarantineList.add(current, line, now + forMs)
         prefs(context).edit().putString(KEY_QUARANTINE, QuarantineList.serialize(next)).apply()
+        // Patch 46: a failure in real use also goes into the long-term record (StrategyMemory), where it lowers the
+        // strategy's place among the fallbacks long after the ten minutes are over.
+        recordOutcome(context, line, StrategyOutcome.REAL_BAD, now)
     }
 
     fun quarantined(context: Context): Set<String> =
@@ -125,24 +136,101 @@ object DpiPrefs {
         prefs(context).edit().putLong(KEY_SEARCH_VERSION, version).apply()
     }
 
+    /** Patch 46: when the last strategy search finished (0 = never). The 25-day upkeep counts from here. */
+    fun lastSearchAt(context: Context): Long = prefs(context).getLong(KEY_SEARCH_AT, 0L)
+
+    fun setLastSearchAt(context: Context, at: Long) {
+        prefs(context).edit().putLong(KEY_SEARCH_AT, at).apply()
+    }
+
+    /** Patch 46: notes that a quiet re-check was started now, so one that fails or is stopped is not retried at once. */
+    fun markMaintenanceTried(context: Context, at: Long = System.currentTimeMillis()) {
+        prefs(context).edit().putLong(KEY_MAINTENANCE_TRY_AT, at).apply()
+    }
+
+    /**
+     * Patch 46: whether the quiet strategy re-check is due: 25 days since the last finished search and no attempt in
+     * the last day (see [MaintenanceSchedule]). Never before the first search has finished. A build from before this
+     * patch has no search time yet; its calendar starts the first time it is asked, so installing this patch does not
+     * itself start a re-check.
+     */
+    fun isMaintenanceDue(context: Context, now: Long = System.currentTimeMillis()): Boolean {
+        if (!hasRunInitialSearch(context)) return false
+        var doneAt = lastSearchAt(context)
+        if (doneAt <= 0L) {
+            doneAt = now
+            setLastSearchAt(context, now)
+        }
+        return MaintenanceSchedule.isDue(doneAt, prefs(context).getLong(KEY_MAINTENANCE_TRY_AT, 0L), now)
+    }
+
+    /**
+     * Patch 46: what the app has learned about strategies from real use and from searches (see [StrategyMemory]).
+     * Validated again on every read, like the rest of the stored strategies: the parser is the gatekeeper.
+     */
+    internal fun learned(context: Context): Map<String, LearnedStrategy> =
+        StrategyMemory.parse(prefs(context).getString(KEY_LEARNED, null))
+            .filterKeys { DpiStrategyParser.parse(it) is DpiStrategyParser.Parsed.Ok }
+
+    /** Patch 46: the score of a strategy from its record as of [now] ([StrategyMemory.NEUTRAL] when nothing is known). */
+    internal fun scorer(context: Context, now: Long = System.currentTimeMillis()): (String) -> Double {
+        val memory = learned(context)
+        return { line -> StrategyMemory.score(memory[line], now) }
+    }
+
+    /** Patch 46: the strategies with real evidence in their favour, best first (see [StrategyMemory.good]). */
+    internal fun learnedGood(context: Context, now: Long = System.currentTimeMillis()): List<String> =
+        StrategyMemory.good(learned(context), now)
+
+    internal fun recordOutcome(context: Context, line: String, outcome: StrategyOutcome, now: Long = System.currentTimeMillis()) {
+        recordOutcomes(context, listOf(line), outcome, now)
+    }
+
+    /**
+     * Patch 46: records [outcome] for every strategy in [lines]. A line the strategy parser would reject is ignored;
+     * with [onlyIfKnown] a strategy with no record yet is skipped.
+     */
+    internal fun recordOutcomes(
+        context: Context,
+        lines: List<String>,
+        outcome: StrategyOutcome,
+        now: Long = System.currentTimeMillis(),
+        onlyIfKnown: Boolean = false
+    ) {
+        if (lines.isEmpty()) return
+        synchronized(learnedLock) {
+            var memory = learned(context)
+            for (line in lines) {
+                if (DpiStrategyParser.parse(line) !is DpiStrategyParser.Parsed.Ok) continue
+                memory = StrategyMemory.record(memory, line, outcome, now, onlyIfKnown)
+            }
+            prefs(context).edit().putString(KEY_LEARNED, StrategyMemory.serialize(memory)).apply()
+        }
+    }
+
     /**
      * Patch 33: after a download really completed through [line], make it the primary strategy
      * (the previous primary and the rest stay behind it as fallbacks). A search only proves a
      * strategy passes a probe; a finished download proves it carries real traffic right now.
+     *
+     * Patch 46: the same call is how real traffic is remembered (also from the YouTube tunnel, see
+     * `TunnelFlow.proves`): the success goes into the long-term record, and the fallbacks behind the winner are
+     * ordered by their score there instead of staying in the order of the last search.
      */
     fun promoteVerified(context: Context, line: String) {
         val store = prefs(context)
+        val now = System.currentTimeMillis()
+        recordOutcome(context, line, StrategyOutcome.REAL_OK, now)
         // Patch 35: a download really finished through this strategy; a background re-check keeps it in front.
-        store.edit().putString(KEY_PROVEN, line).putLong(KEY_PROVEN_AT, System.currentTimeMillis()).apply()
+        store.edit().putString(KEY_PROVEN, line).putLong(KEY_PROVEN_AT, now).apply()
         val primary = store.getString(KEY_VERIFIED_STRATEGY, null) ?: return
-        if (primary == line) return
         val chain = (listOf(primary) + verifiedFallbacks(context)).distinct()
-        if (line !in chain) return
-        val rest = chain.filter { it != line }.take(MAX_FALLBACKS)
+        val ordered = ChainPlanner.promote(chain, line, scorer(context, now), MAX_FALLBACKS + 1)
+        if (ordered == chain) return
         store.edit()
-            .putString(KEY_STRATEGY, line)
-            .putString(KEY_VERIFIED_STRATEGY, line)
-            .putString(KEY_VERIFIED_FALLBACKS, rest.joinToString("\n"))
+            .putString(KEY_STRATEGY, ordered.first())
+            .putString(KEY_VERIFIED_STRATEGY, ordered.first())
+            .putString(KEY_VERIFIED_FALLBACKS, ordered.drop(1).joinToString("\n"))
             .apply()
     }
 

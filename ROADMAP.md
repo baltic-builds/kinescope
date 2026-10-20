@@ -1,6 +1,6 @@
 # Roadmap
 
-State after patch 45 (2026-10-15). This file tracks only what is still open: device verification gates,
+State after patch 46 (2026-10-17). This file tracks only what is still open: device verification gates,
 technical debt and what is out of scope. How each item was closed lives in `CHANGELOG.md`; the state a new
 session needs is in `HANDOFF.md`.
 
@@ -17,6 +17,10 @@ session needs is in `HANDOFF.md`.
 - **The release workflow was red at patch 42** (a unit test that no longer compiled); patch 43 fixes that and
   restructures the workflow. Nothing behind the failing task had run, so it is green only once the user reports a
   run (see "Release pipeline").
+- **Patch 46 (2026-10-17) changes when the bypass upkeep runs.** The strategy re-check no longer follows an app
+  update; the app remembers which strategies really carried traffic and keeps them in the fallback chain, ordered by
+  how well they worked; the yt-dlp update and the strategy re-check now run every 25 days. None of it is confirmed on a
+  device yet (see "Learned strategies and the 25-day upkeep" below).
 - **Everything below needs the user's phone or a real GitHub Actions run.** Do not tick a box from code review, a
   local compile or a green build alone (`AGENTS.md`, "What done means").
 
@@ -34,6 +38,25 @@ session needs is in `HANDOFF.md`.
 
 ## Verification gates (open)
 
+### Learned strategies and the 25-day upkeep (patch 46)
+- [ ] Install this build over the previous one and open it: no "Updating strategies" popup, no search notification,
+  and downloads and the YouTube tunnel work at once with the strategies already stored. Copy report shows
+  `search_age=0d` (the 25 days count from the first launch of this build) and no `srch` search lines.
+- [ ] After a download finishes through the bypass, Copy report shows a `#learn` line for the strategy it went through
+  with `ok=1.00` and `learned=` in the `#state` line is at least 1. After a download that had to fall back to another
+  route, that route has its own `#learn` line.
+- [ ] A strategy that fails while a later route finishes the download is quarantined as before and its `#learn` line
+  shows `bad=1.00`; in the `#s` list it now sits behind the strategies with a better record.
+- [ ] YouTube tunnel: after the YouTube app has loaded a video for about a minute the report holds one
+  `tun proven s=N/M` line and a `#learn` line for that strategy with a real-use success.
+- [ ] The 25-day upkeep, tested by moving the phone's clock forward 26 days (automatic date and time off) and opening
+  the app: Home shows "Re-checking in the background" with no popup, the report holds `list updated|same|failed ...`
+  and the `DpiSearch done ...` summary, `search_age` returns to `0d`, and a `upd` line shows the yt-dlp update. A
+  download started during that re-check begins at once. Set the clock back afterwards; stored times that lie in the
+  future count as due, so one more upkeep runs.
+- [ ] After the re-check the `#s` list holds up to six strategies: the best of the search and the learned ones,
+  ordered by their record, not only by the search ranking.
+
 ### Home bypass dashboard (patch 45)
 - [ ] Home shows the new card: header, the Downloads and YouTube app rows, "Check again". On a fresh install (or after
   clearing the app's data) it says "Not set up yet" with one "Check the ways" button; the first-run check shows
@@ -48,7 +71,7 @@ session needs is in `HANDOFF.md`.
   while the YouTube tunnel is running"). Stop on the card ends the tunnel and unlocks the switch.
 - [ ] If the YouTube app sends but nothing comes back, the row turns to the warning text within about 10 s (it follows
   the `tun win` verdict); a later `flowing` or idle window clears it.
-- [ ] The strategy "Update" from the tunnel notification and a quiet background re-check after an app update leave Home
+- [ ] The strategy "Update" from the tunnel notification and the quiet 25-day background re-check (patch 46) leave Home
   usable: the card keeps its controls and shows "Re-checking in the background" with a bar.
 - [ ] Russian locale: no clipped or overlapping text at 360dp wide and at the largest font size; in dark mode the dots
   and the secondary text are readable on both card colors. Tablet and TV: the card sits at the top of the left pane or
@@ -124,8 +147,7 @@ session needs is in `HANDOFF.md`.
 - [ ] Tapping the download or strategy-search notification brings the app to Home.
 - [ ] The bottom navigation has three balanced 56dp targets and clears gesture and three-button navigation.
 - [ ] A fresh install shows the strategy-check popup in the device language (Russian on a Russian device, English
-  otherwise); after an update the first launch re-checks in the background and shows it again while the previous
-  strategies stay usable.
+  otherwise). Since patch 46 an app update no longer starts a re-check or shows the popup (see the patch 46 gates).
 - [ ] Settings ends with `powered by ephedrine`.
 
 ### Network bypass and strategy search (patches 28-35)
@@ -188,6 +210,28 @@ session needs is in `HANDOFF.md`.
 
 ## Technical debt
 
+- **The learned record is global, not per network.** It does not know on which network a success or a failure
+  happened; the weekly halving of old evidence is the only protection against a record made at home steering a
+  strategy choice on a hotel network. A per-network key (the Wi-Fi name needs a location permission; the network type
+  and the provider would not) is a design of its own; build it only if a device report shows the record misleading.
+- **The upkeep runs when the app is opened, not on a timer.** There is no WorkManager dependency, and Android 12+ does
+  not let a background job start the strategy search, which is a foreground service. If the app is not opened for 25
+  days, the upkeep waits for the next launch. A truly unattended re-check needs a different design, not a timer.
+- **A tunnel rotation during a network outage counts against the strategy in use.** `DpiPrefs.quarantine` records the
+  failure for both of its callers, and the tunnel cannot tell a dead strategy from a dead network (the download ladder
+  can: it blames a route only when a later one finished). The damage is bounded (a failure is one weighted entry that
+  halves every week and the next success outweighs it), but if a report shows a good strategy sitting low after an
+  outage, give the tunnel's call a weaker outcome than the ladder's.
+- **The yt-dlp startup update is every 25 days now (it was every 12 hours).** A YouTube change inside that window is
+  healed by the recovery chain's nightly refresh on the first download that fails. If reports show a failed first try
+  after each YouTube change, give yt-dlp its own, shorter interval in `YtOfflineApp` (the constant is shared today).
+- **The quiet re-check is still a full scan.** Only its trigger and its visibility changed (every 25 days, no popup,
+  downloads are not held back). If it proves too long or too heavy on battery, bound it with `stopAfterFullPasses`
+  in `DpiBypass.search` (the candidates already start with the stored chain); the cost is that a new strategy from
+  the refreshed list may then not be reached.
+- **The chain holds six strategies now (it held four).** In the worst case, when the network is down and every route
+  fails, the route ladder tries up to six routes before giving up. Lower `MAX_VERIFIED_STRATEGIES` and `MAX_FALLBACKS`
+  together if that wait is noticeable.
 - **The Home dashboard reads the bypass preferences when something it watches changes**, not through a live observer:
   a search starting or finishing, the tunnel coming up or going down, or its own switch. A change made elsewhere
   without one of those (none is known today) would show on the next one. If that ever matters, `DpiPrefs` needs a

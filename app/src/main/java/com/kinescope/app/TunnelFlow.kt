@@ -70,6 +70,17 @@ internal object TunnelFlow {
         if (verdict == FlowVerdict.ONE_WAY) streak + 1 else 0
 
     fun shouldRotate(streak: Int): Boolean = streak >= WINDOWS_BEFORE_ROTATE
+
+    /** Patch 46: a window that brought back at least this many bytes is real data, not a ping and its answer. */
+    const val PROOF_RX_BYTES = 64_000L
+
+    /**
+     * Patch 46: whether the window between two readings shows the strategy carrying real data to the YouTube app: the
+     * app sent traffic, it was not one-way, and at least [PROOF_RX_BYTES] came back. This is what the app remembers
+     * as "this strategy really carried traffic" (see `StrategyMemory`).
+     */
+    fun proves(previous: TunnelCounters, current: TunnelCounters): Boolean =
+        judge(previous, current) == FlowVerdict.FLOWING && current.rxBytes - previous.rxBytes >= PROOF_RX_BYTES
 }
 
 /**
