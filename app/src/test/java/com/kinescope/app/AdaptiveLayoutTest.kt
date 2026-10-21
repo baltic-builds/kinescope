@@ -20,6 +20,8 @@ class AdaptiveLayoutTest {
         assertEquals(0, spec.safeHorizontalDp)
         assertEquals(0, spec.safeVerticalDp)
         assertEquals(1f, spec.typographyScale, 0f)
+        assertEquals(48, spec.controlHeightDp)
+        assertEquals(64, spec.headerHeightDp)
     }
 
     @Test
@@ -78,12 +80,16 @@ class AdaptiveLayoutTest {
     }
 
     @Test
-    fun aCompactWindowThatIsAlsoShortStillGetsTheRail() {
-        // The same 500dp width: tall keeps the bottom bar, short (under 480dp high) moves to the rail.
-        assertFalse(adaptiveSpecFor(widthDp = 500, heightDp = 480, tv = false).useRail)
-        val spec = adaptiveSpecFor(widthDp = 500, heightDp = 479, tv = false)
-        assertTrue(spec.useRail)
-        assertFalse(spec.twoPane)
+    fun aCompactWindowKeepsTheBottomBarHoweverShort() {
+        // Patch 48: a rail in a 360x400dp split-screen window left 240dp for the content. Below 600dp wide the
+        // bottom bar stays at every height; the rail needs width, not a short window.
+        for (height in listOf(200, 400, 479, 480, 900)) {
+            val spec = adaptiveSpecFor(widthDp = 360, heightDp = height, tv = false)
+            assertFalse("h=$height", spec.useRail)
+            assertFalse("h=$height", spec.twoPane)
+        }
+        assertFalse(adaptiveSpecFor(widthDp = 599, heightDp = 300, tv = false).useRail)
+        assertTrue(adaptiveSpecFor(widthDp = 600, heightDp = 300, tv = false).useRail)
     }
 
     @Test
@@ -97,6 +103,47 @@ class AdaptiveLayoutTest {
         assertEquals(96, spec.railWidthDp)
         assertEquals(1.15f, spec.typographyScale, 0f)
         assertEquals(0, spec.contentEndPaddingDp)
+        assertEquals(56, spec.controlHeightDp)
+        assertEquals(72, spec.headerHeightDp)
+    }
+
+    @Test
+    fun theTvEdgeMarginFollowsTheSettingAndIsAPercentageOfTheWindow() {
+        // 5% is the margin the layout always had (48x27dp on the canonical 960x540dp TV), so it is the default.
+        assertEquals(DEFAULT_OVERSCAN_PERCENT, OVERSCAN_MAX_PERCENT)
+        val none = adaptiveSpecFor(widthDp = 960, heightDp = 540, tv = true, overscanPercent = 0)
+        assertEquals(0, none.safeHorizontalDp)
+        assertEquals(0, none.safeVerticalDp)
+        val three = adaptiveSpecFor(widthDp = 960, heightDp = 540, tv = true, overscanPercent = 3)
+        assertEquals(29, three.safeHorizontalDp)
+        assertEquals(16, three.safeVerticalDp)
+        val wide = adaptiveSpecFor(widthDp = 1280, heightDp = 720, tv = true, overscanPercent = 5)
+        assertEquals(64, wide.safeHorizontalDp)
+        assertEquals(36, wide.safeVerticalDp)
+        // Out-of-range values (a stale preference) are clamped, never trusted.
+        assertEquals(48, adaptiveSpecFor(960, 540, true, overscanPercent = 40).safeHorizontalDp)
+        assertEquals(0, adaptiveSpecFor(960, 540, true, overscanPercent = -3).safeHorizontalDp)
+    }
+
+    @Test
+    fun theEdgeMarginChangesNothingOffTv() {
+        for (percent in 0..OVERSCAN_MAX_PERCENT) {
+            val tablet = adaptiveSpecFor(widthDp = 1280, heightDp = 800, tv = false, overscanPercent = percent)
+            assertEquals(0, tablet.safeHorizontalDp)
+            assertEquals(0, tablet.safeVerticalDp)
+            assertEquals(adaptiveSpecFor(1280, 800, false), tablet)
+        }
+    }
+
+    @Test
+    fun aSmallerTvMarginNeverLosesTheTwoPaneLayout() {
+        for (width in 600..1920 step 40) {
+            val full = adaptiveSpecFor(width, 540, tv = true, overscanPercent = OVERSCAN_MAX_PERCENT)
+            val none = adaptiveSpecFor(width, 540, tv = true, overscanPercent = 0)
+            assertTrue("w=$width", !full.twoPane || none.twoPane)
+        }
+        // On the canonical TV the margin is the difference between 744dp and 840dp of content.
+        assertTrue(adaptiveSpecFor(960, 540, tv = true, overscanPercent = 0).twoPane)
     }
 
     @Test
@@ -111,7 +158,22 @@ class AdaptiveLayoutTest {
         val spec = adaptiveSpecFor(widthDp = 640, heightDp = 360, tv = true)
         assertTrue(spec.useRail)
         assertFalse(spec.twoPane)
-        assertEquals(48, spec.safeHorizontalDp)
+        assertEquals(32, spec.safeHorizontalDp)
+    }
+
+    @Test
+    fun aDeviceWithoutATouchScreenIsATvUnlessItIsAPc() {
+        // Phone, tablet: a touch screen, no leanback.
+        assertFalse(looksLikeTelevision(tvUiMode = false, leanback = false, touchscreen = true, pc = false))
+        // TV with the TV UI mode, with only the leanback feature, and a set-top box that declares nothing but no touch.
+        assertTrue(looksLikeTelevision(tvUiMode = true, leanback = false, touchscreen = false, pc = false))
+        assertTrue(looksLikeTelevision(tvUiMode = false, leanback = true, touchscreen = true, pc = false))
+        assertTrue(looksLikeTelevision(tvUiMode = false, leanback = false, touchscreen = false, pc = false))
+        // A Chromebook or desktop-mode device without touch is not a TV (the Settings override can still say so).
+        assertFalse(looksLikeTelevision(tvUiMode = false, leanback = false, touchscreen = false, pc = true))
+        // The explicit TV signals win over the PC flag.
+        assertTrue(looksLikeTelevision(tvUiMode = true, leanback = false, touchscreen = false, pc = true))
+        assertTrue(looksLikeTelevision(tvUiMode = false, leanback = true, touchscreen = false, pc = true))
     }
 
     @Test
@@ -134,30 +196,42 @@ class AdaptiveLayoutTest {
     @Test
     fun theRulesHoldForEveryWindowSize() {
         for (tv in listOf(false, true)) {
-            for (width in 280..2000 step 20) {
-                for (height in 240..1400 step 40) {
-                    val spec = adaptiveSpecFor(width, height, tv)
-                    val label = "w=$width h=$height tv=$tv"
-                    // The bottom bar layout is only for a plain phone-sized, tall window.
-                    if (!spec.useRail) {
-                        assertFalse(label, tv)
-                        assertTrue(label, width < 600 && height >= 480)
-                        assertFalse(label, spec.twoPane)
-                        assertEquals(label, 20, spec.contentStartPaddingDp)
-                    } else {
-                        assertEquals(label, 0, spec.contentStartPaddingDp)
+            for (percent in 0..OVERSCAN_MAX_PERCENT) {
+                for (width in 280..2000 step 20) {
+                    for (height in 240..1400 step 40) {
+                        assertRulesHold(width, height, tv, percent)
                     }
-                    if (spec.twoPane) {
-                        assertTrue(label, spec.useRail)
-                        val available = width - 2 * spec.safeHorizontalDp - spec.railWidthDp -
-                            spec.railGapDp - spec.contentEndPaddingDp
-                        assertTrue(label, minOf(available, spec.contentMaxWidthDp) >= 700)
-                    }
-                    assertEquals(label, tv, spec.isTv)
-                    assertEquals(label, tv, spec.safeHorizontalDp > 0)
-                    assertTrue(label, spec.contentMaxWidthDp >= 640)
                 }
             }
         }
+    }
+
+    private fun assertRulesHold(width: Int, height: Int, tv: Boolean, percent: Int) {
+        val spec = adaptiveSpecFor(width, height, tv, percent)
+        val label = "w=$width h=$height tv=$tv margin=$percent"
+        // The bottom bar layout is only for a compact-width window, at any height.
+        if (!spec.useRail) {
+            assertFalse(label, tv)
+            assertTrue(label, width < 600)
+            assertFalse(label, spec.twoPane)
+            assertEquals(label, 20, spec.contentStartPaddingDp)
+        } else {
+            assertEquals(label, 0, spec.contentStartPaddingDp)
+        }
+        if (spec.twoPane) {
+            assertTrue(label, spec.useRail)
+            val available = width - 2 * spec.safeHorizontalDp - spec.railWidthDp -
+                spec.railGapDp - spec.contentEndPaddingDp
+            assertTrue(label, minOf(available, spec.contentMaxWidthDp) >= 700)
+        }
+        assertEquals(label, tv, spec.isTv)
+        assertEquals(label, tv && percent > 0, spec.safeHorizontalDp > 0)
+        assertEquals(label, tv && percent > 0, spec.safeVerticalDp > 0)
+        assertTrue(label, spec.contentMaxWidthDp >= 640)
+        // The tokens never shrink below a touch target, a header is never shorter than a control, and a TV gets
+        // the larger control.
+        assertTrue(label, spec.controlHeightDp >= 48)
+        assertTrue(label, spec.headerHeightDp >= spec.controlHeightDp)
+        assertEquals(label, tv, spec.controlHeightDp == 56)
     }
 }

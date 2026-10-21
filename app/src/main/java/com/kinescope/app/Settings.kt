@@ -11,6 +11,7 @@ object Settings {
     private const val KEY_KNOWN_SUBFOLDERS = "known_download_subfolders"
     private const val KEY_LAST_UPDATE_TIMESTAMP = "last_ytdlp_update_timestamp"
     private const val KEY_INTERFACE_MODE = "interface_mode"
+    private const val KEY_OVERSCAN_PERCENT = "tv_overscan_percent"
 
     const val DEFAULT_SUBFOLDER = "Kinescope"
     private const val LEGACY_SUBFOLDER = "YTOffline"
@@ -85,6 +86,14 @@ object Settings {
 
     internal fun setInterfaceMode(context: Context, mode: InterfaceMode) {
         prefs(context).edit().putString(KEY_INTERFACE_MODE, mode.persistedValue).apply()
+    }
+
+    /** Patch 48: the TV edge margin, 0..5% of the window (Settings -> Interface, offered on a TV). */
+    internal fun getOverscanPercent(context: Context): Int =
+        prefs(context).getInt(KEY_OVERSCAN_PERCENT, DEFAULT_OVERSCAN_PERCENT).coerceIn(0, OVERSCAN_MAX_PERCENT)
+
+    internal fun setOverscanPercent(context: Context, percent: Int) {
+        prefs(context).edit().putInt(KEY_OVERSCAN_PERCENT, percent.coerceIn(0, OVERSCAN_MAX_PERCENT)).apply()
     }
 
     private fun sanitizeSubfolder(name: String): String {

@@ -265,3 +265,16 @@ are unchanged; no new color, icon or animation was added.
 - **TV:** every control is wrapped in `FocusRing`; no touch-only gesture was added.
 - **Not seen on a screen.** The card was composed without a device. Compare the two channel rows at 360dp with Russian
   text and at the largest font size, and adjust the spacing here and in `BypassDashboard.kt` together.
+
+## Patch 48 — adaptive UI audit (first part)
+
+Arrangement and sizing only; colours, type and shapes are unchanged. Still drawn without a tablet or a TV at hand.
+
+- **A control height is a minimum.** Buttons keep the 48dp rule of patch 36 (56dp on TV) as `heightIn(min = ...)`: a label that
+  wraps makes the button taller, never clipped. A group of buttons is a `FlowRow`, not a `Row`, so the last button drops to the
+  next line instead of being squeezed.
+- **Rail:** `80dp` (`96dp` on TV), three targets, and a `labelMedium` label under each icon on every device (it was TV only).
+  It exists from 600dp of width; a narrow window keeps the floating bottom bar at any height, capped at `380dp`.
+- **TV edge margin:** 0-5% of the window, chosen in Settings (default 5%, which is the old `48dp x 27dp` on 960x540dp).
+- **Not seen on a screen.** Compare the rail labels in Russian at 80dp, the wrapped buttons at the largest font size, and a TV
+  at 0% and 5% margin, and adjust the numbers in `AdaptiveLayout.kt` and `AppChrome.kt` together.

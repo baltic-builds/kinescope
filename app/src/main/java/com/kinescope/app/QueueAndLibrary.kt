@@ -379,7 +379,11 @@ private fun formatFileSize(bytes: Long): String = when {
     else -> "—"
 }
 
-internal fun playItem(context: Context, item: LibraryItem) {
+/**
+ * [tv] is the interface the screen is drawn for (LocalAdaptive.isTv), so a "TV" or "Touch" override in Settings
+ * changes the hint too; before patch 48 only the hardware decided which no-player message was shown.
+ */
+internal fun playItem(context: Context, item: LibraryItem, tv: Boolean) {
     val intent = Intent(Intent.ACTION_VIEW).apply {
         setDataAndType(item.uri, item.mimeType)
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
@@ -392,7 +396,7 @@ internal fun playItem(context: Context, item: LibraryItem) {
         // A TV box often ships without any video player; say what to do about it.
         Toast.makeText(
             context,
-            if (isTelevisionDevice(context)) R.string.no_player_tv else R.string.no_player,
+            if (tv) R.string.no_player_tv else R.string.no_player,
             Toast.LENGTH_LONG
         ).show()
         AppLog.e("Library", "No player for library item", e)

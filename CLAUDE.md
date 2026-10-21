@@ -107,3 +107,8 @@ future sessions don't lose them.)
   Settings; the YouTube tunnel keeps its start / open / stop), nothing about extraction, the engine, the strategy
   parser or the tunnel's network configuration changes, and the only service change is publishing numbers the tunnel
   already measured. Result: `CHANGELOG.md`, "Patch 45"; the device checklist is in `ROADMAP.md`.
+- **Decision (patch 48): the outside tablet/TV UI audit is implemented in part, and the log journal becomes a visible Settings
+  entry.** At the user's request the audit was read against the code first; what it got right was fixed, what it overstated
+  was left, and the large items (a TV-native Home, `material3-adaptive`, Media3, `focusRestorer`) were postponed with reasons
+  (`CHANGELOG.md`, "Patch 48"). The hidden five-tap route to the log (patch 24) stays, but a remote cannot make five taps in
+  650ms, so Settings now also has a plain Diagnostics button; revert that button if the log should be hidden again.

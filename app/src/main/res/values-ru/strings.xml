@@ -268,4 +268,14 @@
     <string name="dash_check_progress">Проверено %1$d из %2$d</string>
     <string name="dash_recheck">Фоновая перепроверка · %1$d из %2$d</string>
     <string name="dash_wait_download_check">Дождитесь окончания загрузки, чтобы проверить способы.</string>
+    <!-- Patch 48: adaptive UI audit -->
+    <string name="logs_jump_top">Вверх</string>
+    <string name="logs_jump_bottom">Вниз</string>
+    <string name="strategy_show_more">Показать ещё (осталось %1$d)</string>
+    <string name="settings_diagnostics">Диагностика</string>
+    <string name="diagnostics_hint">Технический журнал помогает найти причину, если что-то не работает.</string>
+    <string name="diagnostics_open">Открыть журнал</string>
+    <string name="overscan_title">Отступ от краёв экрана</string>
+    <string name="overscan_hint">Увеличьте, если телевизор обрезает края картинки; уменьшите, чтобы использовать весь экран.</string>
+    <string name="overscan_percent">%1$d%%</string>
 </resources>

@@ -24,6 +24,15 @@ session needs is in `HANDOFF.md`.
 - **Patch 47 (2026-10-17) is the audit of patch 46.** The quiet re-check waits for an unmetered network; a refused
   foreground start of the search no longer leaves it "running" forever; the chain, the quarantine and the learned
   record take turns when several threads change them; the chain size has one definition; stale comments are fixed.
+- **Patch 48 (2026-10-21) starts the implementation of the outside tablet and TV UI audit.** Buttons grow with their
+  label instead of clipping it; the rail is for medium or wider windows; the TV edge margin is a setting; one
+  navigation component with labels on the rail; the log journal is a visible Settings entry and one focus stop; the
+  strategy list pages; the screen, the link and the quality survive a dark-mode change. The audit's larger items are
+  declined or postponed with reasons (`CHANGELOG.md`, Patch 48; "Technical debt" below). None of it is confirmed on a
+  screen yet.
+- **Patch 49 (2026-10-21) finishes the overflow sweep and fixes the TV detection.** Three more rows stop squeezing a button
+  (the YouTube-active row in Settings, the Library header, the sign-in buttons), and a PC-type device without touch is
+  no longer taken for a TV. Not confirmed on a screen either.
 - **Everything below needs the user's phone or a real GitHub Actions run.** Do not tick a box from code review, a
   local compile or a green build alone (`AGENTS.md`, "What done means").
 
@@ -108,6 +117,32 @@ session needs is in `HANDOFF.md`.
 - [ ] Copy report shows yt-dlp 2026.08.19 or newer, `run ... src=ig auth=true` and `fmt j=...` (a plain id or an
   `avc1` pair is the intended outcome, `dash-...vd+dash-...ad` means the VP9 route), and no cookie value or URL.
 - [ ] Two or three more Reels play with picture and sound; note any noticeably below the chosen height.
+
+### Adaptive UI audit (patch 48)
+- [ ] Tablet in portrait (about 800dp): every rail item has a label under its icon and none is cut (the Russian
+  label of Settings, the longest, included).
+- [ ] A 600-700dp tablet, or a phone in landscape: Logs shows its six buttons on two lines when they do not fit, nothing
+  squeezed; Settings -> Accounts the same. Home -> the dashboard buttons stay whole.
+- [ ] A phone at the largest font size, in Russian: the Unblock YouTube button, and the Open YouTube button
+  next to Stop, grow to two lines instead of losing the second.
+- [ ] A narrow, short window (a phone in split screen, about 360x400dp): the bottom bar stays, no rail. A 500-599dp
+  window (a folded screen, a freeform window): the bottom bar is at most 380dp wide.
+- [ ] Switch the system to dark mode (or change the language) while on Add with a typed link, or on Settings with a typed
+  folder: the same screen, the link, the quality and the folder text are still there. Share a link to the app, then
+  change dark mode: the app does not jump back to Add.
+- [ ] Settings -> Diagnostics -> Open the log; Back returns to Settings. Five quick taps on the Settings icon still open
+  it. Copy report, Share, Refresh, Clear, Top and Bottom all work.
+- [ ] A D-pad or keyboard on Logs: one ring around the list, Up and Down scroll it by a page, and at either end the
+  focus moves on to the buttons or the navigation.
+- [ ] Settings -> the strategy list: 12 candidates, "Show more (N left)" adds 12, hiding the list and opening it again
+  starts at 12; Test and Use still work on every row.
+- [ ] Patch 49: at the largest font size, in Russian: while the YouTube tunnel runs, Settings shows its "active" label
+  wrapped and a whole Stop button; the Home Library header keeps a whole Refresh button; on both sign-in screens the two
+  buttons drop to a second line instead of squeezing.
+- [ ] Patch 49: on a Chromebook or a desktop-mode device without touch (if one is at hand), Automatic picks the touch
+  layout; a TV or a set-top box is still detected.
+- [ ] TV: Settings -> Interface shows "Screen edge margin" 0-5%. A value applies at once and survives a restart; at 0% on a
+  960x540dp TV the edges are used and Home still has two panes; at 5% the layout is what patch 41 had.
 
 ### Tablet and TV layouts (patch 41)
 - [ ] A phone in portrait looks and behaves as before: bottom bar, one column, Home/Add/Settings/Logs.
@@ -215,6 +250,15 @@ session needs is in `HANDOFF.md`.
 
 ## Technical debt
 
+- **The outside UI audit's larger items are open on purpose (patch 48).** (1) A TV-native Home (top tabs, a hero, horizontal
+  rows) instead of the patch 41 two-pane lists: wait for the TV checklist above to be reported on a real TV, then redraw
+  from what it shows. (2) `material3-adaptive` / `window-core`: the same breakpoints, unverifiable offline here, no foldable
+  posture needed. (3) An in-app Media3 player: only if the target box has no video player. (4) `focusRestorer` /
+  `focusGroup`: little to restore while screens are torn down on a section change. (5) The tunnel serves the phone edition
+  of the YouTube app only (`BypassVpnService.YOUTUBE_PACKAGE`); the TV edition is a network-configuration change.
+- **The Settings screen is one long scrolling column on a TV.** The D-pad crosses it control by control (the strategy list is
+  paged since patch 48, the rest is about forty controls). Collapsible sections would shorten the walk; add them only if the
+  TV check calls it a problem.
 - **The quiet re-check never runs on a metered network.** A phone that is only ever on mobile data (or a hotspot) never
   re-checks by itself; the manual search in Settings is the way, and the stored and learned strategies keep working.
 - **The learned record is global, not per network.** It does not know on which network a success or a failure

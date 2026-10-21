@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -37,6 +38,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 
 // Patch 45: the Home hero card, redesigned from one YouTube button into a dashboard.
@@ -186,10 +188,14 @@ internal fun BypassDashboard(
                         enabled = model.checkEnabled,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(48.dp),
+                            .heightIn(min = LocalAdaptive.current.controlHeightDp.dp),
                         contentPadding = PaddingValues(horizontal = 18.dp, vertical = 8.dp)
                     ) {
-                        Text(text = stringResource(R.string.dash_check_ways), style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            text = stringResource(R.string.dash_check_ways),
+                            style = MaterialTheme.typography.titleMedium,
+                            textAlign = TextAlign.Center
+                        )
                     }
                 }
                 CheckHint(model.checkHint, palette)
@@ -443,7 +449,10 @@ private fun YouTubeChannel(
                         ActionButton(text = stringResource(R.string.dash_open_youtube), onClick = onOpen)
                     }
                     FocusRing {
-                        OutlinedButton(onClick = onStop, modifier = Modifier.height(48.dp)) {
+                        OutlinedButton(
+                            onClick = onStop,
+                            modifier = Modifier.heightIn(min = LocalAdaptive.current.controlHeightDp.dp)
+                        ) {
                             Text(stringResource(R.string.stop))
                         }
                     }
@@ -453,6 +462,11 @@ private fun YouTubeChannel(
     }
 }
 
+/**
+ * Patch 48: the height is a minimum (a control token: 48dp touch, 56dp TV), not a fixed height. A fixed 48dp
+ * clipped the second line of "Unblock YouTube" or "Open YouTube" (longer in Russian) at a large font size, in a narrow pane or beside
+ * the Stop button; now the button grows with its label.
+ */
 @Composable
 private fun ActionButton(text: String, onClick: () -> Unit, enabled: Boolean = true) {
     Button(
@@ -460,9 +474,9 @@ private fun ActionButton(text: String, onClick: () -> Unit, enabled: Boolean = t
         enabled = enabled,
         modifier = Modifier
             .fillMaxWidth()
-            .height(48.dp),
+            .heightIn(min = LocalAdaptive.current.controlHeightDp.dp),
         contentPadding = PaddingValues(horizontal = 18.dp, vertical = 8.dp)
     ) {
-        Text(text = text, style = MaterialTheme.typography.titleMedium)
+        Text(text = text, style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center)
     }
 }

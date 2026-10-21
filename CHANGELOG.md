@@ -13,6 +13,117 @@ patch's own `.py` script for the exact, idempotent, exact-match-guarded
 edits it makes.
 
 
+## Patch 49 — Overflow sweep of the remaining screens, and TV detection that leaves PCs alone
+
+Requires patch 48. After patch 48 every `Row` of the app that holds text next to a button or another control was
+checked (a scan of all screens, then a read of each hit). Most were already safe; three were not.
+
+### Changed
+- **Settings -> bypass, "YouTube bypass active" + Stop (`BypassSettings`).** The label was not weighted, so it took the
+  whole row and squeezed the Stop button; in Russian the label alone is about 190dp in a 290dp card. It takes what Stop
+  leaves and wraps.
+- **Home -> the Library header (`HomeScreen`).** The title is weighted, so a large font size wraps "Library" instead of
+  squeezing Refresh.
+- **The sign-in screens (`WebSessionLogin`).** "Use this session" + "Cancel" are a `FlowRow` now (about 316dp of buttons in
+  Russian; the second used to be squeezed in a 320dp column).
+- **A device without a touch screen is not a TV if it is a PC (`looksLikeTelevision`, `isTelevisionDevice`).**
+  Automatic took any device without the touch-screen feature for a set-top box, which a Chromebook or a desktop-mode
+  device with a keyboard and a pointer can be. The pure rule is tested (the TV UI mode and the leanback feature still win;
+  `FEATURE_PC` was checked in the Android 10 source, minSdk is 29); Settings -> Interface can still force TV.
+- **Comment language.** Two comments of patch 48 quoted Russian UI text; code comments are English only (`CLAUDE.md`).
+- **Tests (`AdaptiveLayoutTest`, 18 tests):** the detection rule in every combination.
+
+### Checked and left as it is
+- Every other row that pairs text with a `Switch`, an icon or an icon button already gives the text a weight (the
+  dashboard rows, the queue and library rows). The fixed sizes that remain are icons, the status dot and the library
+  thumbnail; `maxLines = 1` remains only on titles, URLs and rail labels, where truncation is the intent.
+
+## Patch 48 — Tablet and TV UI audit: what held up, what was fixed, what was declined
+
+Requires patch 47. Requested: study the outside audit of the tablet and TV interface (`UI_TABLET_TV_AUDIT_BRIEF.md`) and
+start implementing it. Every claim of the audit was checked against the code of patch 47 before anything was changed;
+the user also reports that on a tablet and other devices text overflows buttons, which the audit does not name and
+which the code explains (below). No dependency was added and nothing about extraction, the engine or the tunnel changed.
+
+### Changed
+- **Text no longer overflows or is clipped in buttons.** Three causes, all found in the code:
+  - The Home dashboard's buttons (`BypassDashboard`: Check the ways, Unblock / Open YouTube, Stop) had a fixed
+    `height(48.dp)`. A label that wraps (Russian text, a large font size, a narrow pane, the Open button next to Stop)
+    lost its second line. The height is now a minimum, a control token (`AdaptiveSpec.controlHeightDp`: 48dp touch,
+    56dp TV), and the label is centred.
+  - The four buttons of the Logs screen sat in one `Row`: about 520dp of buttons in a 480-520dp column (a 600-700dp
+    tablet or a landscape phone next to the rail). They are a `FlowRow` now (and Top / Bottom were added to it), as are the
+    two account buttons in Settings ("Sign in to Instagram" + "Sign out" did not fit a 320dp column).
+  - The screen header (`ScreenHeader`, rail layouts) had a fixed height and a title that was not given the space left
+    beside the back button; the height is a token (`headerHeightDp`: 64dp, 72dp on TV) and the title takes the rest.
+- **The rail is for medium or wider windows only (`adaptiveSpecFor`).** A compact-width window that was also under
+  480dp high (a phone in the bottom half of a split screen, 360x400dp) got the rail and 240dp of content, in which no
+  row of buttons fits. It keeps the bottom bar now. Phones in landscape (640dp and wider) and every TV are unchanged.
+- **The TV edge margin is a setting (Settings -> Interface, TV only), 0-5% of the window, default 5%.** It was a fixed
+  48x27dp; 5% of a 960x540dp screen is exactly that, so nothing moves until the user changes it. Many current TVs do not
+  overscan, and 48+48+120dp of rail and gaps were the cost of the margin on a 960dp screen: at 0% the canonical TV
+  keeps two panes with 840dp of content instead of 744dp.
+- **One navigation component, labels on every rail (`AppChrome`).** The bottom bar and the rail each had their own copy
+  of the three destinations, the colours, the glass surface and the click handling. They share `NavEntry`, `NavButton`
+  and `GlassStrip` now. The rail shows a label under each icon on every device (it did on TV only), a destination is a
+  `selectable` with the Tab role (a screen reader announces "selected"), and the rail scrolls in a very short window.
+- **The bottom bar's width cap works (`GlassBottomBar`).** `fillMaxWidth().widthIn(max = 380.dp)` is the wrong order:
+  `widthIn` only narrows what the parent allows, and after `fillMaxWidth` that is exactly the parent's width, so the cap
+  changed nothing and the bar spanned a 500dp window. Found while reading, not in the audit; confirmed in the Compose
+  source (`SizeNode`, `enforceIncoming`).
+- **The log journal is reachable without five quick taps and is one focus stop (`LogsScreen`, `SettingsScreen`).**
+  Settings has a visible Diagnostics section with an "Open the log" button (the five taps still work). Every log line
+  was a focus stop on TV (up to 300 presses to cross the list); the list is one focus target now, the D-pad or a keyboard
+  scrolls it a page at a time with Up and Down and moves on at either end, and Top / Bottom jump through it.
+- **The strategy list shows 12 candidates at a time (`StrategyPicker`).** It could draw 72-270 cards in Settings'
+  scrolling column (and as many focus stops on a TV). The best come first (pinned, passed, by score); "Show more (N left)"
+  adds 12 and hiding the list resets it.
+- **State survives a recreated activity (`MainActivity`, `SettingsScreen`, `StrategyPicker`).** The current screen, the
+  link being typed, the chosen quality, the download folder text and the strategy list's open state are
+  `rememberSaveable`. A dark-mode or language change recreates the activity (`uiMode` is left out of `configChanges` on
+  purpose: the status-bar icon colours are set once, in `onCreate`); rotation and split screen never did. The launching
+  intent is handled only on a first start, so a recreation no longer sends a shared link back to Add or a notification
+  tap back to Home over the restored screen.
+- **`playItem` takes the interface from the layout (`QueueAndLibrary`).** The "install a player" hint followed the
+  hardware even when Settings -> Interface said TV or Phone. The Add form is capped at 560dp (was 640dp).
+- **Tests (`AdaptiveLayoutTest`, 17 tests):** the compact-and-short window keeps the bottom bar, the edge margin follows
+  the setting and clamps a stale value, it changes nothing off TV, a smaller margin never loses the two panes, the
+  control and header tokens, and the sweep over every window size now also runs over every margin.
+
+### Audit claims checked and not taken as stated
+- **"State is wiped on rotation and split screen."** `MainActivity` declares `configChanges` for orientation, screen
+  size, layout, density and font scale, so those never recreate it. Only a `uiMode` or locale change and process death do;
+  that is what the `rememberSaveable` fix covers, without a ViewModel (`lifecycle-viewmodel-compose` is not a dependency).
+- **"Two buttons per row double the D-pad presses."** Focus search is two-dimensional: Down from a Test button goes to
+  the next row's Test button, and Use is one press to the right. A list of N rows costs N presses, not 2N. The long
+  list is still worth paging (cost and memory), which is what was done.
+- **"The classification ignores WindowMetrics."** `LocalConfiguration.screenWidthDp` follows the window's own size in
+  multi-window, and the thresholds are the same 600/840dp; the pure function stays unit-testable on the JVM.
+- **`@Composable fun Modifier.tvFocusable()` (the audit's sample).** A composable modifier factory is a Compose lint
+  finding and `lintDebug` is a gate (`HANDOFF.md`); `FocusRing` already does the job as a wrapper.
+
+### Declined or postponed, with the reason
+- **`material3-adaptive` and `window-core` (new dependencies).** They would compute the same two breakpoints. The
+  artifacts and their versions cannot be verified offline against this project's Compose BOM, and a wrong version has
+  broken a build here before (patch 41 decision). No foldable posture is needed.
+- **A TV-native Home (top tabs, hero, horizontal rows).** The patch 41 TV layout has never been confirmed on a TV (every
+  TV box in `ROADMAP.md` is open). Redrawing it blind would build one unconfirmed layer on another. The margin setting,
+  the rail labels, the focus fixes and the button fixes are what a real TV check needs first; the redesign waits for that
+  report.
+- **An in-app Media3 player.** A new dependency; the open decision in `ROADMAP.md` is to record whether the target box
+  has a video player at all.
+- **The TV edition of the YouTube app (`com.google.android.youtube.tv`).** Changing which app the tunnel serves is a
+  change to the tunnel's network configuration, outside a GUI patch (existing debt).
+- **`focusRestorer` / `focusGroup`.** A screen is torn down when the section changes, so there is little to restore, and
+  the signatures for the pinned Compose version were not verified.
+
+### Verification
+- The pure classification and its tests were compiled and run here (17 tests, 0 failed). The Compose files were checked
+  for balance and syntax, and every Compose API that is new to this code base was looked up in the androidx source
+  (`FlowRow` is still `@ExperimentalLayoutApi`, hence the opt-in); they could not be compiled without the Compose
+  libraries. `./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug` is the gate, and the screens need a real
+  tablet, phone and TV (`ROADMAP.md`, "Adaptive UI audit (patch 48)").
+
 ## Patch 47 — Audit of patch 46: stability, cost, DRY and compatibility fixes
 
 Requires patch 46. An audit of patch 46 for stability, security, DRY, SOLID, KISS, YAGNI and for old and new Android

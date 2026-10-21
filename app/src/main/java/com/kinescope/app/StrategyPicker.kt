@@ -13,8 +13,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -27,10 +29,18 @@ import androidx.compose.ui.unit.dp
 private data class PickerRow(val number: Int, val line: String, val result: StoredResult?)
 
 /**
+ * Patch 48: how many candidates are drawn at first and per "Show more". The list can hold 270 of them; drawing all
+ * of them put hundreds of cards (and, with a D-pad, hundreds of focus stops) inside Settings' scrolling column.
+ * The best ones (pinned, then passed, then by score) come first, so the first page is the useful one.
+ */
+private const val PICKER_PAGE_SIZE = 12
+
+/**
  * Patch 35: manual strategy choice, like the strategy list in ByeByeDPI. Every candidate is listed
  * with what the last test found (score, speed, simultaneous connections). Test runs one strategy
  * without changing the chain; Use pins it, so it goes first and automatic searches keep it there.
- * A plain Column (no lazy list) because this sits inside the settings screen's own scrolling.
+ * A plain Column (no lazy list) because this sits inside the settings screen's own scrolling; patch 48 keeps it
+ * short by showing a page of candidates at a time.
  */
 @Composable
 internal fun StrategyPicker(
@@ -40,7 +50,8 @@ internal fun StrategyPicker(
     onChanged: () -> Unit
 ) {
     val context = LocalContext.current
-    var expanded by remember { mutableStateOf(false) }
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    var shown by rememberSaveable { mutableIntStateOf(PICKER_PAGE_SIZE) }
     var version by remember { mutableStateOf(0) }
     val results = remember(version, refreshKey) { DpiResultsStore.load(context) }
     val candidates = remember(version, refreshKey) { DpiStrategyStore.candidates(context) }
@@ -61,9 +72,18 @@ internal fun StrategyPicker(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Text(stringResource(R.string.strategy_picker_title), style = MaterialTheme.typography.titleSmall)
+        Text(
+            stringResource(R.string.strategy_picker_title),
+            style = MaterialTheme.typography.titleSmall,
+            modifier = Modifier.weight(1f)
+        )
         FocusRing {
-            TextButton(onClick = { expanded = !expanded }) {
+            TextButton(
+                onClick = {
+                    expanded = !expanded
+                    if (!expanded) shown = PICKER_PAGE_SIZE
+                }
+            ) {
                 Text(stringResource(if (expanded) R.string.strategy_hide else R.string.strategy_show))
             }
         }
@@ -91,7 +111,7 @@ internal fun StrategyPicker(
     Spacer(Modifier.height(4.dp))
 
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        for (row in rows) {
+        for (row in rows.take(shown)) {
             val isPinned = row.line == pinned
             val result = row.result
             Surface(
@@ -108,7 +128,8 @@ internal fun StrategyPicker(
                     ) {
                         Text(
                             if (isPinned) "#${row.number} · " + stringResource(R.string.strategy_pinned) else "#${row.number}",
-                            style = MaterialTheme.typography.titleSmall
+                            style = MaterialTheme.typography.titleSmall,
+                            modifier = Modifier.weight(1f)
                         )
                         Row {
                             FocusRing {
@@ -152,6 +173,16 @@ internal fun StrategyPicker(
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
+                }
+            }
+        }
+        if (rows.size > shown) {
+            FocusRing(modifier = Modifier.fillMaxWidth()) {
+                TextButton(
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = { shown += PICKER_PAGE_SIZE }
+                ) {
+                    Text(stringResource(R.string.strategy_show_more, rows.size - shown))
                 }
             }
         }

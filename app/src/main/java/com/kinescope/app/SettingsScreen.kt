@@ -4,6 +4,8 @@ import android.widget.Toast
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -25,6 +27,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -36,7 +39,9 @@ import java.util.Date
 
 // Settings: defaults, storage, extractor, bypass, account sessions, interface. Patch 40: moved out of
 // MainActivity.kt unchanged. Patch 41: the Interface section, two columns on wide windows (everyday settings and
-// accounts on the left, the long bypass section on the right) and TV focus rings.
+// accounts on the left, the long bypass section on the right) and TV focus rings. Patch 48: a visible Diagnostics
+// entry (the logs no longer depend on five quick taps a remote cannot make), the TV edge margin, buttons that wrap
+// (the account buttons) instead of being squeezed, and the folder name survives a theme or language change.
 
 private fun formatTimestamp(millis: Long): String {
     if (millis == 0L) return ""
@@ -60,12 +65,16 @@ internal fun SettingsScreen(
     onOpenInstagramLogin: () -> Unit,
     requestNotifications: () -> Unit,
     interfaceMode: InterfaceMode,
-    onInterfaceModeChanged: (InterfaceMode) -> Unit
+    onInterfaceModeChanged: (InterfaceMode) -> Unit,
+    overscanPercent: Int,
+    onOverscanChanged: (Int) -> Unit,
+    onOpenLogs: () -> Unit
 ) {
     val context = LocalContext.current
     val spec = LocalAdaptive.current
     var defaultQuality by remember { mutableIntStateOf(Settings.getDefaultQualityIndex(context)) }
-    var subfolder by remember { mutableStateOf(Settings.getDownloadSubfolder(context)) }
+    // Patch 48: typed text must survive the activity being recreated (dark mode, language) and process death.
+    var subfolder by rememberSaveable { mutableStateOf(Settings.getDownloadSubfolder(context)) }
     var hasSession by remember { mutableStateOf(YouTubeAuth.hasSavedSession(context)) }
     var hasInstagramSession by remember { mutableStateOf(InstagramAuth.hasSavedSession(context)) }
 
@@ -177,7 +186,14 @@ internal fun SettingsScreen(
     }
 
     val interfaceSection: @Composable () -> Unit = {
-        InterfaceSection(mode = interfaceMode, onModeChanged = onInterfaceModeChanged)
+        InterfaceSection(
+            mode = interfaceMode,
+            onModeChanged = onInterfaceModeChanged,
+            overscanPercent = overscanPercent,
+            onOverscanChanged = onOverscanChanged
+        )
+        SettingsDivider()
+        DiagnosticsSection(onOpenLogs = onOpenLogs)
         Spacer(modifier = Modifier.height(28.dp))
         Text(
             text = stringResource(R.string.powered_by),
@@ -236,7 +252,12 @@ internal fun SettingsScreen(
 }
 
 @Composable
-private fun InterfaceSection(mode: InterfaceMode, onModeChanged: (InterfaceMode) -> Unit) {
+private fun InterfaceSection(
+    mode: InterfaceMode,
+    onModeChanged: (InterfaceMode) -> Unit,
+    overscanPercent: Int,
+    onOverscanChanged: (Int) -> Unit
+) {
     SettingsSectionHeader(stringResource(R.string.settings_interface))
     Text(
         text = stringResource(R.string.interface_hint),
@@ -268,8 +289,49 @@ private fun InterfaceSection(mode: InterfaceMode, onModeChanged: (InterfaceMode)
             }
         }
     }
+    // Patch 48: the edge margin only means something on a TV (the layout it changes is the TV layout).
+    if (LocalAdaptive.current.isTv) {
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(text = stringResource(R.string.overscan_title), style = MaterialTheme.typography.titleSmall)
+        Text(
+            text = stringResource(R.string.overscan_hint),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(modifier = Modifier.height(10.dp))
+        Row(
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            for (percent in 0..OVERSCAN_MAX_PERCENT) {
+                FocusRing(shape = MaterialTheme.shapes.small) {
+                    FilterChip(
+                        selected = percent == overscanPercent,
+                        onClick = { onOverscanChanged(percent) },
+                        label = { Text(stringResource(R.string.overscan_percent, percent)) }
+                    )
+                }
+            }
+        }
+    }
 }
 
+/** Patch 48: the technical log as an ordinary, visible Settings entry (five taps on the Settings icon still work). */
+@Composable
+private fun DiagnosticsSection(onOpenLogs: () -> Unit) {
+    SettingsSectionHeader(stringResource(R.string.settings_diagnostics))
+    Text(
+        text = stringResource(R.string.diagnostics_hint),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+    Spacer(modifier = Modifier.height(10.dp))
+    FocusRing {
+        OutlinedButton(onClick = onOpenLogs) { Text(stringResource(R.string.diagnostics_open)) }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun AccountSection(
     title: Int,
@@ -293,7 +355,12 @@ private fun AccountSection(
         color = MaterialTheme.colorScheme.onSurfaceVariant
     )
     Spacer(modifier = Modifier.height(10.dp))
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    // Patch 48: FlowRow, not Row. "Sign in to Instagram" next to "Sign out" does not fit a 320dp column (a phone,
+    // a TV pane); the second button used to be squeezed, now it drops to the next line.
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
         FocusRing {
             Button(onClick = onOpen) {
                 Text(stringResource(if (hasSession) R.string.session_refresh else signInRes))

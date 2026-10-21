@@ -47,7 +47,7 @@ internal fun QuickAddScreen(
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
         Column(
             modifier = Modifier
-                .widthIn(max = 640.dp)
+                .widthIn(max = 560.dp)
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
                 .padding(top = 12.dp)

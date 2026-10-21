@@ -26,6 +26,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -39,6 +40,7 @@ class MainActivity : ComponentActivity() {
     private val sharedUrl = mutableStateOf("")
     private val openHomeRequest = mutableLongStateOf(0L)
     private val interfaceMode = mutableStateOf(InterfaceMode.AUTO)
+    private val overscanPercent = mutableIntStateOf(DEFAULT_OVERSCAN_PERCENT)
 
     private val notificationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) {
@@ -52,19 +54,25 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         interfaceMode.value = Settings.getInterfaceMode(this)
-        handleIncomingIntent(intent)
+        overscanPercent.intValue = Settings.getOverscanPercent(this)
+        // Patch 48: the launching intent stays on the activity, so every recreation (dark mode, language) used to
+        // handle it again: a shared link jumped back to Add and a notification tap back to Home, over whatever
+        // the restored state said. Only a first start (no saved state) handles it; onNewIntent handles later ones.
+        if (savedInstanceState == null) handleIncomingIntent(intent)
 
         // Patch 41: AdaptiveRoot classifies the window (phone, tablet, TV) for every screen and must sit
         // above the theme, which scales text on a TV.
         setContent {
-            AdaptiveRoot(mode = interfaceMode.value) {
+            AdaptiveRoot(mode = interfaceMode.value, overscanPercent = overscanPercent.intValue) {
                 YtOfflineTheme {
                     KinescopeApp(
                         prefillUrl = sharedUrl.value,
                         openHomeRequest = openHomeRequest.longValue,
                         requestNotifications = ::requestNotificationsIfNeeded,
                         interfaceMode = interfaceMode.value,
-                        onInterfaceModeChanged = ::changeInterfaceMode
+                        onInterfaceModeChanged = ::changeInterfaceMode,
+                        overscanPercent = overscanPercent.intValue,
+                        onOverscanChanged = ::changeOverscan
                     )
                 }
             }
@@ -83,6 +91,11 @@ class MainActivity : ComponentActivity() {
     private fun changeInterfaceMode(mode: InterfaceMode) {
         Settings.setInterfaceMode(this, mode)
         interfaceMode.value = mode
+    }
+
+    private fun changeOverscan(percent: Int) {
+        Settings.setOverscanPercent(this, percent)
+        overscanPercent.intValue = Settings.getOverscanPercent(this)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -131,9 +144,12 @@ private fun KinescopeApp(
     openHomeRequest: Long,
     requestNotifications: () -> Unit,
     interfaceMode: InterfaceMode,
-    onInterfaceModeChanged: (InterfaceMode) -> Unit
+    onInterfaceModeChanged: (InterfaceMode) -> Unit,
+    overscanPercent: Int,
+    onOverscanChanged: (Int) -> Unit
 ) {
     val context = LocalContext.current
+    val tv = LocalAdaptive.current.isTv
     val jobs by DownloadQueueBus.jobs.collectAsState()
     val completionVersion by DownloadQueueBus.completionVersion.collectAsState()
     val scope = rememberCoroutineScope()
@@ -141,10 +157,13 @@ private fun KinescopeApp(
     val searchState by DpiSearchController.state.collectAsState()
     var showStrategyRefreshNotice by remember { mutableStateOf(false) }
 
-    var section by remember { mutableStateOf(AppSection.HOME) }
-    var url by remember { mutableStateOf("") }
+    // Patch 48: where the user is, the link being typed and the chosen quality survive the activity being recreated
+    // (a dark-mode or language change recreates it: MainActivity's configChanges leaves uiMode out on purpose, so
+    // the status-bar icons are redrawn) and process death. Rotation and split screen never recreate it.
+    var section by rememberSaveable { mutableStateOf(AppSection.HOME) }
+    var url by rememberSaveable { mutableStateOf("") }
     var urlError by remember { mutableStateOf<String?>(null) }
-    var selectedQuality by remember { mutableIntStateOf(Settings.getDefaultQualityIndex(context)) }
+    var selectedQuality by rememberSaveable { mutableIntStateOf(Settings.getDefaultQualityIndex(context)) }
     var library by remember { mutableStateOf<List<LibraryItem>>(emptyList()) }
     var updateStatus by remember { mutableStateOf("") }
     var isUpdating by remember { mutableStateOf(false) }
@@ -344,7 +363,7 @@ private fun KinescopeApp(
                     onOpenBypass = { openByeDpiYouTube() },
                     requestNotifications = requestNotifications,
                     onRefreshLibrary = { refreshLibrary() },
-                    onPlay = { playItem(context, it) },
+                    onPlay = { playItem(context, it, tv) },
                     onShare = { shareItem(context, it) },
                     onDelete = { item ->
                         scope.launch {
@@ -399,7 +418,10 @@ private fun KinescopeApp(
                     onOpenInstagramLogin = { section = AppSection.INSTAGRAM_AUTH },
                     requestNotifications = requestNotifications,
                     interfaceMode = interfaceMode,
-                    onInterfaceModeChanged = onInterfaceModeChanged
+                    onInterfaceModeChanged = onInterfaceModeChanged,
+                    overscanPercent = overscanPercent,
+                    onOverscanChanged = onOverscanChanged,
+                    onOpenLogs = { section = AppSection.LOGS }
                 )
                 AppSection.LOGS -> LogsScreen()
                 AppSection.YOUTUBE_AUTH -> WebSessionLoginScreen(

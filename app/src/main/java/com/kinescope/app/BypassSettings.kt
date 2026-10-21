@@ -153,7 +153,13 @@ fun BypassSettingsSection(requestNotifications: () -> Unit = {}) {
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text(stringResource(R.string.bypass_youtube_active), style = MaterialTheme.typography.labelLarge)
+                    // Patch 49: the text takes what the Stop button leaves and wraps; unweighted it took the whole row
+                    // and squeezed the button (the Russian label is about 190dp, Stop another 100dp, in a 290dp card).
+                    Text(
+                        stringResource(R.string.bypass_youtube_active),
+                        style = MaterialTheme.typography.labelLarge,
+                        modifier = Modifier.weight(1f)
+                    )
                     FocusRing {
                         TextButton(onClick = { BypassVpnService.stop(context) }) { Text(stringResource(R.string.stop)) }
                     }

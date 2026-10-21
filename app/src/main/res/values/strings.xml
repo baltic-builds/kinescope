@@ -268,4 +268,14 @@
     <string name="dash_check_progress">Checked %1$d of %2$d</string>
     <string name="dash_recheck">Re-checking in the background · %1$d of %2$d</string>
     <string name="dash_wait_download_check">Finish the current download before checking the ways.</string>
+    <!-- Patch 48: adaptive UI audit -->
+    <string name="logs_jump_top">Top</string>
+    <string name="logs_jump_bottom">Bottom</string>
+    <string name="strategy_show_more">Show more (%1$d left)</string>
+    <string name="settings_diagnostics">Diagnostics</string>
+    <string name="diagnostics_hint">The technical log helps to find the cause when something does not work.</string>
+    <string name="diagnostics_open">Open the log</string>
+    <string name="overscan_title">Screen edge margin</string>
+    <string name="overscan_hint">Raise it if the TV cuts off the edges of the picture; lower it to use the whole screen.</string>
+    <string name="overscan_percent">%1$d%%</string>
 </resources>

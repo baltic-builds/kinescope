@@ -153,7 +153,12 @@ internal fun HomeScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(text = stringResource(R.string.library_title), style = MaterialTheme.typography.titleMedium)
+                // Patch 49: weighted, so a large font size wraps the title instead of squeezing Refresh.
+                Text(
+                    text = stringResource(R.string.library_title),
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f)
+                )
                 FocusRing {
                     TextButton(onClick = onRefreshLibrary) { Text(stringResource(R.string.refresh)) }
                 }

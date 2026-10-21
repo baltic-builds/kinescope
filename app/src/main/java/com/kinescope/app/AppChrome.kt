@@ -2,7 +2,6 @@ package com.kinescope.app
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -15,7 +14,7 @@ import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
@@ -24,7 +23,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
@@ -47,9 +49,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -57,6 +62,8 @@ import androidx.compose.ui.unit.dp
 // The app shell pieces around the screens: the frame (top bar plus bottom bar, or header plus navigation rail),
 // the responsive content column, the navigation and the strategy-refresh notice. Patch 40: moved out of
 // MainActivity.kt unchanged. Patch 41: the frame and the rail are new; the rest adapts to LocalAdaptive.
+// Patch 48: the bottom bar and the rail are one component (`NavEntry` + `NavButton` + `GlassStrip`) instead of two
+// copies, the rail carries labels on every device, the bottom bar's width cap works, the header height is a token.
 
 /**
  * Places screen content inside the frame's insets.
@@ -188,7 +195,7 @@ private fun ScreenHeader(title: String, showBack: Boolean, onBack: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(if (spec.isTv) 72.dp else 64.dp),
+            .heightIn(min = spec.headerHeightDp.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (showBack) {
@@ -203,7 +210,8 @@ private fun ScreenHeader(title: String, showBack: Boolean, onBack: () -> Unit) {
             text = title,
             style = MaterialTheme.typography.headlineSmall,
             maxLines = 1,
-            overflow = TextOverflow.Ellipsis
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
         )
     }
 }
@@ -245,10 +253,121 @@ internal fun StrategyRefreshNoticeDialog(progress: SearchProgress?, onDismiss: (
     )
 }
 
+/** One destination of the navigation: how it looks, whether it is the current one and what a tap does. */
+private data class NavEntry(
+    val selected: Boolean,
+    val primary: Boolean,
+    val icon: ImageVector,
+    val labelRes: Int,
+    val descriptionRes: Int,
+    val onClick: () -> Unit
+)
+
+/** Home, Add (the accent button) and Settings; Logs counts as Settings. The only list of destinations. */
+private fun navEntries(
+    section: AppSection,
+    onHome: () -> Unit,
+    onQuickAdd: () -> Unit,
+    onSettings: () -> Unit
+): List<NavEntry> = listOf(
+    NavEntry(
+        selected = section == AppSection.HOME,
+        primary = false,
+        icon = Icons.Default.Home,
+        labelRes = R.string.nav_home,
+        descriptionRes = R.string.cd_home,
+        onClick = onHome
+    ),
+    NavEntry(
+        selected = section == AppSection.QUICK_ADD,
+        primary = true,
+        icon = Icons.Default.Add,
+        labelRes = R.string.nav_add,
+        descriptionRes = R.string.cd_quick_add,
+        onClick = onQuickAdd
+    ),
+    NavEntry(
+        selected = section == AppSection.SETTINGS || section == AppSection.LOGS,
+        primary = false,
+        icon = Icons.Default.Settings,
+        labelRes = R.string.nav_settings,
+        descriptionRes = R.string.cd_settings,
+        onClick = onSettings
+    )
+)
+
+/** The floating glass surface both navigation layouts stand on (border, shape, tint and elevation in one place). */
+@Composable
+private fun GlassStrip(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    Surface(
+        modifier = modifier.border(
+            width = 1.dp,
+            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.36f),
+            shape = MaterialTheme.shapes.extraLarge
+        ),
+        shape = MaterialTheme.shapes.extraLarge,
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
+        tonalElevation = 3.dp,
+        shadowElevation = 5.dp,
+        content = content
+    )
+}
+
+/**
+ * One navigation button: a round 56dp touch target (64dp on TV) with the icon, and under it, in the rail, a
+ * label. The circle is the control (it carries the name, the selected state and the focus ring); the label is
+ * drawn only, so a screen reader reads each destination once. A remote has no long-press hint, so the rail
+ * shows the label everywhere, not only on TV.
+ */
+@Composable
+private fun NavButton(entry: NavEntry, showLabel: Boolean) {
+    val spec = LocalAdaptive.current
+    val colors = MaterialTheme.colorScheme
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        FocusRing {
+            Box(
+                modifier = Modifier
+                    .size(if (spec.isTv) 64.dp else 56.dp)
+                    .then(if (entry.primary) Modifier.shadow(3.dp, CircleShape) else Modifier)
+                    .clip(CircleShape)
+                    .background(
+                        when {
+                            entry.primary -> colors.primary.copy(alpha = 0.96f)
+                            entry.selected -> colors.primaryContainer.copy(alpha = 0.78f)
+                            else -> Color.Transparent
+                        }
+                    )
+                    .selectable(selected = entry.selected, role = Role.Tab, onClick = entry.onClick),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = entry.icon,
+                    contentDescription = stringResource(entry.descriptionRes),
+                    tint = if (entry.primary) colors.onPrimary else colors.onSurface,
+                    modifier = Modifier.size(if (spec.isTv) 28.dp else 24.dp)
+                )
+            }
+        }
+        if (showLabel) {
+            Text(
+                text = stringResource(entry.labelRes),
+                style = MaterialTheme.typography.labelMedium,
+                color = if (entry.selected) colors.onSurface else colors.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .padding(horizontal = 4.dp)
+                    .clearAndSetSemantics { }
+            )
+        }
+    }
+}
+
 /**
  * Patch 41: the bottom bar's counterpart for wide windows: the same floating glass strip, standing on the
- * left edge. Touch layouts keep it icon-only like the bottom bar; on TV every item has a label, because a
- * remote control has no long-press hint and the icons alone are not enough from across the room.
+ * left edge. Patch 48: every rail item has a label (before, only on TV); the column scrolls if a very short
+ * window cannot show all three.
  */
 @Composable
 internal fun GlassNavRail(
@@ -264,99 +383,17 @@ internal fun GlassNavRail(
             .fillMaxHeight(),
         contentAlignment = Alignment.Center
     ) {
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .border(
-                    width = 1.dp,
-                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.36f),
-                    shape = MaterialTheme.shapes.extraLarge
-                ),
-            shape = MaterialTheme.shapes.extraLarge,
-            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
-            tonalElevation = 3.dp,
-            shadowElevation = 5.dp
-        ) {
+        GlassStrip(modifier = Modifier.fillMaxWidth()) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
                     .padding(vertical = 14.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(if (spec.isTv) 14.dp else 10.dp)
             ) {
-                RailItem(
-                    selected = section == AppSection.HOME,
-                    primary = false,
-                    icon = Icons.Default.Home,
-                    labelRes = R.string.nav_home,
-                    descriptionRes = R.string.cd_home,
-                    onClick = onHome
-                )
-                RailItem(
-                    selected = section == AppSection.QUICK_ADD,
-                    primary = true,
-                    icon = Icons.Default.Add,
-                    labelRes = R.string.nav_add,
-                    descriptionRes = R.string.cd_quick_add,
-                    onClick = onQuickAdd
-                )
-                RailItem(
-                    selected = section == AppSection.SETTINGS || section == AppSection.LOGS,
-                    primary = false,
-                    icon = Icons.Default.Settings,
-                    labelRes = R.string.nav_settings,
-                    descriptionRes = R.string.cd_settings,
-                    onClick = onSettings
-                )
+                navEntries(section, onHome, onQuickAdd, onSettings).forEach { NavButton(it, showLabel = true) }
             }
-        }
-    }
-}
-
-@Composable
-private fun RailItem(
-    selected: Boolean,
-    primary: Boolean,
-    icon: ImageVector,
-    labelRes: Int,
-    descriptionRes: Int,
-    onClick: () -> Unit
-) {
-    val spec = LocalAdaptive.current
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        FocusRing {
-            Box(
-                modifier = Modifier
-                    .size(if (spec.isTv) 64.dp else 56.dp)
-                    .clip(CircleShape)
-                    .background(
-                        when {
-                            primary -> MaterialTheme.colorScheme.primary.copy(alpha = 0.96f)
-                            selected -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.78f)
-                            else -> Color.Transparent
-                        }
-                    )
-                    .clickable(onClick = onClick),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = stringResource(descriptionRes),
-                    tint = if (primary) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.size(if (spec.isTv) 28.dp else 24.dp)
-                )
-            }
-        }
-        if (spec.isTv) {
-            Text(
-                text = stringResource(labelRes),
-                style = MaterialTheme.typography.labelLarge,
-                color = if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(horizontal = 4.dp)
-            )
         }
     }
 }
@@ -384,21 +421,10 @@ internal fun GlassBottomBar(
             contentAlignment = Alignment.Center
         ) {
             // Patch 36: all three actions share the same 56dp touch target and are distributed
-            // symmetrically. The bar stays compact on phones and caps its width on larger screens.
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .widthIn(min = 280.dp, max = 380.dp)
-                    .border(
-                        width = 1.dp,
-                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.36f),
-                        shape = MaterialTheme.shapes.extraLarge
-                    ),
-                shape = MaterialTheme.shapes.extraLarge,
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
-                tonalElevation = 3.dp,
-                shadowElevation = 5.dp
-            ) {
+            // symmetrically; the bar stays compact and caps its width. Patch 48: the cap comes BEFORE
+            // fillMaxWidth. `widthIn` only narrows what the parent allows, so after `fillMaxWidth` (which makes
+            // the width exactly the parent's) it changed nothing and the bar spanned a 500dp window.
+            GlassStrip(modifier = Modifier.widthIn(min = 280.dp, max = 380.dp).fillMaxWidth()) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -406,56 +432,9 @@ internal fun GlassBottomBar(
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    GlassNavIcon(selected = section == AppSection.HOME, onClick = onHome) {
-                        Icon(Icons.Default.Home, contentDescription = stringResource(R.string.cd_home))
-                    }
-                    Surface(
-                        modifier = Modifier.size(56.dp).clickable(onClick = onQuickAdd),
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.96f),
-                        tonalElevation = 2.dp,
-                        shadowElevation = 3.dp
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                Icons.Default.Add,
-                                contentDescription = stringResource(R.string.cd_quick_add),
-                                tint = MaterialTheme.colorScheme.onPrimary,
-                                modifier = Modifier.size(26.dp)
-                            )
-                        }
-                    }
-                    GlassNavIcon(
-                        selected = section == AppSection.SETTINGS || section == AppSection.LOGS,
-                        onClick = onSettings
-                    ) {
-                        Icon(Icons.Default.Settings, contentDescription = stringResource(R.string.cd_settings))
-                    }
+                    navEntries(section, onHome, onQuickAdd, onSettings).forEach { NavButton(it, showLabel = false) }
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun GlassNavIcon(
-    selected: Boolean,
-    onClick: () -> Unit,
-    icon: @Composable () -> Unit
-) {
-    Box(
-        modifier = Modifier
-            .size(56.dp)
-            .clip(CircleShape)
-            .background(
-                if (selected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.78f)
-                else Color.Transparent
-            )
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center
-    ) {
-        Box(modifier = Modifier.size(24.dp), contentAlignment = Alignment.Center) {
-            icon()
         }
     }
 }

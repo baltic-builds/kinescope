@@ -29,6 +29,11 @@ import androidx.compose.ui.unit.dp
 // result from `LocalAdaptive` instead of measuring things itself. Breakpoints are Material 3's window size
 // classes (compact < 600dp, medium < 840dp, expanded from 840dp); they are computed from the window's own
 // dp size, so split screen, freeform windows and folding screens follow the window, not the display.
+//
+// Patch 48 (audit of the tablet/TV UI): the rail now needs a medium-or-wider window (a narrow window that is also
+// short keeps the bottom bar: a 240dp-wide rail layout left no room for a button), the TV overscan margin is a
+// setting (0-5% of the window instead of a fixed 48x27dp) and the control and header heights are tokens that
+// follow the interface (touch 48/64dp, TV 56/72dp), so a fixed height no longer clips a label that wraps.
 
 /**
  * Which interface Kinescope draws. [AUTO] decides from the device; [TV] and [TOUCH] are the user's override
@@ -49,10 +54,13 @@ internal enum class InterfaceMode(val persistedValue: String) {
  * The result of classifying a window. Every size is a plain `Int` in dp so the rules can be unit-tested on the
  * JVM without any Compose type.
  *
- * - [useRail]: a navigation rail on the left instead of the floating bottom bar (medium and expanded windows,
- *   short landscape windows and every TV).
+ * - [useRail]: a navigation rail on the left instead of the floating bottom bar (medium and expanded windows and
+ *   every TV; never a compact-width window, however short).
  * - [twoPane]: Home and Settings show two lists side by side.
- * - [safeHorizontalDp] / [safeVerticalDp]: TV overscan margins (5% of a 960x540dp screen).
+ * - [safeHorizontalDp] / [safeVerticalDp]: TV overscan margins, the chosen percentage of the window (5% of a
+ *   960x540dp screen is 48x27dp).
+ * - [controlHeightDp] / [headerHeightDp]: the minimum height of a button the layout sizes itself and of the
+ *   screen header. They are minimums: a label that wraps makes the control taller instead of being clipped.
  */
 internal data class AdaptiveSpec(
     val isTv: Boolean,
@@ -66,25 +74,41 @@ internal data class AdaptiveSpec(
     val railWidthDp: Int,
     val railGapDp: Int,
     val paneGapDp: Int,
-    val typographyScale: Float
+    val typographyScale: Float,
+    val controlHeightDp: Int,
+    val headerHeightDp: Int
 )
 
 private const val MEDIUM_MIN_WIDTH_DP = 600
 private const val EXPANDED_MIN_WIDTH_DP = 840
-private const val SHORT_HEIGHT_DP = 480
 private const val TWO_PANE_MIN_CONTENT_DP = 700
-private const val TV_SAFE_HORIZONTAL_DP = 48
-private const val TV_SAFE_VERTICAL_DP = 27
 private const val TV_TYPOGRAPHY_SCALE = 1.15f
+private const val TOUCH_CONTROL_HEIGHT_DP = 48
+private const val TV_CONTROL_HEIGHT_DP = 56
+private const val TOUCH_HEADER_HEIGHT_DP = 64
+private const val TV_HEADER_HEIGHT_DP = 72
+
+/** Settings -> Interface offers 0..5% of the window as the TV edge margin; 5% is what the layout always used. */
+internal const val OVERSCAN_MAX_PERCENT = 5
+internal const val DEFAULT_OVERSCAN_PERCENT = 5
+
+/** A margin of [percent] of [sizeDp], rounded to whole dp (5% of 960 is 48, of 540 is 27). */
+private fun marginDp(sizeDp: Int, percent: Int): Int = (sizeDp * percent + 50) / 100
 
 /**
  * Classifies a window of [widthDp] x [heightDp]. A phone in portrait keeps exactly the layout it had before
- * patch 41 (bottom bar, 20dp margins, 640dp cap); everything else gets the rail.
+ * patch 41 (bottom bar, 20dp margins, 640dp cap); every medium or wider window and every TV gets the rail.
+ * [overscanPercent] is the TV edge margin (0..[OVERSCAN_MAX_PERCENT]); it changes nothing off TV.
  */
-internal fun adaptiveSpecFor(widthDp: Int, heightDp: Int, tv: Boolean): AdaptiveSpec {
+internal fun adaptiveSpecFor(
+    widthDp: Int,
+    heightDp: Int,
+    tv: Boolean,
+    overscanPercent: Int = DEFAULT_OVERSCAN_PERCENT
+): AdaptiveSpec {
     val medium = widthDp >= MEDIUM_MIN_WIDTH_DP
     val expanded = widthDp >= EXPANDED_MIN_WIDTH_DP
-    val useRail = tv || medium || heightDp < SHORT_HEIGHT_DP
+    val useRail = tv || medium
     if (!useRail) {
         return AdaptiveSpec(
             isTv = false,
@@ -98,10 +122,14 @@ internal fun adaptiveSpecFor(widthDp: Int, heightDp: Int, tv: Boolean): Adaptive
             railWidthDp = 0,
             railGapDp = 0,
             paneGapDp = 0,
-            typographyScale = 1f
+            typographyScale = 1f,
+            controlHeightDp = TOUCH_CONTROL_HEIGHT_DP,
+            headerHeightDp = TOUCH_HEADER_HEIGHT_DP
         )
     }
-    val safeHorizontal = if (tv) TV_SAFE_HORIZONTAL_DP else 0
+    val overscan = overscanPercent.coerceIn(0, OVERSCAN_MAX_PERCENT)
+    val safeHorizontal = if (tv) marginDp(widthDp, overscan) else 0
+    val safeVertical = if (tv) marginDp(heightDp, overscan) else 0
     val railWidth = if (tv) 96 else 80
     val railGap = if (tv) 24 else 16
     val endPadding = when {
@@ -123,11 +151,13 @@ internal fun adaptiveSpecFor(widthDp: Int, heightDp: Int, tv: Boolean): Adaptive
         contentStartPaddingDp = 0,
         contentEndPaddingDp = endPadding,
         safeHorizontalDp = safeHorizontal,
-        safeVerticalDp = if (tv) TV_SAFE_VERTICAL_DP else 0,
+        safeVerticalDp = safeVertical,
         railWidthDp = railWidth,
         railGapDp = railGap,
         paneGapDp = if (tv) 32 else 24,
-        typographyScale = if (tv) TV_TYPOGRAPHY_SCALE else 1f
+        typographyScale = if (tv) TV_TYPOGRAPHY_SCALE else 1f,
+        controlHeightDp = if (tv) TV_CONTROL_HEIGHT_DP else TOUCH_CONTROL_HEIGHT_DP,
+        headerHeightDp = if (tv) TV_HEADER_HEIGHT_DP else TOUCH_HEADER_HEIGHT_DP
     )
 }
 
@@ -139,29 +169,42 @@ internal fun resolveTelevision(mode: InterfaceMode, autoDetected: Boolean): Bool
 }
 
 /**
+ * The rule behind [isTelevisionDevice], on plain booleans so it can be tested. A device that reports the TV UI mode
+ * or the leanback feature is a TV. One that declares no touch screen is taken for a set-top box, except a PC-type
+ * device (a Chromebook or a desktop-mode tablet without touch has a keyboard and a pointer, not a remote).
+ */
+internal fun looksLikeTelevision(tvUiMode: Boolean, leanback: Boolean, touchscreen: Boolean, pc: Boolean): Boolean =
+    tvUiMode || leanback || (!touchscreen && !pc)
+
+/**
  * True on Android TV / Google TV (the TV UI mode or the leanback feature) and on set-top boxes that declare no
  * touch screen at all. A box that declares neither is handled by the Settings override.
  */
 internal fun isTelevisionDevice(context: Context): Boolean {
     val uiModeType = context.resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK
     val packageManager = context.packageManager
-    return uiModeType == Configuration.UI_MODE_TYPE_TELEVISION ||
-        packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK) ||
-        !packageManager.hasSystemFeature(PackageManager.FEATURE_TOUCHSCREEN)
+    return looksLikeTelevision(
+        tvUiMode = uiModeType == Configuration.UI_MODE_TYPE_TELEVISION,
+        leanback = packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK),
+        touchscreen = packageManager.hasSystemFeature(PackageManager.FEATURE_TOUCHSCREEN),
+        pc = packageManager.hasSystemFeature(PackageManager.FEATURE_PC)
+    )
 }
 
 internal val LocalAdaptive = staticCompositionLocalOf { adaptiveSpecFor(widthDp = 360, heightDp = 800, tv = false) }
 
 /** Provides [LocalAdaptive] for the current window; it must sit above the theme (the theme scales text on TV). */
 @Composable
-internal fun AdaptiveRoot(mode: InterfaceMode, content: @Composable () -> Unit) {
+internal fun AdaptiveRoot(mode: InterfaceMode, overscanPercent: Int, content: @Composable () -> Unit) {
     val context = LocalContext.current
     val configuration = LocalConfiguration.current
     val detected = remember(context) { isTelevisionDevice(context) }
     val tv = resolveTelevision(mode, detected)
     val widthDp = configuration.screenWidthDp
     val heightDp = configuration.screenHeightDp
-    val spec = remember(widthDp, heightDp, tv) { adaptiveSpecFor(widthDp, heightDp, tv) }
+    val spec = remember(widthDp, heightDp, tv, overscanPercent) {
+        adaptiveSpecFor(widthDp, heightDp, tv, overscanPercent)
+    }
     CompositionLocalProvider(LocalAdaptive provides spec) { content() }
 }
 

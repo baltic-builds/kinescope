@@ -4,7 +4,7 @@ The current state of Kinescope for anyone (human or AI agent) resuming work. It 
 appended to: per-patch history lives in `CHANGELOG.md`, open work in `ROADMAP.md`, process rules in `AGENTS.md`,
 product constraints in `CLAUDE.md`. Where this file and the code disagree, the code wins; fix this file.
 
-State as of patch 47 (2026-10-17).
+State as of patch 49 (2026-10-21).
 
 ## What Kinescope is
 
@@ -23,8 +23,9 @@ the bypass); the compact log and Copy report; Instagram Reels download and play 
 **Implemented but not yet confirmed on a device:** patch 36 UX/lifecycle changes, the Instagram sign-in,
 `/share/` resolution and error texts (patches 37-38), patch 39 (the strategy-search hold fix, the shared
 sign-in screen, the cleanup), the file split of patch 40, and the tablet and TV layouts of patch 41 (audited and
-hardened in patch 42), the build and packaging changes of patch 43, the tunnel traffic check of patch 44, the Home bypass dashboard of patch 45, and the learned strategies with the
-25-day upkeep of patch 46. The exact
+hardened in patch 42), the build and packaging changes of patch 43, the tunnel traffic check of patch 44, the Home bypass dashboard of patch 45, the learned strategies with the
+25-day upkeep of patch 46, the first implementation of the outside tablet/TV UI audit (patch 48), and the overflow
+sweep with the TV-detection fix of patch 49. The exact
 checklist is `ROADMAP.md`; do not tick a box without the user's report.
 **CI:** the release workflow was red at patch 42 (`AdaptiveLayoutTest` still referenced the removed
 `WidthClass`). Patch 43 fixes it, pins the NDK/CMake, and restructures the workflow (validate, tests + lint,
@@ -74,14 +75,18 @@ not yet being 16 KB page-size compatible (upstream).
 - **Diagnostics.** `AppLog` is a rotating private journal: one line, `key=value` tokens, under 220 characters, no
   URLs, no cookies; `DiagnosticSanitizer` redacts URLs, YouTube and Instagram cookie values and private paths;
   `DiagnosticReport` adds the header for Settings -> Copy report. Backup is disabled.
-- **UI.** Home (bypass dashboard, queue + library), Add, Settings, Logs (five taps on the Settings icon), sign-in
-  screens. English default, Russian in `values-ru`; every string exists in both.
+- **UI.** Home (bypass dashboard, queue + library), Add, Settings, Logs (Settings -> Diagnostics; five taps on the
+  Settings icon still open it), sign-in screens. English default, Russian in `values-ru`; every string exists in both.
 - **Adaptive layout (patch 41).** One APK for phones, tablets and Android TV. `AdaptiveRoot` classifies the window
   (`adaptiveSpecFor`, Material breakpoints 600/840dp) and provides `LocalAdaptive`; screens read it. Phone in
-  portrait: bottom bar, one column. Medium/expanded or short windows: a navigation rail and, when 700dp of content
-  fits, two panes (Home: queue | library; Settings: general | bypass). TV (device report or Settings -> Interface
-  override): rail with labels, 48dp x 27dp overscan margins, text x1.15, a `FocusRing` around every control, no
-  touch-only gestures. A new composable that can be focused must be wrapped in `FocusRing`; layout decisions go
+  portrait: bottom bar, one column. Medium/expanded windows (patch 48: never a compact-width one, however short): a
+  navigation rail with labels and, when 700dp of content fits, two panes (Home: queue | library; Settings: general |
+  bypass). TV (device report or Settings -> Interface override): rail with labels, an edge margin of 0-5% of the
+  window (a setting, default 5% = 48dp x 27dp on 960x540dp), text x1.15, a `FocusRing` around every control, no
+  touch-only gestures. Heights of the controls the layout sizes itself are tokens (`controlHeightDp`, `headerHeightDp`)
+  used as MINIMUMS: never give a button with text a fixed `height`, and put a group of buttons in a `FlowRow`, not a
+  `Row`. The bottom bar and the rail are one component (`NavEntry`, `NavButton`, `GlassStrip` in `AppChrome.kt`). Automatic TV detection is the pure `looksLikeTelevision` (TV UI
+  mode, leanback, or no touch screen unless the device is PC-type, patch 49). A new composable that can be focused must be wrapped in `FocusRing`; layout decisions go
   through `AdaptiveSpec`, not through ad-hoc `if (isTv)` checks. `AppFrame` is ONE structure for every layout
   (a Scaffold with empty bars in the rail layout, a Row, a Column, a single call of the screen content): a
   second branch around the content would rebuild every screen when a phone is rotated.
@@ -106,6 +111,11 @@ not yet being 16 KB page-size compatible (upstream).
   also waits for an unmetered network (`NetworkState.isMetered`) and for a successful foreground start of the
   search service; `DpiPrefs` makes the chain, quarantine and record changes take turns with one lock; the chain
   size is `ChainPlanner.MAX_CHAIN`.
+
+- **Recreation (patch 48).** `MainActivity` keeps `uiMode` out of `configChanges` on purpose (the system-bar icon colours
+  are set once in `onCreate`), so a dark-mode or language change recreates the activity. The current screen, the typed
+  link, the quality, the folder text and the strategy list's open state are `rememberSaveable`; the launching intent is
+  handled only when `savedInstanceState == null`. State that should survive that goes in `rememberSaveable`, not `remember`.
 
 ## File map
 
@@ -196,6 +206,13 @@ parser/search/ranking/store, the network probe, the privacy redaction, the windo
   chosen format ids, `r` route (`s2/4` = strategy 2 of 4), `chk` live check, `hb` heartbeat, `end` run summary,
   `rotate` tunnel strategy switch. Patch 46 adds `tun proven`, the header tokens `learned=` and `search_age=`, and
   `#learn` lines (place in the chain, ok/bad weights, score).
+
+- Patch 48, read from the androidx source (main): `FlowRow` is still `@ExperimentalLayoutApi` (opt in with
+  `@OptIn(ExperimentalLayoutApi::class)`); `widthIn` uses `enforceIncoming`, so it must come BEFORE `fillMaxWidth`
+  (after it the cap changes nothing); `Modifier.selectable(selected, enabled, role, onClick)`, `animateScrollBy`,
+  `LazyListState.canScrollForward` / `canScrollBackward`, `layoutInfo.viewportSize`, `Key.DirectionDown`,
+  `KeyEvent.key` / `.type` and `Modifier.onKeyEvent` exist with the shapes used. Put `onKeyEvent` BEFORE `focusable()`
+  in the chain so it sees the keys of the focused node below it.
 
 ## How to read the next report
 

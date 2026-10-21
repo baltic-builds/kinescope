@@ -12,7 +12,8 @@ import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -82,6 +83,7 @@ internal val InstagramSessionSite = WebSessionSite(
     capture = { context, _ -> InstagramAuth.captureCurrentSession(context).looksSignedIn }
 )
 
+@OptIn(ExperimentalLayoutApi::class)
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 internal fun WebSessionLoginScreen(site: WebSessionSite, onBack: () -> Unit, onSaved: () -> Unit) {
@@ -120,7 +122,12 @@ internal fun WebSessionLoginScreen(site: WebSessionSite, onBack: () -> Unit, onS
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Spacer(modifier = Modifier.height(8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        // Patch 49: FlowRow, not Row. "Use this session" + "Cancel" is about 316dp of buttons in Russian, more than
+        // a 320dp phone column leaves at a large font size; Cancel used to be squeezed, now it drops to a second line.
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
             FocusRing {
                 Button(onClick = {
                     val signedIn = site.capture(context, webViewRef)
