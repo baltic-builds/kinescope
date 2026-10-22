@@ -21,6 +21,8 @@
         <package android:name="com.google.android.youtube" />
     </queries>
 
+    <!-- Patch 50: an explicit theme. Without one the platform picks Theme.DeviceDefault.Light.DarkActionBar, whose
+         dark native action bar (the app name on a black strip) was drawn above the Compose screens. -->
     <application
         android:name=".YtOfflineApp"
         android:allowBackup="false"
@@ -28,7 +30,8 @@
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
-        android:supportsRtl="true">
+        android:supportsRtl="true"
+        android:theme="@style/Theme.Kinescope">
 
         <activity
             android:name=".MainActivity"

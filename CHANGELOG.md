@@ -13,6 +13,50 @@ patch's own `.py` script for the exact, idempotent, exact-match-guarded
 edits it makes.
 
 
+## Patch 50 — The app gets its own window theme: no more black bar with the app name
+
+Requires patch 49. Reported on a Redmi Pad (Android 13): a huge black strip labelled "Kinescope" across the top of the
+screen covers the interface. Requested: remove it, and check the whole tablet and TV interface.
+
+### Cause
+`AndroidManifest.xml` set no theme, and the app had no `styles.xml` or `themes.xml`. An app without a theme gets the
+platform default for its target SDK, `Theme.DeviceDefault.Light.DarkActionBar` (the framework describes it as a light
+theme with "a solid (opaque) action bar with an inverse color profile"). `MainActivity` is a plain `ComponentActivity`,
+not an `AppCompatActivity`, so the platform draws that native action bar itself, with the activity label, "Kinescope",
+above the Compose content. Nothing in the Compose code can draw a black bar with the app name: the compact top bar and
+the rail header use the theme background (cream or dark brown), and the rail layout has no top bar at all.
+The theme is app-wide, so nothing in it is specific to a tablet; whether the phone showed the same bar is one of the
+device checks below. This is established from the code and the platform's rules; it has not been seen on a screen.
+
+### Changed
+- **`res/values/themes.xml`: `Theme.Kinescope`.** Parent `android:Theme.DeviceDefault.Light.NoActionBar`, i.e. the former
+  default without the bar, so the native pieces (keyboard toolbar, sign-in WebView, toasts, dark-mode handling of
+  widgets) look as they did. `android:windowBackground` and `android:colorBackground` are the colour below.
+- **`res/values/colors.xml`, `res/values-night/colors.xml`: `kinescope_window_background`** (`#FAF9F5` / `#1B1A17`),
+  equal to `background` of `LightColors` / `DarkColors` in `Theme.kt`. The window behind the Compose content is now the
+  app's colour instead of the platform's white while a frame is not drawn yet (launch, rotation, a resized window).
+- **`AndroidManifest.xml`:** `android:theme="@style/Theme.Kinescope"` on `<application>`.
+- **`AppChrome.kt`:** the back button of the compact top bar has a `FocusRing`. A scan of every screen for focusable
+  controls found it as the only one without a ring in a layout the TV interface can reach (the TV interface forced on
+  a window too narrow for the rail).
+- **Tests (`ThemeResourcesTest`, 3 tests):** the manifest sets the theme, the theme has a `NoActionBar` parent, and the
+  two window colours equal the two Compose backgrounds in `Theme.kt`.
+
+### Side effect to look at
+The Compose screens are now the only content of the window: the status-bar inset reaches them directly, which is what
+`enableEdgeToEdge()` and the insets handling of patches 41 and 48 were written for. They have never run without the
+native bar above them. The device checks below look at the top edge of every screen for that reason.
+
+### Audit of the tablet and TV interface
+Read in full: `AppChrome`, `AdaptiveLayout`, `MainActivity` (`KinescopeApp`), `HomeScreen`, `QuickAddScreen`,
+`SettingsScreen`, `LogsScreen`, `QueueAndLibrary`, `BypassDashboard`, `BypassSettings`, `StrategyPicker` (the rows),
+`WebSessionLogin`, `Theme`. The theme above was the only defect the code proves. A scan of every `Button`, `IconButton`,
+`FilterChip`, `Switch`, text field and menu item for a `FocusRing` found the back button above and nothing else that
+matters: the other hits are the touch branch of the library row (no ring off TV by design), the read-only `Switch`
+inside a ringed `toggleable` row, `ActionButton` (ringed at every call site) and the two text fields (their own
+focused border). Not checked, because it needs a screen: how the D-pad moves on a real TV, and every colour and spacing
+judgement; the banner and the launcher icons are binary files that the repository export leaves out.
+
 ## Patch 49 — Overflow sweep of the remaining screens, and TV detection that leaves PCs alone
 
 Requires patch 48. After patch 48 every `Row` of the app that holds text next to a button or another control was

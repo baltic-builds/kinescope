@@ -175,8 +175,11 @@ private fun CompactTopBar(title: String, showBack: Boolean, onBack: () -> Unit) 
         title = { Text(text = title, style = MaterialTheme.typography.headlineSmall) },
         navigationIcon = {
             if (showBack) {
-                IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.cd_back))
+                // Patch 50: a ring too, for the TV interface forced on a window too narrow for the rail.
+                FocusRing {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.cd_back))
+                    }
                 }
             }
         },

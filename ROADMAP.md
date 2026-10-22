@@ -1,6 +1,6 @@
 # Roadmap
 
-State after patch 47 (2026-10-17). This file tracks only what is still open: device verification gates,
+State after patch 50 (2026-10-22). This file tracks only what is still open: device verification gates,
 technical debt and what is out of scope. How each item was closed lives in `CHANGELOG.md`; the state a new
 session needs is in `HANDOFF.md`.
 
@@ -33,6 +33,9 @@ session needs is in `HANDOFF.md`.
 - **Patch 49 (2026-10-21) finishes the overflow sweep and fixes the TV detection.** Three more rows stop squeezing a button
   (the YouTube-active row in Settings, the Library header, the sign-in buttons), and a PC-type device without touch is
   no longer taken for a TV. Not confirmed on a screen either.
+- **Patch 50 (2026-10-22) removes the black bar with the app name.** Reported on a Redmi Pad: the manifest set no theme, so
+  the platform drew its native dark action bar above the Compose screens. The app now has `Theme.Kinescope` (no action
+  bar, window colour = the Compose background). Not confirmed on a screen yet.
 - **Everything below needs the user's phone or a real GitHub Actions run.** Do not tick a box from code review, a
   local compile or a green build alone (`AGENTS.md`, "What done means").
 
@@ -117,6 +120,13 @@ session needs is in `HANDOFF.md`.
 - [ ] Copy report shows yt-dlp 2026.08.19 or newer, `run ... src=ig auth=true` and `fmt j=...` (a plain id or an
   `avc1` pair is the intended outcome, `dash-...vd+dash-...ad` means the VP9 route), and no cookie value or URL.
 - [ ] Two or three more Reels play with picture and sound; note any noticeably below the chosen height.
+
+### App theme (patch 50)
+- [ ] Tablet (the Redmi Pad), portrait and landscape: no black bar with the app name above the screens; the rail (or the
+  top bar) starts below the status bar, not under it, on Home, Add, Settings, Logs and both sign-in screens.
+- [ ] Phone: the same look at the top edge (one bar, not two); the status-bar icons are readable in light and in dark
+  mode. Record whether the phone showed the black bar before this patch.
+- [ ] Dark mode: starting the app, rotating it and opening the keyboard show the dark brown window, with no white flash.
 
 ### Adaptive UI audit (patch 48)
 - [ ] Tablet in portrait (about 800dp): every rail item has a label under its icon and none is cut (the Russian

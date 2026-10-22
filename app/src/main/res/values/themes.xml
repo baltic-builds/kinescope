@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+        The window theme of the whole app (patch 50). Compose draws everything inside the window, so the theme only
+        has to (a) bring no native action bar and (b) paint the window the colour of the Compose background.
+        Without a theme the platform picks Theme.DeviceDefault.Light.DarkActionBar, whose dark action bar showed the
+        app name above the screens. The parent is that former default minus the bar, so the native pieces (the
+        keyboard toolbar, the sign-in WebView, toasts) look as they did. Day and night differ only in the colour:
+        values/colors.xml and values-night/colors.xml.
+    -->
+    <style name="Theme.Kinescope" parent="android:Theme.DeviceDefault.Light.NoActionBar">
+        <item name="android:windowBackground">@color/kinescope_window_background</item>
+        <item name="android:colorBackground">@color/kinescope_window_background</item>
+    </style>
+</resources>

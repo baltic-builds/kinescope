@@ -4,7 +4,7 @@ The current state of Kinescope for anyone (human or AI agent) resuming work. It 
 appended to: per-patch history lives in `CHANGELOG.md`, open work in `ROADMAP.md`, process rules in `AGENTS.md`,
 product constraints in `CLAUDE.md`. Where this file and the code disagree, the code wins; fix this file.
 
-State as of patch 49 (2026-10-21).
+State as of patch 50 (2026-10-22).
 
 ## What Kinescope is
 
@@ -25,7 +25,7 @@ the bypass); the compact log and Copy report; Instagram Reels download and play 
 sign-in screen, the cleanup), the file split of patch 40, and the tablet and TV layouts of patch 41 (audited and
 hardened in patch 42), the build and packaging changes of patch 43, the tunnel traffic check of patch 44, the Home bypass dashboard of patch 45, the learned strategies with the
 25-day upkeep of patch 46, the first implementation of the outside tablet/TV UI audit (patch 48), and the overflow
-sweep with the TV-detection fix of patch 49. The exact
+sweep with the TV-detection fix of patch 49, and the explicit app theme of patch 50 (no native action bar). The exact
 checklist is `ROADMAP.md`; do not tick a box without the user's report.
 **CI:** the release workflow was red at patch 42 (`AdaptiveLayoutTest` still referenced the removed
 `WidthClass`). Patch 43 fixes it, pins the NDK/CMake, and restructures the workflow (validate, tests + lint,
@@ -213,6 +213,10 @@ parser/search/ranking/store, the network probe, the privacy redaction, the windo
   `LazyListState.canScrollForward` / `canScrollBackward`, `layoutInfo.viewportSize`, `Key.DirectionDown`,
   `KeyEvent.key` / `.type` and `Modifier.onKeyEvent` exist with the shapes used. Put `onKeyEvent` BEFORE `focusable()`
   in the chain so it sees the keys of the focused node below it.
+- Patch 50: an activity with no `android:theme` gets `Theme.DeviceDefault.Light.DarkActionBar` for a modern target SDK
+  (a dark native action bar with the activity label); `Theme.DeviceDefault.Light.NoActionBar` exists in the framework.
+  The app's theme is `Theme.Kinescope` (`res/values/themes.xml`); its window colour must equal the Compose background
+  (`ThemeResourcesTest`). A new activity needs no theme of its own: the application theme applies.
 
 ## How to read the next report
 
