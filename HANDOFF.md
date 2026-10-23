@@ -4,7 +4,7 @@ The current state of Kinescope for anyone (human or AI agent) resuming work. It 
 appended to: per-patch history lives in `CHANGELOG.md`, open work in `ROADMAP.md`, process rules in `AGENTS.md`,
 product constraints in `CLAUDE.md`. Where this file and the code disagree, the code wins; fix this file.
 
-State as of patch 50 (2026-10-22).
+State as of patch 51 (2026-10-23).
 
 ## What Kinescope is
 
@@ -25,7 +25,9 @@ the bypass); the compact log and Copy report; Instagram Reels download and play 
 sign-in screen, the cleanup), the file split of patch 40, and the tablet and TV layouts of patch 41 (audited and
 hardened in patch 42), the build and packaging changes of patch 43, the tunnel traffic check of patch 44, the Home bypass dashboard of patch 45, the learned strategies with the
 25-day upkeep of patch 46, the first implementation of the outside tablet/TV UI audit (patch 48), and the overflow
-sweep with the TV-detection fix of patch 49, and the explicit app theme of patch 50 (no native action bar). The exact
+sweep with the TV-detection fix of patch 49, and the explicit app theme of patch 50 (no native action bar), and the Home dashboard sprint of patch 51 (named
+strategies, stars, the YouTube bypass switch, the app behind "Unblock YouTube", the power-saving prompt, the mandatory
+first check, the update notice). The exact
 checklist is `ROADMAP.md`; do not tick a box without the user's report.
 **CI:** the release workflow was red at patch 42 (`AdaptiveLayoutTest` still referenced the removed
 `WidthClass`). Patch 43 fixes it, pins the NDK/CMake, and restructures the workflow (validate, tests + lint,
@@ -75,12 +77,12 @@ not yet being 16 KB page-size compatible (upstream).
 - **Diagnostics.** `AppLog` is a rotating private journal: one line, `key=value` tokens, under 220 characters, no
   URLs, no cookies; `DiagnosticSanitizer` redacts URLs, YouTube and Instagram cookie values and private paths;
   `DiagnosticReport` adds the header for Settings -> Copy report. Backup is disabled.
-- **UI.** Home (bypass dashboard, queue + library), Add, Settings, Logs (Settings -> Diagnostics; five taps on the
+- **UI.** Home (bypass dashboard, compact queue), Add, Library (its own screen since patch 51), Settings, Logs (Settings -> Diagnostics; five taps on the
   Settings icon still open it), sign-in screens. English default, Russian in `values-ru`; every string exists in both.
 - **Adaptive layout (patch 41).** One APK for phones, tablets and Android TV. `AdaptiveRoot` classifies the window
   (`adaptiveSpecFor`, Material breakpoints 600/840dp) and provides `LocalAdaptive`; screens read it. Phone in
   portrait: bottom bar, one column. Medium/expanded windows (patch 48: never a compact-width one, however short): a
-  navigation rail with labels and, when 700dp of content fits, two panes (Home: queue | library; Settings: general |
+  navigation rail with labels and, when 700dp of content fits, two panes (Home: dashboard | queue; Settings: general |
   bypass). TV (device report or Settings -> Interface override): rail with labels, an edge margin of 0-5% of the
   window (a setting, default 5% = 48dp x 27dp on 960x540dp), text x1.15, a `FocusRing` around every control, no
   touch-only gestures. Heights of the controls the layout sizes itself are tokens (`controlHeightDp`, `headerHeightDp`)
@@ -90,12 +92,31 @@ not yet being 16 KB page-size compatible (upstream).
   through `AdaptiveSpec`, not through ad-hoc `if (isTv)` checks. `AppFrame` is ONE structure for every layout
   (a Scaffold with empty bars in the rail layout, a Row, a Column, a single call of the screen content): a
   second branch around the content would rebuild every screen when a phone is rotated.
-- **Home dashboard (patch 45).** The hero card on Home (`BypassDashboard`) shows and controls both things the app
-  calls "bypass": a switch for the downloads (`DpiPrefs.enabled`, the same preference as Settings) and the start / open /
-  stop of the YouTube tunnel, plus a progress strip for a running search and the tunnel's live speed, strategy position
-  and traffic verdict (`TunnelTraffic`, published by `BypassVpnService` through `BypassVpnController.traffic`). Every
-  rule (what is shown, which controls are enabled) lives in the pure `bypassDashboardModel`; the composable maps state
-  in and draws. The preferences are read when a watched state changes, not through a live observer.
+- **Home dashboard (patch 45, redrawn in patch 51).** The hero card on Home (`BypassDashboard`) shows: the state of the YouTube
+  bypass with its on/off switch (the YouTube-only tunnel: start / stop, live speed, strategy position and traffic verdict,
+  `TunnelTraffic` from `BypassVpnController.traffic`) and the "Unblock YouTube" button; the speed of the running download
+  (`DownloadJobStatus.speedKbps`, only while one runs); and the 15 most successful strategies as chips with a colour name and
+  1-5 stars (`topStrategies`, `strategyStars`: 100% -> 5, 85-99 -> 4, 75-84 -> 3, 60-74 -> 2, below -> 1). A tap pins the
+  strategy (`DpiPrefs.pin`). The DOWNLOADS switch (`DpiPrefs.enabled`, ON by default since patch 51) is in Settings only. Every
+  rule lives in the pure `bypassDashboardModel`; the composable maps state in and draws. Preferences are read when a watched
+  state changes, not through a live observer.
+- **Strategy names (patch 51) -- THE RULE.** Every strategy has a colour name from `R.array.strategy_colors` (EN and RU, 100
+  colours, most common first). A strategy takes the FIRST palette colour no other known strategy has, in the order strategies
+  are first met (built-ins, then the community list); the assignment is stored (`DpiPrefs.nameBook`, `StrategyNames`) and never
+  changes while the strategy stays in the list; a strategy that leaves the list (and is not in the chain or pinned) frees its
+  colour; the palette is append-only (never reorder or remove, add at the end in both languages with equal counts; the unit test
+  and lint check it); beyond the palette a number is added ("Red 2"). Names are shown in the picker, the dashboard and the pin toast.
+- **The strategy list mirrors its source (patch 51).** `DpiStrategyStore.candidates` = built-ins + (the downloaded community list
+  if there is one, else the bundled snapshot), never both (`mergeStrategyLists`). Source today: 60 strategies; built-ins: 12.
+- **First install and updates (patch 51).** A fresh install runs the strategy check in `initial` mode: mandatory, no Stop anywhere,
+  Home says "Please wait while we update the strategies.". `AppUpdate.onProcessStart` (in `YtOfflineApp`) compares the version code with
+  the last seen one; an update refreshes yt-dlp and the community list in the background and raises `UpdateNotice` (a banner on Home,
+  persisted until dismissed) recommending the strategy check in Settings. The 25-day quiet re-check (patch 46) is a separate calendar.
+- **The app behind "Unblock YouTube" (patch 51).** `Settings.getYoutubeApp` (default the official YouTube app) is opened by
+  `YoutubeApps.open` and is the one app `BypassVpnService.buildAppTunnel` lets through; Settings lists the apps that open youtube.com
+  links (manifest `<queries>`). A browser opens the YouTube site; its whole traffic goes through the tunnel while it runs.
+- **Power saving (patch 51).** `BatteryOptimization`: the system exemption dialog (`REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`, sideload-only), then
+  the list of apps' settings, then the app's system page. A pop-up on the second launch (once) and a Settings section.
 - **Learned strategies and the 25-day upkeep (patch 46).** `StrategyMemory` (pure) keeps, per strategy, faded sums of
   good and bad evidence: a finished download or a `tun proven` window counts 1.0 good, a search that moved a real
   transfer 0.5 good, a failure while another route finished the job 1.0 bad (it weighs double in the score), and all
@@ -151,13 +172,18 @@ Links and sites
 UI
 - `MainActivity.kt` -- the activity, `AppSection`, `KinescopeApp` (state, navigation, handlers).
 - `AdaptiveLayout.kt` -- window classification (`AdaptiveSpec`, `adaptiveSpecFor`), TV detection, `InterfaceMode`, `LocalAdaptive`, `AdaptiveRoot`, `FocusRing`.
-- `AppChrome.kt` -- `AppFrame` (top bar + bottom bar, or header + navigation rail), responsive column, strategy-refresh notice.
-- `HomeScreen.kt` -- Home: the bypass dashboard slot, queue/library lists, empty state, banners.
-- `BypassDashboard.kt` -- the Home hero card: header, downloads switch, YouTube-tunnel controls, search strip (Compose; draws the model).
+- `AppChrome.kt` -- `AppFrame` (top bar + bottom bar, or header + navigation rail; four destinations since patch 51), responsive column.
+- `HomeScreen.kt` -- Home: the bypass dashboard slot, the compact queue, banners (errors, sign-in, "app updated").
+- `BypassDashboard.kt` -- the Home hero card: header, YouTube switch and button, download speed, the strategy chips with stars, search strip (Compose; draws the model).
+- `LibraryScreen.kt` -- the library of finished downloads as its own screen (patch 51).
 - `BypassDashboardModel.kt` -- pure rules of that card (`bypassDashboardModel`, `formatTransferRate`).
 - `QueueAndLibrary.kt` -- the queue-job row, the library-file row and the library file actions.
 - `QuickAddScreen.kt`, `SettingsScreen.kt`, `LogsScreen.kt` -- the Add, Settings and Logs screens.
 - `BypassSettings.kt`, `StrategyPicker.kt` -- the bypass section of Settings and the manual strategy list.
+- `YoutubeApps.kt`, `YoutubeAppSettings.kt` -- the app behind "Unblock YouTube": the candidates, the choice, opening it; its Settings section (patch 51).
+- `BatteryOptimization.kt` -- the power-saving exemption: intents, the pop-up rule, the dialog and the Settings section (patch 51).
+- `StrategyNames.kt` -- the colour names of the strategies (pure rule + the name book) (patch 51).
+- `AppUpdate.kt` -- fresh install / update classification, the post-update refresh and `UpdateNotice` (patch 51).
 - `Theme.kt` -- Material3 tokens, Inter/Lora via the Google Fonts provider, shapes (`design.md`).
 
 Network bypass

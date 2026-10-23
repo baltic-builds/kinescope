@@ -56,6 +56,8 @@ internal fun StrategyPicker(
     val results = remember(version, refreshKey) { DpiResultsStore.load(context) }
     val candidates = remember(version, refreshKey) { DpiStrategyStore.candidates(context) }
     val pinned = remember(version, refreshKey) { DpiPrefs.pinned(context) }
+    // Patch 51: every strategy is shown by its colour name instead of a position number.
+    val names = remember(version, refreshKey) { DpiStrategyStore.names(context) }
     val rows = remember(candidates, results, pinned) {
         candidates.mapIndexed { index, line -> PickerRow(index + 1, line, results[line]) }
             .sortedWith(
@@ -127,7 +129,7 @@ internal fun StrategyPicker(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text(
-                            if (isPinned) "#${row.number} · " + stringResource(R.string.strategy_pinned) else "#${row.number}",
+                            if (isPinned) names.nameOf(row.line) + " · " + stringResource(R.string.strategy_pinned) else names.nameOf(row.line),
                             style = MaterialTheme.typography.titleSmall,
                             modifier = Modifier.weight(1f)
                         )

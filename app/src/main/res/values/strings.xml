@@ -168,7 +168,7 @@
 <string name="bypass_need_test">Test the bypass in Settings first.</string>
 <string name="bypass_vpn_permission_denied">Android VPN permission was not granted.</string>
 <string name="bypass_vpn_no_verified_strategy">Test the bypass before opening YouTube.</string>
-<string name="bypass_vpn_youtube_missing">The YouTube app is not installed.</string>
+<string name="bypass_vpn_youtube_missing">The chosen app is not installed. Pick another one in Settings.</string>
 <string name="bypass_vpn_engine_failed">The bypass could not start.</string>
 <string name="bypass_vpn_tunnel_failed">The local YouTube tunnel could not start.</string>
 <string name="bypass_notification_channel">YouTube bypass</string>
@@ -181,10 +181,6 @@
 <string name="cd_remove_download">Remove download</string>
     <string name="bypass_wait_download">Finish the current download before testing or changing the bypass.</string>
     <!-- Patch 33 -->
-    <string name="strategy_refresh_title">Updating strategies</string>
-    <string name="strategy_refresh_body">Kinescope started refreshing network strategies in the background. This should only take a short time. Please keep the app open and don’t switch away until the update finishes.</string>
-    <string name="strategy_refresh_progress">Checked %1$d of %2$d</string>
-    <string name="strategy_refresh_ok">Got it</string>
     <string name="status_waiting_for_check">Waiting for the network check to finish…</string>
     <string name="status_preparing_download">Preparing the download…</string>
     <string name="status_trying_another_way">Trying another way (%1$d of %2$d)…</string>
@@ -242,8 +238,8 @@
     <string name="no_player_tv">No video player found. Install one, for example VLC or Kodi, and try again.</string>
     <string name="web_session_unavailable">Signing in is not available here: this device has no built-in web browser.</string>
     <!-- Patch 45: the Home bypass dashboard. -->
-    <string name="dash_headline_on">Bypass is on</string>
-    <string name="dash_headline_off">Bypass is off</string>
+    <string name="dash_headline_on">YouTube bypass is on</string>
+    <string name="dash_headline_off">YouTube bypass is off</string>
     <string name="dash_headline_checking">Checking the ways…</string>
     <string name="dash_headline_setup">Not set up yet</string>
     <string name="dash_sub_checking">This can take a few minutes. You can leave the app; the check keeps running.</string>
@@ -251,20 +247,13 @@
     <string name="dash_ways_ready">Ways ready: %1$d</string>
     <string name="dash_ways_ready_checked">Ways ready: %1$d · checked %2$s</string>
     <string name="dash_just_now">just now</string>
-    <string name="dash_downloads_label">Downloads</string>
-    <string name="dash_downloads_bypass">Through the bypass</string>
-    <string name="dash_downloads_direct">Direct connection</string>
-    <string name="dash_applies_next">Running downloads keep their current route; a change applies from the next one.</string>
-    <string name="dash_tunnel_keeps_on">Stays on while the YouTube tunnel is running.</string>
     <string name="dash_youtube_label">YouTube app</string>
     <string name="dash_youtube_on">Tunnel is on</string>
     <string name="dash_youtube_idle">No traffic yet</string>
     <string name="dash_youtube_no_answer">The app is sending, but nothing is coming back</string>
     <string name="dash_rate">↓ %1$s · ↑ %2$s</string>
     <string name="dash_way">Way %1$d of %2$d</string>
-    <string name="dash_open_youtube">Open YouTube</string>
     <string name="dash_check_ways">Check the ways</string>
-    <string name="dash_check_again">Check again</string>
     <string name="dash_check_progress">Checked %1$d of %2$d</string>
     <string name="dash_recheck">Re-checking in the background · %1$d of %2$d</string>
     <string name="dash_wait_download_check">Finish the current download before checking the ways.</string>
@@ -278,4 +267,141 @@
     <string name="overscan_title">Screen edge margin</string>
     <string name="overscan_hint">Raise it if the TV cuts off the edges of the picture; lower it to use the whole screen.</string>
     <string name="overscan_percent">%1$d%%</string>
+
+    <!-- Patch 51: colour names of the strategies (append-only, see StrategyNames.kt), the Home dashboard,
+         the YouTube app setting, the power-saving prompt, the first-run and update notices, the Library tab. -->
+    <string-array name="strategy_colors">
+        <item>White</item>
+        <item>Black</item>
+        <item>Red</item>
+        <item>Green</item>
+        <item>Yellow</item>
+        <item>Blue</item>
+        <item>Brown</item>
+        <item>Purple</item>
+        <item>Pink</item>
+        <item>Orange</item>
+        <item>Gray</item>
+        <item>Light blue</item>
+        <item>Beige</item>
+        <item>Turquoise</item>
+        <item>Gold</item>
+        <item>Silver</item>
+        <item>Maroon</item>
+        <item>Navy</item>
+        <item>Lime</item>
+        <item>Olive</item>
+        <item>Teal</item>
+        <item>Cyan</item>
+        <item>Magenta</item>
+        <item>Lavender</item>
+        <item>Lilac</item>
+        <item>Violet</item>
+        <item>Indigo</item>
+        <item>Coral</item>
+        <item>Salmon</item>
+        <item>Peach</item>
+        <item>Apricot</item>
+        <item>Amber</item>
+        <item>Mustard</item>
+        <item>Lemon</item>
+        <item>Cream</item>
+        <item>Ivory</item>
+        <item>Khaki</item>
+        <item>Sand</item>
+        <item>Chocolate</item>
+        <item>Coffee</item>
+        <item>Chestnut</item>
+        <item>Copper</item>
+        <item>Bronze</item>
+        <item>Rust</item>
+        <item>Brick</item>
+        <item>Crimson</item>
+        <item>Scarlet</item>
+        <item>Ruby</item>
+        <item>Raspberry</item>
+        <item>Cherry</item>
+        <item>Wine</item>
+        <item>Fuchsia</item>
+        <item>Plum</item>
+        <item>Mauve</item>
+        <item>Orchid</item>
+        <item>Amethyst</item>
+        <item>Sky blue</item>
+        <item>Azure</item>
+        <item>Cobalt</item>
+        <item>Sapphire</item>
+        <item>Ultramarine</item>
+        <item>Denim</item>
+        <item>Cornflower</item>
+        <item>Aqua</item>
+        <item>Aquamarine</item>
+        <item>Mint</item>
+        <item>Emerald</item>
+        <item>Jade</item>
+        <item>Forest</item>
+        <item>Moss</item>
+        <item>Sage</item>
+        <item>Pistachio</item>
+        <item>Avocado</item>
+        <item>Chartreuse</item>
+        <item>Seafoam</item>
+        <item>Charcoal</item>
+        <item>Graphite</item>
+        <item>Slate</item>
+        <item>Ash</item>
+        <item>Steel</item>
+        <item>Pearl</item>
+        <item>Snow</item>
+        <item>Ebony</item>
+        <item>Onyx</item>
+        <item>Midnight</item>
+        <item>Saffron</item>
+        <item>Tangerine</item>
+        <item>Pumpkin</item>
+        <item>Honey</item>
+        <item>Caramel</item>
+        <item>Vanilla</item>
+        <item>Banana</item>
+        <item>Canary</item>
+        <item>Wheat</item>
+        <item>Cocoa</item>
+        <item>Mahogany</item>
+        <item>Terracotta</item>
+        <item>Burgundy</item>
+        <item>Periwinkle</item>
+        <item>Eggplant</item>
+    </string-array>
+    <string name="dash_headline_first_run">Please wait while we update the strategies.</string>
+    <string name="dash_sub_first_run">This runs once after installation and cannot be skipped. It can take a few minutes.</string>
+    <string name="dash_speed">Download speed: %1$s</string>
+    <string name="dash_speed_waiting">Download speed: measuring…</string>
+    <string name="dash_strategy_title">Strategy</string>
+    <string name="dash_strategy_current">In use: %1$s</string>
+    <string name="dash_strategies_empty">Run “Test strategies” in Settings to see how they compare.</string>
+    <string name="dash_strategy_cd">%1$s, %2$d of 5 stars</string>
+    <string name="dash_strategy_applies_next">A running download or tunnel keeps its current strategy; the new one applies from the next start.</string>
+    <string name="bypass_first_run_note">This first check cannot be stopped.</string>
+    <string name="banner_updated">Kinescope was updated. yt-dlp and the strategy list are up to date. For the best results, run “Test strategies” in Settings.</string>
+    <string name="banner_updated_action">Open Settings</string>
+    <string name="queue_show_all">Show all (%1$d)</string>
+    <string name="queue_show_fewer">Show fewer</string>
+    <string name="nav_library">Library</string>
+    <string name="cd_library">Library</string>
+    <string name="settings_youtube_app">App for “Unblock YouTube”</string>
+    <string name="youtube_app_hint">Choose the app that the “Unblock YouTube” button opens and that the bypass lets through. The official YouTube app is the default; another app for YouTube, or a browser, works too.</string>
+    <string name="youtube_app_default">Default</string>
+    <string name="youtube_app_none">No app that opens YouTube was found.</string>
+    <string name="youtube_app_note">Applies the next time the YouTube bypass starts. Only this app uses the bypass.</string>
+    <string name="battery_prompt_title">Keep downloads running</string>
+    <string name="battery_prompt_body">Android’s power saving can close Kinescope in the background and stop your downloads. Allow Kinescope to run without limits so they finish.</string>
+    <string name="battery_prompt_open">Open settings</string>
+    <string name="battery_prompt_later">Not now</string>
+    <string name="settings_battery">Background work</string>
+    <string name="battery_hint">Power saving can stop Kinescope while the screen is off. Turn it off for this app so downloads and the bypass keep running. Some phones (Xiaomi, Huawei, Samsung and others) also have a separate battery or autostart switch on the app’s system page.</string>
+    <string name="battery_status_ok">Power saving is off for Kinescope.</string>
+    <string name="battery_status_limited">Power saving may stop Kinescope in the background.</string>
+    <string name="battery_open">Turn off power saving</string>
+    <string name="battery_app_info">App settings</string>
+    <string name="battery_open_failed">Could not open the settings.</string>
 </resources>

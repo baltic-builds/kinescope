@@ -25,6 +25,9 @@ object DpiPrefs {
     private const val KEY_SEARCH_AT = "search_at"
     private const val KEY_MAINTENANCE_TRY_AT = "maintenance_try_at"
     private const val KEY_LEARNED = "learned"
+    private const val KEY_NAMES = "strategy_names"
+    private const val KEY_SEEN_VERSION = "seen_version"
+    private const val KEY_UPDATE_NOTICE = "update_notice"
     private const val PROVEN_MAX_AGE_MS = 14L * MaintenanceSchedule.DAY_MS
     private const val QUARANTINE_MS = 10L * 60L * 1000L
 
@@ -46,7 +49,11 @@ object DpiPrefs {
      */
     internal fun <T> consistently(block: () -> T): T = synchronized(writeLock) { block() }
 
-    fun isEnabled(context: Context): Boolean = prefs(context).getBoolean(KEY_ENABLED, false)
+    /**
+     * Whether Kinescope's own downloads go through a verified strategy. Patch 51: ON by default (it only does anything
+     * once a strategy is verified, so a fresh install loses nothing); the switch lives in Settings.
+     */
+    fun isEnabled(context: Context): Boolean = prefs(context).getBoolean(KEY_ENABLED, true)
 
     fun setEnabled(context: Context, enabled: Boolean) {
         prefs(context).edit().putBoolean(KEY_ENABLED, enabled).apply()
@@ -108,6 +115,41 @@ object DpiPrefs {
 
     fun unpin(context: Context) {
         prefs(context).edit().remove(KEY_PINNED).apply()
+    }
+
+    /**
+     * Patch 51: the colour names of the strategies. Assigns a colour to every strategy of [wanted] that has none (the rule
+     * is in [StrategyNames]) and returns the book. A list that could not be read ([wanted] empty) changes nothing, so a
+     * failed read never frees every colour.
+     */
+    internal fun nameBook(
+        context: Context,
+        palette: List<String>,
+        wanted: List<String>,
+        keep: Set<String>
+    ): StrategyNameBook {
+        val store = prefs(context)
+        synchronized(writeLock) {
+            val stored = StrategyNames.parse(store.getString(KEY_NAMES, null))
+            if (wanted.isEmpty()) return StrategyNameBook(stored, palette)
+            val assigned = StrategyNames.assign(stored, wanted, keep)
+            if (assigned != stored) store.edit().putString(KEY_NAMES, StrategyNames.serialize(assigned)).apply()
+            return StrategyNameBook(assigned, palette)
+        }
+    }
+
+    /** Patch 51: the app version code that `AppUpdate` last saw (0 = never). */
+    fun seenVersion(context: Context): Long = prefs(context).getLong(KEY_SEEN_VERSION, 0L)
+
+    fun setSeenVersion(context: Context, version: Long) {
+        prefs(context).edit().putLong(KEY_SEEN_VERSION, version).apply()
+    }
+
+    /** Patch 51: the "app updated, re-check the strategies" notice on Home has been raised and not dismissed yet. */
+    fun updateNoticePending(context: Context): Boolean = prefs(context).getBoolean(KEY_UPDATE_NOTICE, false)
+
+    fun setUpdateNoticePending(context: Context, pending: Boolean) {
+        prefs(context).edit().putBoolean(KEY_UPDATE_NOTICE, pending).apply()
     }
 
     /** The strategy that last carried a real download, if that was within two weeks. */
@@ -262,6 +304,13 @@ object DpiPrefs {
     }
 }
 
+/**
+ * Patch 51: the strategies on offer: the built-ins, then the community list, which is the downloaded one when there is one
+ * and the bundled snapshot otherwise (never both). Duplicates collapse to one entry. Pure, so it is unit-tested.
+ */
+internal fun mergeStrategyLists(builtIn: List<String>, bundled: List<String>, downloaded: List<String>): List<String> =
+    (builtIn + downloaded.ifEmpty { bundled }).distinct()
+
 sealed interface StrategyListUpdate {
     data class Updated(val added: Int, val total: Int) : StrategyListUpdate
     data class Unchanged(val total: Int) : StrategyListUpdate
@@ -287,12 +336,23 @@ object DpiStrategyStore {
     private const val TIMEOUT_MS = 8_000
 
     /**
-     * Hand-picked built-ins first (fast to try, known good), then the bundled snapshot of the
-     * community list (everything, offline, from the first launch), then whatever the last
-     * "Update" downloaded on top. Duplicates across the three collapse to one entry.
+     * Hand-picked built-ins first (fast to try, known good), then the community list. Patch 51: the community list is the
+     * downloaded one when there is one, otherwise the bundled snapshot; it REPLACES the snapshot instead of being stacked
+     * on top of it. Stacking kept every old variant next to its fixed successor (the upstream flag fix of 2026-10-14 made
+     * the app show 76 strategies for a source of 60), so the app now mirrors the source: built-ins + the source's list.
      */
     fun candidates(context: Context): List<String> =
-        (DpiBuiltInStrategies.lines + bundled(context) + downloaded(context)).distinct()
+        mergeStrategyLists(DpiBuiltInStrategies.lines, bundled(context), downloaded(context))
+
+    /**
+     * Patch 51: the colour names of the strategies on offer, in the language of the device (the rule is in
+     * [StrategyNames]). Strategies in the chain or pinned keep a name even when the list dropped them.
+     */
+    internal fun names(context: Context): StrategyNameBook {
+        val palette = context.applicationContext.resources.getStringArray(R.array.strategy_colors).toList()
+        val keep = (verifiedChain(context) + listOfNotNull(DpiPrefs.pinned(context))).toSet()
+        return DpiPrefs.nameBook(context, palette, candidates(context), keep)
+    }
 
     /** The community-list snapshot shipped in the APK, validated by the same strict parser. */
     fun bundled(context: Context): List<String> {
@@ -363,7 +423,8 @@ object DpiStrategyStore {
         val lines = DpiStrategyParser.parseList(text)
         if (lines.isEmpty()) return StrategyListUpdate.Failed("no usable strategies in the downloaded list")
 
-        val previous = downloaded(context)
+        // Patch 51: compared with the list in use (the downloaded one, or the bundled snapshot when there is none).
+        val previous = downloaded(context).ifEmpty { bundled(context) }
         if (lines == previous) {
             DpiPrefs.setListUpdatedAt(context, System.currentTimeMillis())
             return StrategyListUpdate.Unchanged(candidates(context).size)

@@ -58,7 +58,11 @@ class MainActivity : ComponentActivity() {
         // Patch 48: the launching intent stays on the activity, so every recreation (dark mode, language) used to
         // handle it again: a shared link jumped back to Add and a notification tap back to Home, over whatever
         // the restored state said. Only a first start (no saved state) handles it; onNewIntent handles later ones.
-        if (savedInstanceState == null) handleIncomingIntent(intent)
+        if (savedInstanceState == null) {
+            // Patch 51: launches are counted for the one-time power-saving pop-up (a recreation is not a launch).
+            Settings.noteLaunch(this)
+            handleIncomingIntent(intent)
+        }
 
         // Patch 41: AdaptiveRoot classifies the window (phone, tablet, TV) for every screen and must sit
         // above the theme, which scales text on a TV.
@@ -118,7 +122,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-internal enum class AppSection { HOME, QUICK_ADD, SETTINGS, LOGS, YOUTUBE_AUTH, INSTAGRAM_AUTH }
+internal enum class AppSection { HOME, QUICK_ADD, LIBRARY, SETTINGS, LOGS, YOUTUBE_AUTH, INSTAGRAM_AUTH }
 
 private fun clipboardMediaUrl(context: Context): String? {
     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return null
@@ -126,17 +130,7 @@ private fun clipboardMediaUrl(context: Context): String? {
     return MediaUrlParser.firstFromText(text)?.canonicalUrl
 }
 
-private fun openYouTubeApp(context: Context): Boolean {
-    val intent = context.packageManager.getLaunchIntentForPackage(BypassVpnService.YOUTUBE_PACKAGE) ?: return false
-    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    return runCatching {
-        context.startActivity(intent)
-        true
-    }.getOrElse {
-        AppLog.e("MainActivity", "Could not open YouTube", it)
-        false
-    }
-}
+// Patch 51: opening the chosen YouTube app moved to YoutubeApps.open (the app is a setting now).
 
 @Composable
 private fun KinescopeApp(
@@ -154,8 +148,10 @@ private fun KinescopeApp(
     val completionVersion by DownloadQueueBus.completionVersion.collectAsState()
     val scope = rememberCoroutineScope()
     val bypassState by BypassVpnController.state.collectAsState()
-    val searchState by DpiSearchController.state.collectAsState()
-    var showStrategyRefreshNotice by remember { mutableStateOf(false) }
+    // Patch 51: the one-time power-saving pop-up of the second launch (see BatteryOptimization.kt). The search state is
+    // read where it is shown (the dashboard), not here: this composable no longer redraws on every search step.
+    var showBatteryPrompt by rememberSaveable { mutableStateOf(false) }
+    val batteryOpener = rememberBatteryOpener { }
 
     // Patch 48: where the user is, the link being typed and the chosen quality survive the activity being recreated
     // (a dark-mode or language change recreates it: MainActivity's configChanges leaves uiMode out on purpose, so
@@ -180,8 +176,11 @@ private fun KinescopeApp(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
-            openYouTubeWhenReady = BypassVpnService.start(context)
-            if (!openYouTubeWhenReady) Toast.makeText(context, R.string.bypass_vpn_tunnel_failed, Toast.LENGTH_SHORT).show()
+            // Patch 51: openYouTubeWhenReady already says whether the app is to be opened (the button) or not (the switch).
+            if (!BypassVpnService.start(context)) {
+                openYouTubeWhenReady = false
+                Toast.makeText(context, R.string.bypass_vpn_tunnel_failed, Toast.LENGTH_SHORT).show()
+            }
         } else {
             openYouTubeWhenReady = false
             Toast.makeText(context, R.string.bypass_vpn_permission_denied, Toast.LENGTH_SHORT).show()
@@ -196,16 +195,34 @@ private fun KinescopeApp(
         }
     }
 
-    // Patch 36: MainActivity is the single owner of automatic strategy refreshes. A fresh install
-    // explains the first check before starting it; the periodic re-check (patch 46) is quiet.
+    // Patch 36: MainActivity is the single owner of automatic strategy refreshes. Patch 51: the first check of a fresh
+    // install is mandatory: it cannot be stopped, and Home shows "Please wait while we update the strategies." with the
+    // progress (the dialog that used to explain it is gone). The periodic re-check (patch 46) is quiet.
     LaunchedEffect(Unit) {
         if (
             !DpiPrefs.hasRunInitialSearch(context) &&
             DpiStrategyStore.verifiedChain(context).isEmpty() &&
             !DpiSearchController.state.value.running
         ) {
-            showStrategyRefreshNotice = true
-            DpiSearchService.start(context)
+            // The check runs in a foreground service whose notification needs the permission.
+            requestNotifications()
+            DpiSearchService.startInitial(context)
+        }
+    }
+
+    // Patch 51: the power-saving pop-up: from the second launch on, once, never while the first-run check has not
+    // finished (that one has the screen), and not when Android already lets the app run freely.
+    LaunchedEffect(Unit) {
+        if (
+            DpiPrefs.hasRunInitialSearch(context) &&
+            BatteryOptimization.shouldPrompt(
+                launchCount = Settings.getLaunchCount(context),
+                alreadyAsked = Settings.isBatteryPromptShown(context),
+                ignoring = BatteryOptimization.isIgnoring(context)
+            )
+        ) {
+            Settings.setBatteryPromptShown(context, true)
+            showBatteryPrompt = true
         }
     }
 
@@ -224,17 +241,15 @@ private fun KinescopeApp(
         }
     }
 
-    LaunchedEffect(searchState.running, searchState.resultMessageRes) {
-        if (!searchState.running && searchState.resultMessageRes != null) {
-            showStrategyRefreshNotice = false
-        }
-    }
-
     suspend fun loadLibrary() {
         library = withContext(Dispatchers.IO) { MediaStorage.listPublished(context) }
     }
 
     LaunchedEffect(completionVersion) { loadLibrary() }
+    // Patch 51: the library is its own screen now; read it again whenever it is opened.
+    LaunchedEffect(section) {
+        if (section == AppSection.LIBRARY) loadLibrary()
+    }
 
     fun refreshLibrary() {
         scope.launch { loadLibrary() }
@@ -266,7 +281,9 @@ private fun KinescopeApp(
         section = AppSection.QUICK_ADD
     }
 
-    fun openByeDpiYouTube() {
+    // Patch 51: the switch on Home starts or stops the tunnel; the "Unblock YouTube" button starts it when needed and
+    // opens the app chosen in Settings (YoutubeApps). [openApp] is remembered in openYouTubeWhenReady until the tunnel is up.
+    fun startBypass(openApp: Boolean) {
         val strategy = DpiStrategyStore.selected(context)
         if (!DpiPrefs.isStrategyVerified(context, strategy)) {
             section = AppSection.SETTINGS
@@ -274,7 +291,9 @@ private fun KinescopeApp(
             return
         }
         if (bypassState.active) {
-            if (!openYouTubeApp(context)) Toast.makeText(context, R.string.bypass_vpn_youtube_missing, Toast.LENGTH_SHORT).show()
+            if (openApp && !YoutubeApps.open(context)) {
+                Toast.makeText(context, R.string.bypass_vpn_youtube_missing, Toast.LENGTH_SHORT).show()
+            }
             return
         }
         if (bypassState.starting) return
@@ -282,12 +301,14 @@ private fun KinescopeApp(
         // starts BypassVpnService's own foreground-service notification, not only on the first
         // accepted download (patch 25) -- otherwise that notification can silently never show.
         requestNotifications()
+        openYouTubeWhenReady = openApp
         val permissionIntent = VpnService.prepare(context)
         if (permissionIntent == null) {
-            openYouTubeWhenReady = BypassVpnService.start(context)
-            if (!openYouTubeWhenReady) Toast.makeText(context, R.string.bypass_vpn_tunnel_failed, Toast.LENGTH_SHORT).show()
+            if (!BypassVpnService.start(context)) {
+                openYouTubeWhenReady = false
+                Toast.makeText(context, R.string.bypass_vpn_tunnel_failed, Toast.LENGTH_SHORT).show()
+            }
         } else {
-            openYouTubeWhenReady = true
             vpnPermissionLauncher.launch(permissionIntent)
         }
     }
@@ -295,7 +316,7 @@ private fun KinescopeApp(
     LaunchedEffect(bypassState.active, bypassState.errorRes, openYouTubeWhenReady) {
         if (bypassState.active && openYouTubeWhenReady) {
             openYouTubeWhenReady = false
-            if (!openYouTubeApp(context)) Toast.makeText(context, R.string.bypass_vpn_youtube_missing, Toast.LENGTH_SHORT).show()
+            if (!YoutubeApps.open(context)) Toast.makeText(context, R.string.bypass_vpn_youtube_missing, Toast.LENGTH_SHORT).show()
         } else if (bypassState.errorRes != null && openYouTubeWhenReady) {
             val errorRes = bypassState.errorRes ?: return@LaunchedEffect
             openYouTubeWhenReady = false
@@ -327,13 +348,15 @@ private fun KinescopeApp(
 
     BackHandler(enabled = section != AppSection.HOME) { goBack() }
 
-    if (showStrategyRefreshNotice) {
-        StrategyRefreshNoticeDialog(
-            progress = searchState.progress,
-            onDismiss = {
-                showStrategyRefreshNotice = false
-                requestNotifications()
-            }
+    if (showBatteryPrompt) {
+        BatteryPromptDialog(
+            onOpen = {
+                showBatteryPrompt = false
+                if (!batteryOpener.exemption()) {
+                    Toast.makeText(context, R.string.battery_open_failed, Toast.LENGTH_SHORT).show()
+                }
+            },
+            onLater = { showBatteryPrompt = false }
         )
     }
 
@@ -342,6 +365,7 @@ private fun KinescopeApp(
         title = when (section) {
             AppSection.HOME -> stringResource(R.string.app_name)
             AppSection.QUICK_ADD -> stringResource(R.string.quick_add_title)
+            AppSection.LIBRARY -> stringResource(R.string.library_title)
             AppSection.SETTINGS -> stringResource(R.string.settings_title)
             AppSection.LOGS -> stringResource(R.string.logs_title)
             AppSection.YOUTUBE_AUTH -> stringResource(R.string.youtube_login_title)
@@ -352,17 +376,27 @@ private fun KinescopeApp(
         onBack = { goBack() },
         onHome = { section = AppSection.HOME },
         onQuickAdd = { openQuickAdd() },
+        onLibrary = { section = AppSection.LIBRARY },
         onSettings = { openSettingsWithSecretTap() }
     ) { innerPadding ->
         ResponsiveContent(innerPadding) {
             when (section) {
                 AppSection.HOME -> HomeScreen(
                     jobs = jobs,
-                    library = library,
                     bypassState = bypassState,
-                    onOpenBypass = { openByeDpiYouTube() },
+                    onToggleTunnel = { on -> if (on) startBypass(openApp = false) else BypassVpnService.stop(context) },
+                    onOpenApp = { startBypass(openApp = true) },
                     requestNotifications = requestNotifications,
-                    onRefreshLibrary = { refreshLibrary() },
+                    onPause = { DownloadService.pause(context, it) },
+                    onResume = { DownloadService.resume(context, it) },
+                    onStop = { DownloadService.stop(context, it) },
+                    onSignIn = { section = AppSection.YOUTUBE_AUTH },
+                    onSignInInstagram = { section = AppSection.INSTAGRAM_AUTH },
+                    onOpenSettings = { section = AppSection.SETTINGS }
+                )
+                AppSection.LIBRARY -> LibraryScreen(
+                    library = library,
+                    onRefresh = { refreshLibrary() },
                     onPlay = { playItem(context, it, tv) },
                     onShare = { shareItem(context, it) },
                     onDelete = { item ->
@@ -375,13 +409,9 @@ private fun KinescopeApp(
                                 Toast.makeText(context, R.string.delete_failed, Toast.LENGTH_SHORT).show()
                             }
                         }
-                    },
-                    onPause = { DownloadService.pause(context, it) },
-                    onResume = { DownloadService.resume(context, it) },
-                    onStop = { DownloadService.stop(context, it) },
-                    onSignIn = { section = AppSection.YOUTUBE_AUTH },
-                    onSignInInstagram = { section = AppSection.INSTAGRAM_AUTH }
+                    }
                 )
+
                 AppSection.QUICK_ADD -> QuickAddScreen(
                     url = url,
                     onUrlChange = { url = it; urlError = null },

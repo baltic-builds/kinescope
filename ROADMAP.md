@@ -1,6 +1,6 @@
 # Roadmap
 
-State after patch 50 (2026-10-22). This file tracks only what is still open: device verification gates,
+State after patch 51 (2026-10-23). This file tracks only what is still open: device verification gates,
 technical debt and what is out of scope. How each item was closed lives in `CHANGELOG.md`; the state a new
 session needs is in `HANDOFF.md`.
 
@@ -36,6 +36,11 @@ session needs is in `HANDOFF.md`.
 - **Patch 50 (2026-10-22) removes the black bar with the app name.** Reported on a Redmi Pad: the manifest set no theme, so
   the platform drew its native dark action bar above the Compose screens. The app now has `Theme.Kinescope` (no action
   bar, window colour = the Compose background). Not confirmed on a screen yet.
+- **Patch 51 (2026-10-23) is the Home dashboard sprint.** Strategies have colour names; Home shows the 15 best with stars, the
+  YouTube bypass switch and the download speed; the downloads switch moved to Settings (on by default); Settings chooses the app
+  behind "Unblock YouTube" and has a power-saving section (plus a pop-up on the second launch); the queue is compact; the
+  library is its own screen; the first-run check is mandatory and an app update refreshes yt-dlp and the list and shows a
+  notice. The strategy list mirrors its source again (12 built-in + 60 = 72, not 76). Not confirmed on a device.
 - **Everything below needs the user's phone or a real GitHub Actions run.** Do not tick a box from code review, a
   local compile or a green build alone (`AGENTS.md`, "What done means").
 
@@ -52,6 +57,30 @@ session needs is in `HANDOFF.md`.
   "no authentication / no embedded browser" assumption stays superseded.
 
 ## Verification gates (open)
+
+### Home dashboard, names, power saving, YouTube app, first run (patch 51)
+- [ ] Fresh install (clear the app's data): Home shows "Please wait while we update the strategies." with a progress bar
+  and NO Stop button; the notification has no Stop either; Settings shows "This first check cannot be stopped."; when it ends
+  Home shows the controls and the 15 strategies. Closing and reopening the app during it resumes the check.
+- [ ] Home dashboard: the switch turns the YouTube bypass on and off (VPN consent the first time); "Unblock YouTube" starts it
+  when needed and opens the chosen app; the strategy chips show a colour name and 1-5 stars; a tap uses the strategy (the
+  toast says so, "In use" follows it); "Choose automatically" lifts a pin; the speed line appears only while a download runs.
+- [ ] Names: the same strategy keeps its colour after a list update, an app update and a restart; no two strategies share a
+  name; the picker in Settings shows the names; the language of the names follows the device language.
+- [ ] Strategy count: the picker lists 72 (12 + 60); after "Update" it is still 72, not 76.
+- [ ] Settings: the downloads switch is on by default on a fresh install (and does nothing until a strategy is verified).
+- [ ] Power saving: the pop-up appears once on the second launch (not the first, not again); "Open settings" opens Android's
+  "always run in the background?" dialog (on Xiaomi/HyperOS also check the app's system page for a battery or autostart
+  switch); Settings > Background work shows the state and updates it after returning; a download survives the screen
+  being off for 10 minutes once the exemption is granted.
+- [ ] YouTube app: Settings lists the YouTube app first and other apps that open youtube.com links (check that an
+  alternative client such as NewPipe or ReVanced is listed if installed: the manifest query may match host-restricted apps
+  differently on some Android versions); with a browser chosen "Unblock YouTube" opens youtube.com in it and the tunnel
+  carries that browser; a change applies at the next tunnel start.
+- [ ] Update path: install this build over patch 50: yt-dlp and the list refresh in the background and Home shows the notice
+  once; "Open Settings" and dismiss both clear it; it does not come back after a restart.
+- [ ] Queue and Library: the queue is small (three rows and "Show all (N)" on a phone); the Library tab lists, plays, shares and
+  deletes downloads; on a tablet Home is dashboard | queue. Check the four-entry bottom bar and rail in Russian.
 
 ### Learned strategies and the 25-day upkeep (patch 46)
 - [ ] Install this build over the previous one and open it: no "Updating strategies" popup, no search notification,
@@ -75,6 +104,8 @@ session needs is in `HANDOFF.md`.
   no "Re-checking" strip and the report has no new `list ...` line. With Wi-Fi on, the next launch starts it.
 
 ### Home bypass dashboard (patch 45)
+Patch 51 redrew this card (no Downloads row, no "Check again", a strategy list and a speed line); the boxes below that name
+those are replaced by the patch 51 list above. The tunnel rows, the search strip and the traffic verdict stay as written.
 - [ ] Home shows the new card: header, the Downloads and YouTube app rows, "Check again". On a fresh install (or after
   clearing the app's data) it says "Not set up yet" with one "Check the ways" button; the first-run check shows
   "Checked N of M" with a bar and Stop, and Home returns to the normal card when it ends.
@@ -260,6 +291,13 @@ session needs is in `HANDOFF.md`.
 
 ## Technical debt
 
+- **Patch 51 open points.** (a) The manifest `<queries>` for "apps that open YouTube links" is the documented browser query plus a
+  youtube.com one; whether Android matches host-restricted clients (NewPipe, ReVanced) the same way on every version is unverified,
+  see the gate above. (b) The first-run check blocks nothing else: a download waits for it only when it needs the bypass; if a
+  fully blocking first run is wanted, add a scrim over `AppFrame` while `DpiSearchUiState.mandatory`. (c) The update notice is
+  in-app only (no system notification, which needs the notification permission). (d) The 25-day quiet re-check of patch 46 was
+  kept; the brief says forced updates are for the first install only, so drop `MaintenanceSchedule` if the quiet re-check is
+  not wanted either. (e) Chosen-browser tunnel: ALL of that browser's traffic goes through the bypass, not only YouTube.
 - **The outside UI audit's larger items are open on purpose (patch 48).** (1) A TV-native Home (top tabs, a hero, horizontal
   rows) instead of the patch 41 two-pane lists: wait for the TV checklist above to be reported on a real TV, then redraw
   from what it shows. (2) `material3-adaptive` / `window-core`: the same breakpoints, unverifiable offline here, no foldable

@@ -12,6 +12,9 @@ object Settings {
     private const val KEY_LAST_UPDATE_TIMESTAMP = "last_ytdlp_update_timestamp"
     private const val KEY_INTERFACE_MODE = "interface_mode"
     private const val KEY_OVERSCAN_PERCENT = "tv_overscan_percent"
+    private const val KEY_YOUTUBE_APP = "youtube_app_package"
+    private const val KEY_LAUNCH_COUNT = "launch_count"
+    private const val KEY_BATTERY_PROMPT_SHOWN = "battery_prompt_shown"
 
     const val DEFAULT_SUBFOLDER = "Kinescope"
     private const val LEGACY_SUBFOLDER = "YTOffline"
@@ -94,6 +97,31 @@ object Settings {
 
     internal fun setOverscanPercent(context: Context, percent: Int) {
         prefs(context).edit().putInt(KEY_OVERSCAN_PERCENT, percent.coerceIn(0, OVERSCAN_MAX_PERCENT)).apply()
+    }
+
+    /** Patch 51: the app that "Unblock YouTube" opens and that the tunnel carries; the official YouTube app by default. */
+    internal fun getYoutubeApp(context: Context): String =
+        prefs(context).getString(KEY_YOUTUBE_APP, null)?.takeIf { it.isNotBlank() } ?: YoutubeApps.DEFAULT_PACKAGE
+
+    internal fun setYoutubeApp(context: Context, packageName: String) {
+        prefs(context).edit().putString(KEY_YOUTUBE_APP, packageName).apply()
+    }
+
+    /** Patch 51: counts the launches of the app (not the recreations of its window) for the power-saving pop-up. */
+    internal fun noteLaunch(context: Context): Int {
+        val next = getLaunchCount(context) + 1
+        prefs(context).edit().putInt(KEY_LAUNCH_COUNT, next).apply()
+        return next
+    }
+
+    internal fun getLaunchCount(context: Context): Int = prefs(context).getInt(KEY_LAUNCH_COUNT, 0)
+
+    /** Patch 51: the power-saving pop-up is shown once; Settings keeps the permanent entry. */
+    internal fun isBatteryPromptShown(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_BATTERY_PROMPT_SHOWN, false)
+
+    internal fun setBatteryPromptShown(context: Context, shown: Boolean) {
+        prefs(context).edit().putBoolean(KEY_BATTERY_PROMPT_SHOWN, shown).apply()
     }
 
     private fun sanitizeSubfolder(name: String): String {

@@ -38,7 +38,9 @@ data class DownloadJobStatus(
     val state: JobState,
     val progressText: String,
     val progressFraction: Float? = null,
-    val failureKind: FailureKind? = null
+    val failureKind: FailureKind? = null,
+    /** Patch 51: the speed yt-dlp last reported, in KiB/s, for the Home dashboard; 0 whenever none is known. */
+    val speedKbps: Int = 0
 )
 
 /**

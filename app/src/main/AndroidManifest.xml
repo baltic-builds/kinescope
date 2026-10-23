@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- Needed to reach youtube.com and to download files. -->
     <uses-permission android:name="android.permission.INTERNET" />
@@ -11,6 +12,12 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <!-- Lets DownloadService check for a connection before trying. -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Patch 51: lets the app ask Android to stop power-saving from closing it in the background (the system
+         dialog "Let the app always run in the background?"). Google Play restricts this permission; this app is
+         sideload-only. -->
+    <uses-permission
+        android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"
+        tools:ignore="BatteryLife" />
 
     <!-- Patch 41: a TV or set-top box has no touch screen and a phone has no leanback UI. Neither is
          required, so the same APK installs on phones, tablets and Android TV. -->
@@ -19,6 +26,19 @@
 
     <queries>
         <package android:name="com.google.android.youtube" />
+        <!-- Patch 51: lets Settings list the apps that open YouTube links (alternative clients and browsers). -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="https" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data
+                android:host="www.youtube.com"
+                android:scheme="https" />
+        </intent>
     </queries>
 
     <!-- Patch 50: an explicit theme. Without one the platform picks Theme.DeviceDefault.Light.DarkActionBar, whose

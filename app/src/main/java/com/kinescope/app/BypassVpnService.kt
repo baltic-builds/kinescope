@@ -70,7 +70,8 @@ object BypassVpnController {
 }
 
 /**
- * Local Android VPN transport used only for the official YouTube app. Traffic enters a TUN
+ * Local Android VPN transport used only for the one app the user chose to unblock (the official YouTube app by default,
+ * patch 51: any app that opens YouTube links, see `YoutubeApps`). Traffic enters a TUN
  * interface, hev-socks5-tunnel forwards it to Kinescope's local ByeDPI SOCKS5 endpoint, and
  * ByeDPI opens the real network connection. No remote VPN server is involved.
  */
@@ -193,7 +194,12 @@ class BypassVpnService : VpnService() {
                 fail(R.string.bypass_vpn_no_verified_strategy)
                 return
             }
-            ensureYouTubeInstalled()
+            // Patch 51: the tunnel carries the chosen app (Settings), not always the official YouTube app.
+            val appPackage = YoutubeApps.chosenPackage(this)
+            if (appPackage == null) {
+                fail(R.string.bypass_vpn_youtube_missing)
+                return
+            }
 
             // Try the verified strategy, then its verified fallbacks in order, and keep the
             // first engine that actually starts.
@@ -227,7 +233,7 @@ class BypassVpnService : VpnService() {
             if (engine == null) throw BypassStartException(R.string.bypass_vpn_engine_failed)
             if (stopRequested.get()) return
 
-            tun = buildYouTubeTunnel()
+            tun = buildAppTunnel(appPackage)
                 ?: throw BypassStartException(R.string.bypass_vpn_tunnel_failed)
             val config = writeTunnelConfig(engine.port)
             if (!TProxyService.TProxyStartService(config.absolutePath, tun.fd)) {
@@ -280,7 +286,8 @@ class BypassVpnService : VpnService() {
                 .notify(NOTIFICATION_ID, buildNotification(active = true))
             AppLog.i(
                 "BypassVpnService",
-                "tun up mtu=$TUN_MTU v6=1 dns=1.1.1.1 udp=udp s=${chain.indexOf(chosenLine) + 1}/${chain.size}"
+                "tun up mtu=$TUN_MTU v6=1 dns=1.1.1.1 udp=udp s=${chain.indexOf(chosenLine) + 1}/${chain.size} " +
+                    "app=${if (appPackage == YoutubeApps.DEFAULT_PACKAGE) "yt" else "other"}"
             )
             AppLog.i("BypassVpnService", "YouTube-only bypass active")
             if (monitorRunning.compareAndSet(false, true)) executor.execute { monitorTunnel() }
@@ -524,12 +531,8 @@ class BypassVpnService : VpnService() {
         }
     }
 
-    private fun ensureYouTubeInstalled() {
-        @Suppress("DEPRECATION")
-        packageManager.getApplicationInfo(YOUTUBE_PACKAGE, 0)
-    }
-
-    private fun buildYouTubeTunnel(): ParcelFileDescriptor? {
+    /** Patch 51: a tunnel that lets exactly one app through, the one the user chose (YouTube unless changed in Settings). */
+    private fun buildAppTunnel(appPackage: String): ParcelFileDescriptor? {
         val builder = Builder()
             .setSession(getString(R.string.bypass_title))
             .setMtu(TUN_MTU)
@@ -539,7 +542,7 @@ class BypassVpnService : VpnService() {
             .addRoute("::", 0)
             .addDnsServer("1.1.1.1")
             .addDnsServer("2606:4700:4700::1111")
-            .addAllowedApplication(YOUTUBE_PACKAGE)
+            .addAllowedApplication(appPackage)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) builder.setMetered(false)
         return builder.establish()
     }

@@ -35,6 +35,9 @@ internal object LogFormat {
         "Library" to "lib",
         "MainActivity" to "ui",
         "BypassDashboard" to "ui",
+        "YoutubeApps" to "ui",
+        "BatteryOptimization" to "ui",
+        "AppUpdate" to "upd",
         "App" to "app",
         "Logs" to "log",
         "Crash" to "crash"

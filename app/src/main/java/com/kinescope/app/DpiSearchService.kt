@@ -24,7 +24,9 @@ internal data class DpiSearchUiState(
     @StringRes val resultMessageRes: Int? = null,
     val resultDirectWorks: Boolean = false,
     /** Patch 35: the quiet 25-day re-check (patch 46); downloads keep using the stored strategies. */
-    val background: Boolean = false
+    val background: Boolean = false,
+    /** Patch 51: the first-run check of a fresh install: it cannot be stopped and Home says to wait for it. */
+    val mandatory: Boolean = false
 )
 
 /**
@@ -37,8 +39,8 @@ internal object DpiSearchController {
     private val mutableState = MutableStateFlow(DpiSearchUiState())
     val state = mutableState.asStateFlow()
 
-    internal fun starting(background: Boolean = false) {
-        mutableState.value = DpiSearchUiState(running = true, background = background)
+    internal fun starting(background: Boolean = false, mandatory: Boolean = false) {
+        mutableState.value = DpiSearchUiState(running = true, background = background, mandatory = mandatory)
     }
 
     // Patch 35: a running download needs the engine, so a search steps aside between two strategies.
@@ -74,6 +76,10 @@ class DpiSearchService : Service() {
     }
     private val stopRequested = AtomicBoolean(false)
 
+    // Patch 51: set while the first-run check runs: Stop is ignored and the notification has no Stop button.
+    @Volatile
+    private var mandatoryRun = false
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
@@ -83,13 +89,15 @@ class DpiSearchService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_STOP -> stopRequested.set(true)
+            // Patch 51: the first-run check is mandatory; a stop request (a stale notification, an old intent) is ignored.
+            ACTION_STOP -> if (!DpiSearchController.state.value.mandatory) stopRequested.set(true)
             ACTION_START -> {
                 if (!DpiSearchController.state.value.running) {
                     val mode = intent?.getStringExtra(EXTRA_MODE) ?: MODE_MANUAL
                     val only = intent?.getStringArrayExtra(EXTRA_ONLY)?.toList()
                     stopRequested.set(false)
-                    DpiSearchController.starting(background = mode == MODE_BACKGROUND)
+                    mandatoryRun = mode == MODE_INITIAL
+                    DpiSearchController.starting(background = mode == MODE_BACKGROUND, mandatory = mandatoryRun)
                     // Patch 47: when the system refuses the foreground start (Android 12+ restricts it), nothing would
                     // ever end the "running" state: Home would show a re-check forever, downloads would wait for a
                     // search that never runs and no later search could start. Give the state back and stop instead.
@@ -220,15 +228,16 @@ class DpiSearchService : Service() {
                 progress.total
             )
         }
-        return NotificationCompat.Builder(this, CHANNEL_ID)
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_kinescope)
             .setContentTitle(getString(R.string.bypass_search_notification_title))
             .setContentText(text)
             .setContentIntent(AppIntents.pendingOpenHome(this))
             .setOnlyAlertOnce(true)
             .setOngoing(true)
-            .addAction(0, getString(R.string.stop), stopPendingIntent)
-            .build()
+        // Patch 51: the first-run check cannot be stopped, so its notification offers no Stop.
+        if (!mandatoryRun) builder.addAction(0, getString(R.string.stop), stopPendingIntent)
+        return builder.build()
     }
 
     private fun createNotificationChannel() {
@@ -253,8 +262,12 @@ class DpiSearchService : Service() {
         private const val MODE_MANUAL = "manual"
         private const val MODE_BACKGROUND = "background"
         private const val MODE_TEST = "test"
+        private const val MODE_INITIAL = "initial"
 
         fun start(context: Context) = dispatch(context, MODE_MANUAL, null)
+
+        /** Patch 51: the mandatory first-run check of a fresh install; it cannot be stopped. */
+        fun startInitial(context: Context) = dispatch(context, MODE_INITIAL, null)
 
         /**
          * Patch 35: a quiet full re-check; the stored and learned strategies keep working meanwhile. Patch 46: started by

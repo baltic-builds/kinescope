@@ -278,3 +278,15 @@ Arrangement and sizing only; colours, type and shapes are unchanged. Still drawn
 - **TV edge margin:** 0-5% of the window, chosen in Settings (default 5%, which is the old `48dp x 27dp` on 960x540dp).
 - **Not seen on a screen.** Compare the rail labels in Russian at 80dp, the wrapped buttons at the largest font size, and a TV
   at 0% and 5% margin, and adjust the numbers in `AdaptiveLayout.kt` and `AppChrome.kt` together.
+
+## Patch 51 — Home dashboard, strategy chips and a compact queue
+
+- The dashboard card keeps the patch 45 container (primary container while the YouTube bypass is on, surface variant
+  otherwise). The YouTube row is one `toggleable` row with a read-only Switch; "Unblock YouTube" is the one filled button.
+- The strategies are `FilterChip`s in a wrapping row: the colour name and five stars (filled and outlined star characters, with a
+  spoken description such as "Crimson, 4 of 5 stars"). The chip of the strategy in use is selected. No colour swatch is drawn: the
+  name is the colour, and a swatch would make a theme-dependent colour carry meaning.
+- The queue is compact (32dp tile, `bodySmall` status line, three rows then "Show all") so the dashboard owns the screen. This is a
+  deliberate departure from the 48dp tile of patch 36 for the queue rows only; the touch target of the row's buttons is unchanged.
+- Honesty: the stars are the app's own percentage (`StrategyResult.score`) rounded into five bands; they say how a strategy did
+  in the last test on the last network, not how it will do elsewhere.

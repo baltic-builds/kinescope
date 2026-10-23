@@ -23,6 +23,9 @@ class YtOfflineApp : Application() {
         if (Application.getProcessName() != packageName) return
         AppLog.init(this)
         installCrashLogger()
+        // Patch 51: a fresh install, an update or the same build (see AppUpdate). An update refreshes yt-dlp and the
+        // community strategy list below and raises a notice on Home; a fresh install is handled by MainActivity.
+        val launch = AppUpdate.onProcessStart(this)
 
         appScope.launch {
             // Rebuild the visible queue without doing journal/MediaStore I/O
@@ -37,10 +40,13 @@ class YtOfflineApp : Application() {
                 // force an immediate nightly refresh after a YouTube block, and
                 // Settings has a manual Update.
                 val lastUpdate = Settings.getLastUpdateTimestamp(this@YtOfflineApp)
-                if (MaintenanceSchedule.isStale(lastUpdate, System.currentTimeMillis())) {
+                // Patch 51: an app update refreshes yt-dlp at once, whatever the calendar says.
+                if (launch == LaunchKind.UPDATED || MaintenanceSchedule.isStale(lastUpdate, System.currentTimeMillis())) {
                     YtDlpUpdater.updateBlocking(this@YtOfflineApp)
                 }
             }
+            // ... and the strategy list from the repository; then Home recommends re-checking the strategies.
+            if (launch == LaunchKind.UPDATED) AppUpdate.refreshStrategyListAfterUpdate(this@YtOfflineApp)
         }
     }
 

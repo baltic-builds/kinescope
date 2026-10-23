@@ -60,9 +60,8 @@ fun BypassSettingsSection(requestNotifications: () -> Unit = {}) {
     var busy by remember { mutableStateOf(BypassBusy.NONE) }
     var message by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(Unit) {
-        if (DpiPrefs.isEnabled(context) && !initialVerified) DpiPrefs.setEnabled(context, false)
-    }
+    // Patch 51: the downloads switch is ON by default; until a strategy is verified it simply has nothing to do, so it is no
+    // longer switched off here (that would have turned the default off the first time Settings was opened).
     DisposableEffect(busy, searching) {
         view.keepScreenOn = busy != BypassBusy.NONE || searching
         onDispose { view.keepScreenOn = false }
@@ -194,9 +193,18 @@ fun BypassSettingsSection(requestNotifications: () -> Unit = {}) {
             modifier = Modifier.fillMaxWidth()
         )
         Spacer(Modifier.height(8.dp))
-        FocusRing(modifier = Modifier.fillMaxWidth()) {
-            OutlinedButton(modifier = Modifier.fillMaxWidth(), onClick = { DpiSearchService.stop(context) }) {
-                Text(stringResource(R.string.bypass_stop_search))
+        if (searchState.mandatory) {
+            // Patch 51: the first-run check cannot be stopped.
+            Text(
+                text = stringResource(R.string.bypass_first_run_note),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        } else {
+            FocusRing(modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(modifier = Modifier.fillMaxWidth(), onClick = { DpiSearchService.stop(context) }) {
+                    Text(stringResource(R.string.bypass_stop_search))
+                }
             }
         }
     } else {

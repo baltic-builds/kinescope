@@ -31,18 +31,16 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.ScaffoldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -120,6 +118,7 @@ internal fun AppFrame(
     onBack: () -> Unit,
     onHome: () -> Unit,
     onQuickAdd: () -> Unit,
+    onLibrary: () -> Unit,
     onSettings: () -> Unit,
     content: @Composable (PaddingValues) -> Unit
 ) {
@@ -136,6 +135,7 @@ internal fun AppFrame(
                     section = section,
                     onHome = onHome,
                     onQuickAdd = onQuickAdd,
+                    onLibrary = onLibrary,
                     onSettings = onSettings
                 )
             }
@@ -155,7 +155,13 @@ internal fun AppFrame(
                 )
         ) {
             if (rail && showNavigation) {
-                GlassNavRail(section = section, onHome = onHome, onQuickAdd = onQuickAdd, onSettings = onSettings)
+                GlassNavRail(
+                    section = section,
+                    onHome = onHome,
+                    onQuickAdd = onQuickAdd,
+                    onLibrary = onLibrary,
+                    onSettings = onSettings
+                )
                 Spacer(modifier = Modifier.width(spec.railGapDp.dp))
             }
             Column(modifier = Modifier.weight(1f).fillMaxHeight()) {
@@ -219,42 +225,7 @@ private fun ScreenHeader(title: String, showBack: Boolean, onBack: () -> Unit) {
     }
 }
 
-/**
- * Patch 36: explains the automatic first strategy check on a fresh install (patch 46: not after an app update). Android
- * selects values-ru only for a Russian locale; every other locale falls back to English values/.
- */
-@Composable
-internal fun StrategyRefreshNoticeDialog(progress: SearchProgress?, onDismiss: () -> Unit) {
-    AlertDialog(
-        onDismissRequest = {},
-        title = { Text(stringResource(R.string.strategy_refresh_title)) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(stringResource(R.string.strategy_refresh_body))
-                if (progress != null && progress.total > 0) {
-                    Text(
-                        stringResource(
-                            R.string.strategy_refresh_progress,
-                            (progress.index + 1).coerceAtMost(progress.total),
-                            progress.total
-                        ),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    LinearProgressIndicator(
-                        progress = { progress.index.toFloat() / progress.total },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            }
-        },
-        confirmButton = {
-            FocusRing {
-                TextButton(onClick = onDismiss) { Text(stringResource(R.string.strategy_refresh_ok)) }
-            }
-        }
-    )
-}
+// Patch 51: the first-run strategy-check dialog is gone; Home shows the message and the progress (BypassDashboard.kt).
 
 /** One destination of the navigation: how it looks, whether it is the current one and what a tap does. */
 private data class NavEntry(
@@ -266,11 +237,15 @@ private data class NavEntry(
     val onClick: () -> Unit
 )
 
-/** Home, Add (the accent button) and Settings; Logs counts as Settings. The only list of destinations. */
+/**
+ * Home, Add (the accent button), Library and Settings; Logs counts as Settings. The only list of destinations.
+ * Patch 51: the library left Home and is the third destination.
+ */
 private fun navEntries(
     section: AppSection,
     onHome: () -> Unit,
     onQuickAdd: () -> Unit,
+    onLibrary: () -> Unit,
     onSettings: () -> Unit
 ): List<NavEntry> = listOf(
     NavEntry(
@@ -288,6 +263,14 @@ private fun navEntries(
         labelRes = R.string.nav_add,
         descriptionRes = R.string.cd_quick_add,
         onClick = onQuickAdd
+    ),
+    NavEntry(
+        selected = section == AppSection.LIBRARY,
+        primary = false,
+        icon = Icons.Default.PlayArrow,
+        labelRes = R.string.nav_library,
+        descriptionRes = R.string.cd_library,
+        onClick = onLibrary
     ),
     NavEntry(
         selected = section == AppSection.SETTINGS || section == AppSection.LOGS,
@@ -377,6 +360,7 @@ internal fun GlassNavRail(
     section: AppSection,
     onHome: () -> Unit,
     onQuickAdd: () -> Unit,
+    onLibrary: () -> Unit,
     onSettings: () -> Unit
 ) {
     val spec = LocalAdaptive.current
@@ -395,7 +379,7 @@ internal fun GlassNavRail(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(if (spec.isTv) 14.dp else 10.dp)
             ) {
-                navEntries(section, onHome, onQuickAdd, onSettings).forEach { NavButton(it, showLabel = true) }
+                navEntries(section, onHome, onQuickAdd, onLibrary, onSettings).forEach { NavButton(it, showLabel = true) }
             }
         }
     }
@@ -406,6 +390,7 @@ internal fun GlassBottomBar(
     section: AppSection,
     onHome: () -> Unit,
     onQuickAdd: () -> Unit,
+    onLibrary: () -> Unit,
     onSettings: () -> Unit
 ) {
     // Patch 32: on Android 15+ (targetSdk 35) the system draws this app edge-to-edge, so a
@@ -435,7 +420,7 @@ internal fun GlassBottomBar(
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    navEntries(section, onHome, onQuickAdd, onSettings).forEach { NavButton(it, showLabel = false) }
+                    navEntries(section, onHome, onQuickAdd, onLibrary, onSettings).forEach { NavButton(it, showLabel = false) }
                 }
             }
         }

@@ -168,7 +168,7 @@
 <string name="bypass_need_test">Сначала проверьте обход в настройках.</string>
 <string name="bypass_vpn_permission_denied">Разрешение Android VPN не предоставлено.</string>
 <string name="bypass_vpn_no_verified_strategy">Перед запуском YouTube проверьте обход.</string>
-<string name="bypass_vpn_youtube_missing">Приложение YouTube не установлено.</string>
+<string name="bypass_vpn_youtube_missing">Выбранное приложение не установлено. Выберите другое в настройках.</string>
 <string name="bypass_vpn_engine_failed">Не удалось запустить обход.</string>
 <string name="bypass_vpn_tunnel_failed">Не удалось запустить локальный туннель YouTube.</string>
 <string name="bypass_notification_channel">Обход YouTube</string>
@@ -181,10 +181,6 @@
 <string name="cd_remove_download">Удалить загрузку</string>
     <string name="bypass_wait_download">Дождитесь окончания текущей загрузки, прежде чем тестировать или менять обход.</string>
     <!-- Patch 33 -->
-    <string name="strategy_refresh_title">Обновляем стратегии</string>
-    <string name="strategy_refresh_body">Kinescope запустил фоновое обновление сетевых стратегий. Это не займет много времени. Пожалуйста, не сворачивайте приложение и дождитесь завершения обновления.</string>
-    <string name="strategy_refresh_progress">Проверено %1$d из %2$d</string>
-    <string name="strategy_refresh_ok">Понятно</string>
     <string name="status_waiting_for_check">Ждём окончания проверки сети…</string>
     <string name="status_preparing_download">Готовим загрузку…</string>
     <string name="status_trying_another_way">Пробуем другой способ (%1$d из %2$d)…</string>
@@ -242,8 +238,8 @@
     <string name="no_player_tv">Не найден видеоплеер. Установите его, например VLC или Kodi, и повторите.</string>
     <string name="web_session_unavailable">Вход здесь недоступен: на этом устройстве нет встроенного браузера.</string>
     <!-- Patch 45: the Home bypass dashboard. -->
-    <string name="dash_headline_on">Обход включён</string>
-    <string name="dash_headline_off">Обход выключен</string>
+    <string name="dash_headline_on">Обход YouTube включён</string>
+    <string name="dash_headline_off">Обход YouTube выключен</string>
     <string name="dash_headline_checking">Проверяем способы…</string>
     <string name="dash_headline_setup">Ещё не настроено</string>
     <string name="dash_sub_checking">Это может занять несколько минут. Можно выйти из приложения — проверка продолжится.</string>
@@ -251,20 +247,13 @@
     <string name="dash_ways_ready">Готово способов: %1$d</string>
     <string name="dash_ways_ready_checked">Готово способов: %1$d · проверено %2$s</string>
     <string name="dash_just_now">только что</string>
-    <string name="dash_downloads_label">Загрузки</string>
-    <string name="dash_downloads_bypass">Через обход</string>
-    <string name="dash_downloads_direct">Напрямую</string>
-    <string name="dash_applies_next">Идущие загрузки сохраняют свой маршрут; изменение подействует со следующей.</string>
-    <string name="dash_tunnel_keeps_on">Остаётся включённым, пока работает туннель YouTube.</string>
     <string name="dash_youtube_label">Приложение YouTube</string>
     <string name="dash_youtube_on">Туннель включён</string>
     <string name="dash_youtube_idle">Трафика пока нет</string>
     <string name="dash_youtube_no_answer">Приложение отправляет данные, но ответа нет</string>
     <string name="dash_rate">↓ %1$s · ↑ %2$s</string>
     <string name="dash_way">Способ %1$d из %2$d</string>
-    <string name="dash_open_youtube">Открыть YouTube</string>
     <string name="dash_check_ways">Проверить способы</string>
-    <string name="dash_check_again">Проверить снова</string>
     <string name="dash_check_progress">Проверено %1$d из %2$d</string>
     <string name="dash_recheck">Фоновая перепроверка · %1$d из %2$d</string>
     <string name="dash_wait_download_check">Дождитесь окончания загрузки, чтобы проверить способы.</string>
@@ -278,4 +267,141 @@
     <string name="overscan_title">Отступ от краёв экрана</string>
     <string name="overscan_hint">Увеличьте, если телевизор обрезает края картинки; уменьшите, чтобы использовать весь экран.</string>
     <string name="overscan_percent">%1$d%%</string>
+
+    <!-- Patch 51: colour names of the strategies (append-only, see StrategyNames.kt), the Home dashboard,
+         the YouTube app setting, the power-saving prompt, the first-run and update notices, the Library tab. -->
+    <string-array name="strategy_colors">
+        <item>Белый</item>
+        <item>Чёрный</item>
+        <item>Красный</item>
+        <item>Зелёный</item>
+        <item>Жёлтый</item>
+        <item>Синий</item>
+        <item>Коричневый</item>
+        <item>Фиолетовый</item>
+        <item>Розовый</item>
+        <item>Оранжевый</item>
+        <item>Серый</item>
+        <item>Голубой</item>
+        <item>Бежевый</item>
+        <item>Бирюзовый</item>
+        <item>Золотой</item>
+        <item>Серебряный</item>
+        <item>Бордовый</item>
+        <item>Тёмно-синий</item>
+        <item>Лаймовый</item>
+        <item>Оливковый</item>
+        <item>Сине-зелёный</item>
+        <item>Циан</item>
+        <item>Пурпурный</item>
+        <item>Лавандовый</item>
+        <item>Сиреневый</item>
+        <item>Фиалковый</item>
+        <item>Индиго</item>
+        <item>Коралловый</item>
+        <item>Лососевый</item>
+        <item>Персиковый</item>
+        <item>Абрикосовый</item>
+        <item>Янтарный</item>
+        <item>Горчичный</item>
+        <item>Лимонный</item>
+        <item>Кремовый</item>
+        <item>Слоновая кость</item>
+        <item>Хаки</item>
+        <item>Песочный</item>
+        <item>Шоколадный</item>
+        <item>Кофейный</item>
+        <item>Каштановый</item>
+        <item>Медный</item>
+        <item>Бронзовый</item>
+        <item>Ржавый</item>
+        <item>Кирпичный</item>
+        <item>Багровый</item>
+        <item>Алый</item>
+        <item>Рубиновый</item>
+        <item>Малиновый</item>
+        <item>Вишнёвый</item>
+        <item>Винный</item>
+        <item>Фуксия</item>
+        <item>Сливовый</item>
+        <item>Лиловый</item>
+        <item>Орхидейный</item>
+        <item>Аметистовый</item>
+        <item>Небесный</item>
+        <item>Лазурный</item>
+        <item>Кобальтовый</item>
+        <item>Сапфировый</item>
+        <item>Ультрамарин</item>
+        <item>Джинсовый</item>
+        <item>Васильковый</item>
+        <item>Аква</item>
+        <item>Аквамарин</item>
+        <item>Мятный</item>
+        <item>Изумрудный</item>
+        <item>Нефритовый</item>
+        <item>Лесной</item>
+        <item>Моховой</item>
+        <item>Шалфейный</item>
+        <item>Фисташковый</item>
+        <item>Авокадо</item>
+        <item>Шартрез</item>
+        <item>Морская пена</item>
+        <item>Угольный</item>
+        <item>Графитовый</item>
+        <item>Сланцевый</item>
+        <item>Пепельный</item>
+        <item>Стальной</item>
+        <item>Жемчужный</item>
+        <item>Снежный</item>
+        <item>Эбеновый</item>
+        <item>Ониксовый</item>
+        <item>Полночный</item>
+        <item>Шафрановый</item>
+        <item>Мандариновый</item>
+        <item>Тыквенный</item>
+        <item>Медовый</item>
+        <item>Карамельный</item>
+        <item>Ванильный</item>
+        <item>Банановый</item>
+        <item>Канареечный</item>
+        <item>Пшеничный</item>
+        <item>Какао</item>
+        <item>Махагоновый</item>
+        <item>Терракотовый</item>
+        <item>Бургундский</item>
+        <item>Барвинковый</item>
+        <item>Баклажановый</item>
+    </string-array>
+    <string name="dash_headline_first_run">Подождите, пока мы обновляем стратегии.</string>
+    <string name="dash_sub_first_run">Это делается один раз после установки, пропустить нельзя. Может занять несколько минут.</string>
+    <string name="dash_speed">Скорость загрузки: %1$s</string>
+    <string name="dash_speed_waiting">Скорость загрузки: измеряем…</string>
+    <string name="dash_strategy_title">Стратегия</string>
+    <string name="dash_strategy_current">Сейчас: %1$s</string>
+    <string name="dash_strategies_empty">Запустите проверку стратегий в настройках, чтобы их сравнить.</string>
+    <string name="dash_strategy_cd">%1$s, звёзд: %2$d из 5</string>
+    <string name="dash_strategy_applies_next">Идущая загрузка или туннель продолжают со старой стратегией; новая применится со следующего запуска.</string>
+    <string name="bypass_first_run_note">Эту первую проверку остановить нельзя.</string>
+    <string name="banner_updated">Kinescope обновлён. yt-dlp и список стратегий уже свежие. Чтобы всё работало лучше, запустите проверку стратегий в настройках.</string>
+    <string name="banner_updated_action">Открыть настройки</string>
+    <string name="queue_show_all">Показать все (%1$d)</string>
+    <string name="queue_show_fewer">Свернуть</string>
+    <string name="nav_library">Библиотека</string>
+    <string name="cd_library">Библиотека</string>
+    <string name="settings_youtube_app">Приложение для «Разблокировать YouTube»</string>
+    <string name="youtube_app_hint">Выберите приложение, которое открывает кнопка «Разблокировать YouTube» и которому обход помогает. По умолчанию это официальное YouTube; подойдёт и другое приложение для YouTube или браузер.</string>
+    <string name="youtube_app_default">По умолчанию</string>
+    <string name="youtube_app_none">Не найдено приложений, которые открывают YouTube.</string>
+    <string name="youtube_app_note">Вступит в силу при следующем запуске обхода YouTube. Обход использует только это приложение.</string>
+    <string name="battery_prompt_title">Чтобы загрузки не прерывались</string>
+    <string name="battery_prompt_body">Экономия заряда Android может закрыть Kinescope в фоне и остановить загрузки. Разрешите работу без ограничений, и они дойдут до конца.</string>
+    <string name="battery_prompt_open">Открыть настройки</string>
+    <string name="battery_prompt_later">Не сейчас</string>
+    <string name="settings_battery">Работа в фоне</string>
+    <string name="battery_hint">Экономия заряда может останавливать Kinescope, когда экран выключен. Отключите её для этого приложения, чтобы загрузки и обход не прерывались. На некоторых телефонах (Xiaomi, Huawei, Samsung и других) на странице приложения есть ещё отдельный переключатель батареи или автозапуска.</string>
+    <string name="battery_status_ok">Экономия заряда для Kinescope отключена.</string>
+    <string name="battery_status_limited">Экономия заряда может остановить Kinescope в фоне.</string>
+    <string name="battery_open">Отключить экономию заряда</string>
+    <string name="battery_app_info">Настройки приложения</string>
+    <string name="battery_open_failed">Не удалось открыть настройки.</string>
 </resources>

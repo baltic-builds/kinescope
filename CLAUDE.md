@@ -112,3 +112,12 @@ future sessions don't lose them.)
   was left, and the large items (a TV-native Home, `material3-adaptive`, Media3, `focusRestorer`) were postponed with reasons
   (`CHANGELOG.md`, "Patch 48"). The hidden five-tap route to the log (patch 24) stays, but a remote cannot make five taps in
   650ms, so Settings now also has a plain Diagnostics button; revert that button if the log should be hidden again.
+- **Decision (patch 51): strategies are named after colours, the list mirrors its source, the first check is mandatory.**
+  (1) Every bypass strategy has a colour name, never a bare number. THE RULE: the palette (`R.array.strategy_colors`, EN and RU,
+  most common colours first, append-only) is assigned in order, a strategy takes the first colour no other known strategy has,
+  the assignment is stored and does not change while the strategy is in the list (`StrategyNames.kt`; `HANDOFF.md`). (2) The
+  community list REPLACES the bundled snapshot when downloaded; it is never stacked on it, so the app shows built-ins + the
+  source's list (12 + 60 = 72 at 2026-10-22). (3) Strategy updates are forced only on the first install (mandatory, no Stop);
+  after an app update yt-dlp and the list refresh themselves and the user is only advised to re-test. (4) `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`
+  is declared on purpose: Google Play restricts it, this app is sideload-only (see "no Google Play" above). (5) The library left
+  Home at the user's request but is kept as its own screen so downloads can still be played; delete the entry to drop it.

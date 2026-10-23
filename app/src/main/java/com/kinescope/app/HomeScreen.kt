@@ -1,8 +1,6 @@
 package com.kinescope.app
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -12,14 +10,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -27,45 +22,45 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 
-// Home: the bypass dashboard slot, the queue and library lists, the empty state and the banners.
-// Patch 40: moved out of MainActivity.kt unchanged. Patch 41: two panes on wide windows (queue left, library
-// right), focus rings for TV, an empty-state text that names the control the screen really has.
+// Home: the bypass dashboard slot, the banners and the download queue.
+// Patch 40: moved out of MainActivity.kt unchanged. Patch 41: two panes on wide windows, focus rings for TV, an
+// empty-state text that names the control the screen really has.
+// Patch 51: the library left Home (it has its own screen, `LibraryScreen.kt`); the queue is compact (three rows, a
+// one-line empty state) so the dashboard has the screen; two panes are now the dashboard (left) and the queue (right);
+// a notice recommends re-checking the strategies after an app update.
+
+/** How many queue rows a single-column Home shows before "Show all". */
+private const val QUEUE_COLLAPSED_ROWS = 3
 
 @Composable
 internal fun HomeScreen(
     jobs: List<DownloadJobStatus>,
-    library: List<LibraryItem>,
     bypassState: BypassVpnUiState,
-    onOpenBypass: () -> Unit,
+    onToggleTunnel: (Boolean) -> Unit,
+    onOpenApp: () -> Unit,
     requestNotifications: () -> Unit,
-    onRefreshLibrary: () -> Unit,
-    onPlay: (LibraryItem) -> Unit,
-    onShare: (LibraryItem) -> Unit,
-    onDelete: (LibraryItem) -> Unit,
     onPause: (String) -> Unit,
     onResume: (String) -> Unit,
     onStop: (String) -> Unit,
     onSignIn: () -> Unit,
-    onSignInInstagram: () -> Unit
+    onSignInInstagram: () -> Unit,
+    onOpenSettings: () -> Unit
 ) {
+    val context = LocalContext.current
     val spec = LocalAdaptive.current
-    // Patch 45: the dashboard says when a bypass change applies and when a new check must wait; these are the
-    // same states Settings uses for its own controls.
-    val activeDownloads = jobs.count {
-        it.state == JobState.PREPARING || it.state == JobState.RUNNING ||
-            it.state == JobState.PROCESSING || it.state == JobState.SAVING
-    }
+    val updateNotice by UpdateNotice.pending.collectAsState()
     val networkFailure = jobs.any {
         it.failureKind == FailureKind.NO_INTERNET && it.state in setOf(JobState.INTERRUPTED, JobState.FAILED)
     }
@@ -80,20 +75,33 @@ internal fun HomeScreen(
             (it.state == JobState.PAUSED || it.state == JobState.FAILED)
     }
     var instagramBannerDismissed by remember { mutableStateOf(false) }
+    var showAllQueue by rememberSaveable { mutableStateOf(false) }
 
-    // The three blocks of Home. One column shows them one after another (a phone, a narrow window); two panes
-    // put the first two on the left and the library on the right, each scrolling on its own.
+    // The two blocks of Home. One column shows them one after another (a phone, a narrow window); two panes put the
+    // dashboard and the banners on the left and the queue on the right, each scrolling on its own.
     val topItems: LazyListScope.() -> Unit = {
         item {
-            // Patch 45: the hero card is a dashboard (see BypassDashboard.kt). Before, it held one YouTube
-            // button (patch 31) and the bypass switch needed a trip into Settings.
+            // Patch 45: the hero card is a dashboard (see BypassDashboard.kt).
             BypassDashboard(
                 tunnel = bypassState,
-                activeDownloads = activeDownloads,
-                onOpenYouTube = onOpenBypass,
+                jobs = jobs,
+                onToggleTunnel = onToggleTunnel,
+                onOpenApp = onOpenApp,
                 requestNotifications = requestNotifications
             )
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(12.dp))
+        }
+        if (updateNotice) {
+            item {
+                UpdateNoticeBanner(
+                    onDismiss = { UpdateNotice.dismiss(context) },
+                    onOpenSettings = {
+                        UpdateNotice.dismiss(context)
+                        onOpenSettings()
+                    }
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+            }
         }
         if (networkFailure && !networkBannerDismissed) {
             item {
@@ -129,59 +137,31 @@ internal fun HomeScreen(
     val queueItems: LazyListScope.() -> Unit = {
         item {
             Text(text = stringResource(R.string.queue_title), style = MaterialTheme.typography.titleMedium)
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(2.dp))
         }
 
         if (jobs.isEmpty()) {
             item { EmptyQueueState() }
         } else {
-            items(jobs, key = { it.id }) { job ->
+            val collapsible = !spec.twoPane && jobs.size > QUEUE_COLLAPSED_ROWS
+            val visible = if (collapsible && !showAllQueue) jobs.take(QUEUE_COLLAPSED_ROWS) else jobs
+            items(visible, key = { it.id }) { job ->
                 QueueRow(job, onPause, onResume, onStop)
             }
-        }
-    }
-
-    val libraryItems: LazyListScope.() -> Unit = {
-        item {
-            if (!spec.twoPane) {
-                Spacer(modifier = Modifier.height(20.dp))
-                HorizontalDivider()
-                Spacer(modifier = Modifier.height(8.dp))
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Patch 49: weighted, so a large font size wraps the title instead of squeezing Refresh.
-                Text(
-                    text = stringResource(R.string.library_title),
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.weight(1f)
-                )
-                FocusRing {
-                    TextButton(onClick = onRefreshLibrary) { Text(stringResource(R.string.refresh)) }
+            if (collapsible) {
+                item {
+                    FocusRing {
+                        TextButton(onClick = { showAllQueue = !showAllQueue }) {
+                            Text(
+                                if (showAllQueue) {
+                                    stringResource(R.string.queue_show_fewer)
+                                } else {
+                                    stringResource(R.string.queue_show_all, jobs.size)
+                                }
+                            )
+                        }
+                    }
                 }
-            }
-        }
-
-        if (library.isEmpty()) {
-            item {
-                Text(
-                    text = stringResource(R.string.library_empty),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(vertical = 12.dp)
-                )
-            }
-        } else {
-            items(library, key = { it.uri.toString() }) { item ->
-                LibraryRow(
-                    item = item,
-                    onPlay = { onPlay(item) },
-                    onShare = { onShare(item) },
-                    onDelete = { onDelete(item) }
-                )
             }
         }
     }
@@ -196,13 +176,12 @@ internal fun HomeScreen(
                 contentPadding = PaddingValues(bottom = 16.dp)
             ) {
                 topItems()
-                queueItems()
             }
             LazyColumn(
                 modifier = Modifier.weight(1f).fillMaxHeight(),
                 contentPadding = PaddingValues(bottom = 16.dp)
             ) {
-                libraryItems()
+                queueItems()
             }
         }
     } else {
@@ -212,49 +191,28 @@ internal fun HomeScreen(
         ) {
             topItems()
             queueItems()
-            libraryItems()
         }
     }
 }
 
+/** One line, no picture: the empty queue used to take a whole screen section (patch 51). */
 @Composable
 private fun EmptyQueueState() {
     val spec = LocalAdaptive.current
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Box(
-            modifier = Modifier
-                .size(80.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.primaryContainer),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                painter = painterResource(id = R.drawable.ic_download),
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                modifier = Modifier.size(36.dp)
-            )
-        }
-        Spacer(modifier = Modifier.height(12.dp))
-        Text(
-            // The phone text points at "the center button below"; the rail layouts have no such button,
-            // and a TV has no share sheet to share a link from.
-            text = stringResource(
-                when {
-                    spec.isTv -> R.string.empty_queue_tv
-                    spec.useRail -> R.string.empty_queue_side
-                    else -> R.string.empty_queue
-                }
-            ),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    }
+    Text(
+        // The phone text points at "the center button below"; the rail layouts have no such button,
+        // and a TV has no share sheet to share a link from.
+        text = stringResource(
+            when {
+                spec.isTv -> R.string.empty_queue_tv
+                spec.useRail -> R.string.empty_queue_side
+                else -> R.string.empty_queue
+            }
+        ),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(vertical = 6.dp)
+    )
 }
 
 @Composable
@@ -314,6 +272,31 @@ private fun VerificationBanner(
             }
             FocusRing {
                 TextButton(onClick = onSignIn) { Text(stringResource(actionRes)) }
+            }
+        }
+    }
+}
+
+/** Patch 51: after an app update yt-dlp and the strategy list refresh themselves; this recommends the re-check. */
+@Composable
+private fun UpdateNoticeBanner(onDismiss: () -> Unit, onOpenSettings: () -> Unit) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.primaryContainer
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = stringResource(R.string.banner_updated),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.weight(1f)
+                )
+                DismissButton(onDismiss)
+            }
+            FocusRing {
+                TextButton(onClick = onOpenSettings) { Text(stringResource(R.string.banner_updated_action)) }
             }
         }
     }

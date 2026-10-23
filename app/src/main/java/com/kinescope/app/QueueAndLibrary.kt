@@ -88,7 +88,7 @@ internal fun QueueRow(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(vertical = 4.dp)
+                    .padding(vertical = 2.dp)
                     .clip(MaterialTheme.shapes.medium)
                     .background(MaterialTheme.colorScheme.errorContainer)
                     .padding(end = 20.dp),
@@ -114,21 +114,22 @@ private fun QueueRowCard(
     onResume: (String) -> Unit,
     onRemove: (() -> Unit)?
 ) {
+    // Patch 51: compact rows (the queue was taking too much of Home): tighter padding, a 32dp tile, a small status line.
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp),
+            .padding(vertical = 2.dp),
         shape = MaterialTheme.shapes.medium,
         color = MaterialTheme.colorScheme.surfaceVariant,
         tonalElevation = 0.dp
     ) {
         Row(
-            modifier = Modifier.padding(12.dp),
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
                 modifier = Modifier
-                    .size(48.dp)
+                    .size(32.dp)
                     .clip(MaterialTheme.shapes.small)
                     .background(MaterialTheme.colorScheme.primaryContainer),
                 contentAlignment = Alignment.Center
@@ -136,10 +137,11 @@ private fun QueueRowCard(
                 Icon(
                     imageVector = Icons.Default.PlayArrow,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.size(20.dp)
                 )
             }
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = "${job.qualityLabel} — ${job.url}",
@@ -157,13 +159,13 @@ private fun QueueRowCard(
                 }
                 Text(
                     text = stringResource(R.string.job_status_line, jobStateLabel(job.state), job.progressText),
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.bodySmall,
                     color = statusColor,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
                 if (job.state in setOf(JobState.PREPARING, JobState.RUNNING, JobState.PROCESSING, JobState.SAVING)) {
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(4.dp))
                     val progressFraction = job.progressFraction
                     if (progressFraction != null) {
                         LinearProgressIndicator(

@@ -154,10 +154,16 @@ internal fun SettingsScreen(
                 Text(if (isUpdating) stringResource(R.string.update_checking) else stringResource(R.string.check_for_update))
             }
         }
+        // Patch 51: power saving stops background downloads; the permanent place to turn it off.
+        Spacer(modifier = Modifier.height(16.dp))
+        BatterySettingsSection()
     }
 
     val bypass: @Composable () -> Unit = {
         BypassSettingsSection(requestNotifications = requestNotifications)
+        // Patch 51: which app "Unblock YouTube" opens (and the tunnel carries).
+        Spacer(modifier = Modifier.height(16.dp))
+        YoutubeAppSection()
     }
 
     val accounts: @Composable () -> Unit = {

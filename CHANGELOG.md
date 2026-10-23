@@ -13,6 +13,82 @@ patch's own `.py` script for the exact, idempotent, exact-match-guarded
 edits it makes.
 
 
+## Patch 51 — Home dashboard with named strategies, power-saving prompt, YouTube app choice, mandatory first check
+
+Requires patch 50. Requested as one sprint of seven items: (1) a prompt to switch off power saving, (2) a current strategy
+list with a unique name per strategy (a colour), (3) a Home dashboard, (4) a choice of the app that "Unblock YouTube"
+opens, (5) a smaller download queue, (6) no library on Home, (7) forced strategy updates only on the first install, an
+automatic refresh and a notice after an app update.
+
+### Strategy count (checked against the source)
+The source (`romanvht/ByeByeDPI`, `proxytest_strategies.list`) holds **60** strategies today. The app showed **76**: 12
+built-ins + 60 bundled + 4 lines that an earlier "Update" had downloaded on top of the snapshot. The upstream commit
+`3e2a85b` (2026-10-14, "Fixed proxytest_strategies.list") corrected six positional flags (`+sh`, `+nme`, `+sn`) in four
+lines, and the app kept the old and the fixed spelling side by side because the downloaded list was STACKED on the
+snapshot. Fix: the bundled asset is refreshed to the current 60 lines (captured 2026-10-22), and the community list is
+now the downloaded one when there is one and the snapshot otherwise (`mergeStrategyLists`), never both. The app mirrors
+the source: **12 built-in + 60 from the source = 72**. `Update` compares with the list in use, so "Unchanged" is reported
+correctly even when the app still runs on the snapshot.
+
+### 1. Power saving (`BatteryOptimization.kt`, Settings, `MainActivity`)
+Android's power saving closes the app in the background. The platform's cure is the battery-optimization exemption:
+`ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` shows the system's own dialog (it needs the
+`REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` permission, declared with `tools:ignore="BatteryLife"`; Google Play restricts it, a
+sideloaded app may use it). If a vendor lacks that dialog, the list `ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS` and then the
+app's own system page open instead; that page is also where Xiaomi, Huawei, Samsung and others hide an extra battery or
+autostart switch, so Settings has a second button for it. The pop-up appears from the second launch on (the launch counter
+counts a cold start, not a window recreation), once, never before the first-run check has finished, and not when the app is
+already exempt (`BatteryOptimization.shouldPrompt`, unit-tested). Settings has a permanent "Background work" section: a
+plain explanation, the current state (read again when the user returns from the system screen) and the two buttons.
+
+### 2. Strategy names (`StrategyNames.kt`)
+Every strategy has a colour name (EN and RU `strategy_colors`, 100 colours, most common first: the eleven basic colour
+terms of Berlin and Kay, then everyday colours). The rule: a strategy takes the first colour of the palette that no other
+known strategy has, in the order strategies are first met (built-ins, then the community list); the assignment is stored
+and never changes while the strategy stays in the list; a strategy that leaves the list frees its colour (unless it is in
+the chain or pinned); the palette is append-only; past 100 strategies a number is added ("Red 2"). The picker in Settings,
+the dashboard and the pin toast use the name; the raw command line stays under it in the picker.
+
+### 3. Home dashboard (`BypassDashboard.kt`, `BypassDashboardModel.kt`, `HomeScreen.kt`)
+- A switch for the YouTube bypass (the YouTube-only tunnel) with its live state, and the "Unblock YouTube" button next to
+  it (starts the tunnel when off, then opens the chosen app).
+- The 15 most successful strategies as chips: the colour name and 1-5 stars. The app measures effectiveness as a percentage
+  (`StrategyResult.score`); stars: 100 -> 5, 85-99 -> 4, 75-84 -> 3, 60-74 -> 2, below -> 1 (`strategyStars`). Only strategies
+  that passed their last test and are still in the list are offered (`topStrategies`). One tap uses a strategy (the same
+  as "Use" in Settings); "Choose automatically" lifts a pin; the section collapses.
+- The speed of the running download (yt-dlp's own reading, `DownloadJobStatus.speedKbps`), only while a download runs.
+- The "downloads through the bypass" switch moved to Settings only. It is **on by default** (`DpiPrefs.isEnabled` defaults
+  to true; Settings no longer switches it off when nothing is verified yet).
+
+### 4. The app behind "Unblock YouTube" (`YoutubeApps.kt`, `YoutubeAppSettings.kt`)
+Settings lists the apps that open a YouTube link (found with a `VIEW` intent for a youtube.com URL; `<queries>` in the manifest
+makes them visible on Android 11+): the official YouTube app (default), alternative clients, browsers. The choice is stored
+as a package name. The button opens the YouTube site in a chosen browser or client and the launcher of the official app as
+before, and the tunnel's `addAllowedApplication` now carries exactly the chosen app. A change applies the next time the
+tunnel starts.
+
+### 5-6. Queue and library
+The queue is compact: 32dp tile, small status line, a one-line empty state, three rows with "Show all (N)" on a phone.
+The library is no longer on Home. Removing it outright would have left no way to play or delete a download inside the app,
+so it is its own screen (`LibraryScreen.kt`) and the navigation's fourth entry (`AppSection.LIBRARY`); to drop it entirely
+delete that entry. Two-pane Home is now dashboard | queue.
+
+### 7. First install and updates (`AppUpdate.kt`, `DpiSearchService`)
+- A fresh install runs the check in the new `initial` mode: it cannot be stopped (Stop is ignored by the service, hidden
+  in the dashboard, Settings and the notification) and Home says "Please wait while we update the strategies." with the
+  progress. The dialog that used to announce it is gone. A download that needs the bypass already waits for the check
+  (`RouteLadder`, patch 35).
+- After an app update (a version code other than the one last seen; a build from before this logic that had finished its
+  first check counts as updated) `YtOfflineApp` refreshes yt-dlp at once and downloads the strategy list, then a notice on
+  Home recommends running "Test strategies" in Settings. Nothing is forced and nothing blocks the app.
+- The quiet 25-day re-check of patch 46 is unchanged.
+
+### Verification done in this session
+Applied to a copy of the repository exported at patch 50, twice (the second run changes nothing); braces, parentheses and
+XML checked; both `strings.xml` files in step (191 + the new keys); every `R.string` reference resolves in both languages;
+the pure logic compiled with `kotlinc` against the real parser and exercised by the new tests' assertions. Gradle, lint and the
+device could not be run in the sandbox.
+
 ## Patch 50 — The app gets its own window theme: no more black bar with the app name
 
 Requires patch 49. Reported on a Redmi Pad (Android 13): a huge black strip labelled "Kinescope" across the top of the

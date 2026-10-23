@@ -40,4 +40,32 @@ class DpiBundledStrategiesTest {
         assertTrue(DpiBuiltInStrategies.lines.none { it in bundled })
         assertEquals(72, (DpiBuiltInStrategies.lines + bundled).distinct().size)
     }
+
+    @Test
+    fun aDownloadedListReplacesTheSnapshotInsteadOfStackingOnIt() {
+        val bundled = DpiStrategyParser.parseList(asset.readText())
+        // The upstream flag fix of 2026-10-14 changed four lines. Stacking kept the old and the fixed variant side by
+        // side (76 strategies for a source of 60); the downloaded list must replace the snapshot.
+        val downloaded = bundled.mapIndexed { index, line -> if (index < 4) "$line -a9" else line }
+        val merged = mergeStrategyLists(DpiBuiltInStrategies.lines, bundled, downloaded)
+        assertEquals(DpiBuiltInStrategies.lines.size + downloaded.size, merged.size)
+        assertTrue(bundled.take(4).none { it in merged })
+        assertEquals(DpiBuiltInStrategies.lines + downloaded, merged)
+    }
+
+    @Test
+    fun withoutADownloadedListTheSnapshotIsUsed() {
+        val bundled = DpiStrategyParser.parseList(asset.readText())
+        assertEquals(
+            (DpiBuiltInStrategies.lines + bundled).distinct(),
+            mergeStrategyLists(DpiBuiltInStrategies.lines, bundled, emptyList())
+        )
+    }
+
+    @Test
+    fun theSnapshotHoldsNoPositionalFlagTheSourceFixed() {
+        // Six flags were corrected upstream on 2026-10-14 (3e2a85b); none of the old spellings may come back.
+        val bundled = DpiStrategyParser.parseList(asset.readText())
+        assertTrue(bundled.none { "+sh" in it || "+nme" in it || "+sn" in it })
+    }
 }
