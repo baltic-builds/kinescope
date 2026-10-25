@@ -1,319 +1,58 @@
-# design.md — Visual design system
+# Kinescope visual design — October 2026
 
-## Honesty check, up front
+## Reference and scope
+Google's Gemini **Neural Expressive** redesign was announced in May 2026, and is a design reference, not a published transferable component library or a mandate to copy the Gemini UI. Google Material 3/Material 3 Expressive is the implementable Android standard. This project uses a Kinescope-specific system instead of Google identity/assets.
 
-This is a **best-effort visual approximation** of the Claude Android
-app's aesthetic, not an extraction of Anthropic's real internal
-design spec. Claude (me, writing this) doesn't have access to
-Anthropic's actual design-token files — what follows is built from:
+Sources (checked October 25, 2026):
+- https://blog.google/innovation-and-ai/technology/ai/google-io-2026-all-our-announcements/
+- https://developer.android.com/develop/ui/compose/designsystems/material3
+- https://developer.android.com/develop/adaptive-apps/guides/use-window-size-classes
 
-- General familiarity with the public look of Claude's apps (warm,
-  calm, terracotta accent on a cream background, minimal chrome).
-- A handful of independent third-party "brand color scraper" sites
-  that reverse-engineer colors from Anthropic's public web assets.
-  Several of them converge on the same values, which is why the
-  numbers below are the ones used — but "several unofficial sites
-  agree" is not the same as "this is Anthropic's real spec."
+## Rules in this patch
 
-Two things follow from that:
+1. **Hierarchy:** one meaningful home hero (VPN status, one tunnel switch), one automated-selection control, then the primary Watch YouTube action. No strategy picker on Home; expert controls last in Settings.
+2. **Color:** bright but grounded Kinescope orange is reserved for checked switches, the action button and positive focus. The off track/thumb are neutral grays with clear outlines in both light and dark themes. Never encode status by color alone: show readable text.
+3. **Shape and space:** larger 28dp hero corners, raised surface, 20dp horizontal / 22dp vertical interior spacing, comfortable touch target (>=48dp) and clear typography scale.
+4. **Type:** Inter for readable UI and headlines; avoid faux branded serif/gemini fonts and keep the system fallback. Headlines have one dominant scale, supporting text uses title/body/label M3 roles.
+5. **Adaptive:** window width, not device name, determines bottom navigation vs rail and single vs two-pane Settings. Preserve existing compact/medium/expanded breakpoints, fold/multitasking and TV D-pad focus rings; avoid fixed-height labels and allow larger fonts.
+6. **Motion:** express state changes with intrinsic M3 control state changes, but avoid continuous distracting animations on network controls. Respect device animation preferences; no decorative light-show implying the VPN is healthy.
+7. **Accessibility:** explicit switch semantics, labels and descriptive live status, contrast-aware on/off tokens, minimum targets, and actual RTL/large-font/device verification as a release gate.
+8. **Bilingual:** UI strings in English and Russian; all newly modified labels exist in both resources. Manual selection is connection-class-specific.
+9. **Safety:** turning the VPN off frees Kinescope's TUN immediately, followed by engine and bridge cleanup. Never imply control over another app's VPN, and never claim success from engine startup alone.
 
-1. **Compare against the real app once it's on your phone** and
-   nudge hex values if something looks off. Treat everything below as
-   a strong starting point, not gospel.
-2. **Fonts are not copied.** Anthropic's actual brand typefaces
-   (Styrene for UI text, a custom serif for display text) are
-   commercial, licensed fonts — bundling them into a personal app
-   without a license isn't something to do. Kinescope instead requests
-   the independently licensed Google Fonts Inter (UI/body) and Lora
-   (display/headline) through Android's downloadable-font provider,
-   with system-font fallback if the provider is unavailable.
+## Design tokens (source of truth: `Theme.kt`)
 
-**Also: don't use the name "Claude" or Anthropic's logo anywhere in
-this app.** Borrowing a similar visual *feel* for your own,
-unaffiliated personal project is fine; borrowing the actual brand
-name/mark would incorrectly suggest Anthropic made or endorses this
-app. The app is named **Kinescope** -- a name with no connection to Anthropic or Claude.
+| Role | Light | Dark |
+| --- | --- | --- |
+| Primary / checked switch | `#C74B12` | `#FFA276` |
+| On-primary | `#FFFFFF` | `#301508` |
+| Primary container | `#FFE4D5` | `#67371F` |
+| On-primary container | `#742B0C` | `#FFE4D5` |
+| Background | `#F8F9FB` | `#101317` |
+| Surface | `#FFFFFF` | `#1B2026` |
+| Surface variant / switch off | `#E7E9ED` | `#2A3038` |
+| Foreground | `#1E2329` | `#F3F5F8` |
+| Secondary text | `#565D65` | `#C3C9D2` |
+| Outline | `#B9C0C9` | `#67717E` |
 
-## Design principles
+Custom success/warning colors remain in `YtOfflineExtras`. Use the correct `on*` tokens for text; checked switch colors are explicit in `KinescopeSwitch.kt`, not inferred from default M3 tokens. Contrast target: WCAG AA 4.5:1 for normal text; light orange `#C74B12` with white is approximately 4.73:1.
 
-- **Warm, not clinical.** Cream/parchment backgrounds instead of
-  stark white or cold gray — the thing Claude's brand is most visibly
-  known for versus other AI products' blues and grays.
-- **One accent color, used sparingly.** Terracotta orange for
-  primary actions and selected states only. Everything else stays
-  near-neutral so the accent actually reads as an accent.
-- **Calm typography.** A serif for the one or two moments that want
-  a bit of character (the app title), clean sans for everything
-  read in a hurry (buttons, lists, status text).
-- **Soft geometry.** Generously rounded corners, no hard edges, no
-  heavy drop shadows — flat, calm surfaces separated by color and
-  spacing rather than borders.
+## Responsive specifications
 
-## Color tokens
+- <600dp: compact, one column + bottom navigation, 20dp side padding.
+- 600–839dp: navigation rail, usually one content pane.
+- 840dp and above: rail, multi-pane only when 700dp of content width remains.
+- Android TV: TV typography x1.15, 56dp minimum controls, 72dp header, configurable overscan 0–5%, accessible D-pad focus ring.
+- Media controls wrap, scroll and use intrinsic min-height rather than fixed text boxes.
 
-| Token | Hex | Used for |
-|---|---|---|
-| `background` | `#FAF9F5` | Screen background (warm cream, not white) |
-| `surface` | `#FFFFFF` | Cards/sheets that sit above the background |
-| `surfaceVariant` | `#F0EEE6` | Queue/library row backgrounds, unselected chips |
-| `onBackground` / `onSurface` | `#141413` | Primary text (warm near-black, not pure black) |
-| `onSurfaceVariant` | `#73726C` | Secondary/meta text (status lines, captions) |
-| `outline` | `#E3E1D9` | Dividers, subtle borders |
-| `primary` | `#D97757` | Buttons, selected chip, links, the app's one accent |
-| `onPrimary` | `#3D1A0E` | Text/icons on top of `primary`; warm-dark value keeps contrast above the body-text target on terracotta |
-| `primaryContainer` | `#F3DDD2` | Selected chip background (a light tint of `primary`) |
-| `onPrimaryContainer` | `#6B3520` | Text on `primaryContainer` |
-| `success` (custom, not a Material3 slot) | `#56683F` | "Done" status text in the queue list; darkened in patch 25 for stronger light-theme contrast |
-| `warning` (custom, not a Material3 slot) | `#7A5A18` | Paused / interrupted recoverable state text with stronger light-theme contrast |
-| `error` | `#BA1A1A` | Failed status text. Kept as a standard, unambiguous red rather than a brand-adjacent tone — a failure needs to read as a failure at a glance more than it needs to be on-brand. |
+## Verification and acceptance criteria
 
-A dark theme was added later (patch 03); `Theme.kt` is the source of truth for its exact tokens. The light tokens above remain the visual baseline.
+- Both switch positions: visible orange `on` and neutral gray `off` in both themes, with clear textual labels; disabled remains distinguishable.
+- Home displays status / tunnel / automatic mode / Watch YouTube; manual selection only at Settings bottom when auto is off for the present network.
+- Verify screens at 320, 360, 600, 840, 1280dp, with 200% font scale, landscape, split-screen, screen reader, TV D-pad, English/Russian.
+- Verify real-device Wi-Fi and cellular transitions and no-stuck-TUN behavior on STOP and revoke; integration cannot be certified by unit tests.
+- No Gemini/Google branding, no proprietary visual assets, and no claim of reproducing confidential Google design specs.
 
-## Typography
+## Window background consistency (v.3)
 
-| Role | Family | Weight | Used for |
-|---|---|---|---|
-| `displaySmall` / `headlineSmall` | Lora via Google Fonts provider | SemiBold | Character/display moments including the Kinescope title |
-| `titleMedium` | Inter via Google Fonts provider | SemiBold | Section headers |
-| `titleSmall` / `labelLarge` / `labelSmall` | Inter via Google Fonts provider | Medium | Row titles, actions and compact labels |
-| body roles | Inter via Google Fonts provider | Regular | Body text, list rows, status/meta text |
-
-The font files are not bundled in the APK. Android requests Inter and Lora through Google Play Services' downloadable-font provider; the API falls back to a system font when the provider cannot supply them. This replaced the original system-serif/system-sans prototype and is already implemented in `Theme.kt`.
-
-## Shape scale
-
-| Token | Radius | Used for |
-|---|---|---|
-| `extraSmall` | 6dp | Small elements |
-| `small` | 10dp | Text field, chips |
-| `medium` | 14dp | Queue/library row cards |
-| `large` | 20dp | Larger containers |
-| `extraLarge` | 28dp | Reserved for anything closer to full-bleed/pill shapes |
-
-## Where this lands in the existing screen
-
-- **App title** ("Kinescope") → `headlineSmall` (serif).
-- **Section headers** ("Queue", "Library", settings labels) →
-  `titleMedium`/`titleSmall` (sans, semibold).
-- **Quality chips** → already `FilterChip` from Phase 2; theming
-  alone (via `MaterialTheme.colorScheme`) makes the selected chip
-  pick up `primaryContainer`/`onPrimaryContainer` and unselected
-  chips pick up `surfaceVariant` — no chip-specific code changes
-  needed beyond applying the theme.
-- **Queue rows / library rows** → wrapped in a `Surface` using
-  `shapes.medium` + `colorScheme.surfaceVariant`, turning plain text
-  rows into soft rounded cards. "Done" status uses the custom
-  `success` green; "Failed" uses `error` red.
-- **Primary button** ("Add to download queue") → already
-  `Button()`; theming alone gives it the terracotta `primary` fill.
-- **App icon** → patch 24 replaces the original download-arrow mark with an original retro television: warm cream/pale background, terracotta shell, raised cream glass and warm-dark controls. It is intentionally only *inspired by* pre-flat skeuomorphic mobile TV icons, not a copy of YouTube artwork. Android 13+ also gets a monochrome adaptive layer.
-
-## Implementation sprint
-
-Concrete, in order — see the actual code for the first six, already
-applied in this pass:
-
-1. `Theme.kt` — color tokens, typography, shape scale, and a
-   `YtOfflineTheme(content)` composable wrapping Material3's
-   `MaterialTheme`.
-2. `MainActivity.kt` — swap the bare `MaterialTheme { ... }` for
-   `YtOfflineTheme { ... }`.
-3. Queue and library rows restyled as rounded `surfaceVariant` cards;
-   "Done"/"Failed" status text colored via the new `success`/`error`
-   tokens.
-4. Adaptive launcher icon (`ic_launcher_background.xml`,
-   `ic_launcher_foreground.xml`, `mipmap-anydpi-v26/ic_launcher.xml` +
-   `ic_launcher_round.xml`), referenced from `AndroidManifest.xml`.
-   No legacy raster mipmaps needed — `minSdk` is already 29, well
-   above the API 26 adaptive-icon floor.
-5. Build and actually look at it on a device — spot-check contrast
-   (dark text on cream, warm-dark text/icons on terracotta actions) and
-   compare against the intended Kinescope visual direction for anything
-   that reads obviously off.
-6. Note anything that needs adjusting back in this file so the next
-   round starts from an updated baseline instead of the same guesses.
-
-Later passes already completed the downloaded-font and dark-theme items from this original list. A dedicated splash/launch theme remains optional only if startup ever shows a visible flash on the real device; it is not active roadmap work.
-
-## "Maximally similar" pass (post-initial design system)
-
-Pushed further toward Claude's actual app layout, not just its color
-tokens:
-
-- **Real downloadable fonts.** Inter (sans, UI/body text) and Lora
-  (serif, the one headline) via Compose's Google Fonts provider,
-  replacing the system Serif/Default families from the first pass.
-  No font files bundled in the APK — fetched on-device via Google
-  Play Services the first time they're needed, and the API is
-  designed to fail soft (falls back to the system font) if that ever
-  doesn't work, rather than crashing.
-- **Bottom composer bar.** The URL input moved from an inline field
-  near the top to a rounded, filled pill anchored to the bottom of
-  the screen with a send icon inside it — the single most
-  recognizable layout element of Claude's own app. Quality chips sit
-  just above it.
-- **Icon-only top bar actions.** "Update" and "Settings" text buttons
-  became icon buttons in a proper `TopAppBar`, matching the sparse,
-  icon-driven chrome of Claude's app rather than a row of labeled
-  buttons.
-- **Icon-only Play button** in the library list instead of a text
-  button, for the same reason.
-
-Still not done, still Claude's actual name/logo/licensed fonts are
-intentionally never used — see the honesty section above, which
-still applies in full.
-## Patch 24 — navigation and icon extension
-
-The first post-roadmap sprint extends this system without changing its core palette or typography:
-
-- **Bottom navigation / glass treatment.** Home and Settings sit in a rounded translucent `surface` container with a subtle `outline` border, tonal elevation and soft shadow. The center Add action floats as a stronger circular `primary` element. This is the project's "glassmorphism 2.0" interpretation: layered translucency and depth using native Compose/Material primitives, not a fake screenshot blur or a new rendering dependency.
-- **Information architecture.** Home = queue + library. Center Add = focused URL/quality flow with clipboard prefill. Settings = defaults/storage/extractor/bypass/YouTube and Instagram sessions. Icon-only navigation keeps chrome compact.
-- **Launcher icon.** Original retro-TV silhouette; `#FAF9F5` background, `#D97757` shell, `#F3DDD2` glass, `#141413` controls, translucent white highlight. Geometry stays inside the adaptive safe zone and a dedicated monochrome layer supports themed icons.
-- **Localization.** Visual layouts must tolerate both English and Russian resources; avoid fixed text widths.
-
-## Patch 25 — accessibility and state semantics
-
-Patch 25 keeps the established palette but tightens the light-theme combinations that carry actionable/status meaning:
-
-- `onPrimary` is now `#3D1A0E` on terracotta `primary` rather than white.
-- `success` is `#56683F` and `warning` is `#7A5A18` for stronger contrast on warm light surfaces.
-- Queue state color is semantic: active states use the primary-container foreground, recoverable Pause/Interrupted uses `warning`, Done uses `success`, and terminal Failed uses Material `error`.
-- Library rows expose secondary type/size/date metadata without adding another accent color.
-- Destructive Delete requires confirmation instead of relying on color alone.
-
-These are token/interaction corrections, not a visual redesign. The glass bottom navigation and retro-TV icon introduced in patch 24 remain the current direction.
-## Patch 28 — lighter chrome and gesture cleanup
-
-Patch 28 modernizes the existing system without changing its identity:
-
-- Keep the warm cream/terracotta palette, Inter/Lora typography, native Material shapes and the glass navigation concept.
-- Bottom navigation is intentionally narrower (`maxWidth 330dp`), with 48dp touch targets and a 48dp Add action, lower tonal elevation and softer shadow. It should read as a floating control strip rather than a full-width dock.
-- Home gets one compact text action, `ByeDPI` / `YouTube`, instead of another card or persistent banner. State detail belongs in Settings and the foreground notification.
-- ByeDPI Settings are progressive-disclosure: status -> test -> optional enable. Raw strategy command lines are implementation detail and no longer occupy the normal settings surface.
-- The YouTube tunnel and Kinescope download/test engine use separate Android processes (`:dpi_vpn` and `:dpi`), preserving the existing process-isolation rule for ByeDPI's native global state.
-- Download rows expose destructive removal by end-to-start swipe. The red destructive surface appears only during the gesture; pause/resume remains the only persistent per-row control. `SAVING` cannot be swiped away.
-- Preserve whitespace. Do not compensate for the smaller navbar by adding new labels, borders, gradients, floating badges or decorative surfaces elsewhere.
-
-## Patch 36 — balanced control geometry and motion stability
-
-Patch 36 keeps the warm cream/terracotta system and existing typography/shapes; it changes hierarchy,
-not identity.
-
-- The floating bottom bar is responsive (`280-380dp`) and has three equal **56dp** touch targets with
-  symmetric `SpaceEvenly` distribution. The center Add action remains primary but is no longer larger
-  than the side targets. System navigation insets remain mandatory.
-- The Home YouTube-bypass action is capped at `280dp` and `48dp` high. It is still prominent, but it
-  must not visually outweigh the persistent navigation control below it.
-- Queue cards keep a stable vertical rhythm: one-line status text plus a reserved progress area for all
-  active states. Indeterminate progress is used for Preparing / Processing / Saving; determinate progress
-  is used only when real transfer percentage exists.
-- Foreground notifications use the same Kinescope small-TV icon as strategy search, so system chrome and
-  in-app chrome describe one product.
-- Settings' final low-emphasis label is `powered by ephedrine`; it uses `labelSmall` and secondary text
-  color, centered, with no new decorative surface.
-
-## Patch 39 — one pattern for account sessions
-
-- Settings shows each account session (YouTube, Instagram) with the same block: header, saved/not-saved line, one warning sentence, then a primary `Sign in` / `Refresh session` button and, when a session exists, an outlined `Sign out`. Both open the same embedded sign-in screen with the same `Use this session` / `Cancel` row. No new colors, shapes or motion.
-- Error and hint texts that depend on the site name it (`Couldn't reach Instagram from this network.`) instead of assuming YouTube.
-
-## Patch 41 — one layout system for phone, tablet and TV
-
-The warm cream/terracotta system, the typography and the shapes are unchanged; this patch changes only how the
-same pieces are arranged. Everything below is a first approximation drawn without a tablet or a TV at hand (see the
-honesty check at the top): compare it on real screens and adjust the numbers in `adaptiveSpecFor`.
-
-- **Breakpoints** are Material 3's window width classes, taken from the window's own size in dp: compact below 600dp,
-  medium below 840dp, expanded from 840dp; a window under 480dp high is "short" (a landscape phone).
-- **Navigation:** compact and tall keeps the floating bottom bar. Everything else gets the same glass strip on the
-  left edge: `80dp` wide, icon-only, three 56dp targets, the Add action primary. On TV it is `96dp` wide, the targets
-  are `64dp` and every item has a label.
-- **Content:** a phone column caps at `640dp`; medium `720dp`; expanded `1200dp`; TV `1280dp`. Two panes (Home, Settings)
-  start when `700dp` of content fits next to the rail; the gap between panes is `24dp` (`32dp` on TV). Forms (Add) keep
-  `640dp` in the middle.
-- **TV:** margins `48dp` left and right and `27dp` top and bottom (the 5% overscan of a 960x540dp screen); every text
-  style 15% larger; no new colors. A control that can be focused shows a `3dp` ring in `onBackground` (it contrasts
-  with both the cream and the terracotta surfaces). The ring space is always reserved, so focus never shifts the layout.
-  No scale or glow animation: it would only add motion to a calm interface.
-- **Touch-only gestures get a visible twin on TV:** the swipe-to-remove of a queue row becomes a remove button; the
-  library row's overflow menu becomes inline Share and Delete.
-- Preserve whitespace: the phone layout gets none of the above; no label, border or surface was added to it.
-
-
-## Patch 45 — the Home bypass dashboard
-
-The hero card on Home stops being one YouTube button and becomes a small dashboard. Palette, typography and shapes
-are unchanged; no new color, icon or animation was added.
-
-- **One card, three zones.** A header (the overall state in `titleMedium`, one `bodySmall` line under it), two channel
-  rows separated by hairline `outline` dividers (Downloads, YouTube app) and a footer with one text button. It is
-  left-aligned like the rows below it, no longer centered.
-- **State is told by the container and a dot.** The card is `primaryContainer` while the bypass is on (downloads through
-  it, or the tunnel starting or running) and `surfaceVariant` otherwise, as before. Each channel has a 10dp dot:
-  `success` while it carries traffic, `warning` when the tunnel is up but nothing comes back, `primary` while the
-  tunnel starts, `error` after a failed start, the muted text color when off. A dot never carries the meaning alone:
-  the line beside it says the same in words.
-- **One switch, on the row.** The whole Downloads row is the switch (a toggleable row with a read-only `Switch`), so a
-  screen reader and a D-pad meet one control that has a name. It is locked, and shown on, while the YouTube tunnel
-  runs, because the bypass is used then whatever the preference says.
-- **Load indicators.** A running strategy search shows "Checked N of M", a determinate bar (`primary` on a `surface`
-  track, the queue row's style) and Stop; the running tunnel shows its live speed (down and up) and the strategy in
-  use. Nothing animates except the bar.
-- **Buttons keep the patch 36 rule:** 48dp high and capped at 360dp wide, so the Home action does not outweigh the
-  navigation bar. Open and Stop sit side by side while the tunnel runs.
-- **Plain words.** The card says "ways" (as the queue does: "Trying another way"); "strategy" stays in Settings.
-- **TV:** every control is wrapped in `FocusRing`; no touch-only gesture was added.
-- **Not seen on a screen.** The card was composed without a device. Compare the two channel rows at 360dp with Russian
-  text and at the largest font size, and adjust the spacing here and in `BypassDashboard.kt` together.
-
-## Patch 48 — adaptive UI audit (first part)
-
-Arrangement and sizing only; colours, type and shapes are unchanged. Still drawn without a tablet or a TV at hand.
-
-- **A control height is a minimum.** Buttons keep the 48dp rule of patch 36 (56dp on TV) as `heightIn(min = ...)`: a label that
-  wraps makes the button taller, never clipped. A group of buttons is a `FlowRow`, not a `Row`, so the last button drops to the
-  next line instead of being squeezed.
-- **Rail:** `80dp` (`96dp` on TV), three targets, and a `labelMedium` label under each icon on every device (it was TV only).
-  It exists from 600dp of width; a narrow window keeps the floating bottom bar at any height, capped at `380dp`.
-- **TV edge margin:** 0-5% of the window, chosen in Settings (default 5%, which is the old `48dp x 27dp` on 960x540dp).
-- **Not seen on a screen.** Compare the rail labels in Russian at 80dp, the wrapped buttons at the largest font size, and a TV
-  at 0% and 5% margin, and adjust the numbers in `AdaptiveLayout.kt` and `AppChrome.kt` together.
-
-## Patch 51 — Home dashboard, strategy chips and a compact queue
-
-- The dashboard card keeps the patch 45 container (primary container while the YouTube bypass is on, surface variant
-  otherwise). The YouTube row is one `toggleable` row with a read-only Switch; "Unblock YouTube" is the one filled button.
-- The strategies are `FilterChip`s in a wrapping row: the colour name and five stars (filled and outlined star characters, with a
-  spoken description such as "Crimson, 4 of 5 stars"). The chip of the strategy in use is selected. No colour swatch is drawn: the
-  name is the colour, and a swatch would make a theme-dependent colour carry meaning.
-- The queue is compact (32dp tile, `bodySmall` status line, three rows then "Show all") so the dashboard owns the screen. This is a
-  deliberate departure from the 48dp tile of patch 36 for the queue rows only; the touch target of the row's buttons is unchanged.
-- Honesty: the stars are the app's own percentage (`StrategyResult.score`) rounded into five bands; they say how a strategy did
-  in the last test on the last network, not how it will do elsewhere.
-
-## Patch 52 — one switch, a strategy drop-down, five navigation entries
-
-Arrangement and sizing only; colours, type and shapes are unchanged. Still drawn without a tablet or a TV at hand.
-
-- **The card has one switch.** The YouTube row is the only toggle for the tunnel. "Unblock YouTube" is the one filled button of
-  Home and sits BELOW the card at the column's full width (it is no longer capped at 280dp: it is the screen's main action, not a
-  rival of the bottom bar, and the column is at most 640dp wide).
-- **Strategy field.** An outlined, full-width, `medium`-shaped field with the strategy name and its stars and a drop arrow
-  (`ic_arrow_drop_down.xml`); the menu is the standard `DropdownMenu` (112-280dp), the row in use in bold. Under it, a
-  `toggleable` row with a read-only Switch ("Choose the strategy automatically") and a `bodySmall` line saying what each state
-  means. Supersedes the chips of patch 51.
-- **Navigation.** Five equal buttons, in the order Home, Queue, + (accent circle), Library, Settings. In the bottom bar they are
-  **48dp** (five 56dp buttons do not fit a 320dp window); the strip keeps its 280-380dp width rule. The rail keeps 56dp (64dp on
-  TV) with a label under each icon and scrolls when the window is short. This supersedes the "three equal 56dp targets" of patch 36
-  and the four entries of patch 51.
-- **Queue.** A screen of its own (the full list, rows as before). Every row has a visible Stop (remove) button on every device;
-  the end-to-start swipe remains. This supersedes the patch 28 line "pause/resume remains the only persistent per-row control" and the
-  compact three-row queue of patch 51 (the row's 32dp tile stays).
-- **Home** is one centred column of at most 640dp on every window; there is no second pane.
-
-## Patch 53 — strategy router: what shows on the connection
-
-- The strategy title of the Home card names the connection it is for: "Strategy · Wi-Fi" / "Strategy · mobile data" (`titleSmall`, same colour as before).
-- When a connection's chain is borrowed from the other one, a `bodySmall` line in the card's secondary colour says it has not been tested; it
-  sits under the automatic switch and above the "applies on the next start" note. Strategies without a rating are listed by name with no stars.
-- Settings: the strategy list title carries the connection ("Strategies · Wi-Fi"), and each row's status line starts with "Rating N".
+The Android window is visible before Compose draws and during transitions. Keep `kinescope_window_background` in `values/colors.xml` and `values-night/colors.xml` equal to `LightColors.background` and `DarkColors.background` in `Theme.kt` respectively; do not choose a separate splash color. `ThemeResourcesTest` enforces the match.

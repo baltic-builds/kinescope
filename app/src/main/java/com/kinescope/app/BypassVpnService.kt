@@ -80,6 +80,7 @@ class BypassVpnService : VpnService() {
         Thread(runnable, "kinescope-bypass-vpn").apply { isDaemon = true }
     }
     private val stopRequested = AtomicBoolean(false)
+    private val stopCleanupStarted = AtomicBoolean(false)
 
     @Volatile private var engineSession: DpiEngineSession? = null
     @Volatile private var tunInterface: ParcelFileDescriptor? = null
@@ -127,11 +128,7 @@ class BypassVpnService : VpnService() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
-                stopRequested.set(true)
-                executor.execute {
-                    stopTunnelInternal()
-                    stopSelf()
-                }
+                requestStop()
             }
             ACTION_START -> {
                 if (!BypassVpnController.state.value.active && !BypassVpnController.state.value.starting) {
@@ -168,12 +165,19 @@ class BypassVpnService : VpnService() {
     }
 
     override fun onRevoke() {
-        stopRequested.set(true)
-        executor.execute {
-            stopTunnelInternal()
-            stopSelf()
-        }
+        requestStop()
         super.onRevoke()
+    }
+
+    /** Stop is never queued behind monitorTunnel: it may be performing a blocking health probe. */
+    private fun requestStop() {
+        stopRequested.set(true)
+        runCatching { tunInterface?.close() }
+        if (stopCleanupStarted.compareAndSet(false, true)) {
+            Thread({
+                try { stopTunnelInternal() } finally { stopSelf() }
+            }, "kinescope-bypass-stop").apply { isDaemon = true; start() }
+        }
     }
 
     override fun onDestroy() {
@@ -209,37 +213,33 @@ class BypassVpnService : VpnService() {
                 return
             }
 
-            // Try the verified strategy, then its verified fallbacks in order, and keep the
-            // first engine that actually starts.
-            // Patch 33: a strategy that merely starts is not necessarily one that gets through
-            // right now (the network can change between the search and this start), so each
-            // candidate is also checked with one real connection before the tunnel is built on
-            // it. If none passes, the first one that started is used anyway, as before.
-            var firstStarted: String? = null
+            // Select the first live, healthy route on this network class. Merely starting a
+            // SOCKS engine does NOT prove the restriction can be bypassed; never report an
+            // active VPN using a strategy whose health check just failed.
+            // A pinned manual choice leads, but failed choices are still skipped.
+            val failedLines = mutableListOf<String>()
             var chosenLine: String? = null
             for ((position, line) in chain.withIndex()) {
                 val parsed = DpiStrategyParser.parse(line) as? DpiStrategyParser.Parsed.Ok ?: continue
+                if (stopRequested.get()) return
                 val candidate = DpiEngine.startForVpn(this, parsed.args) ?: continue
                 val health = DpiBypass.checkHealth(candidate.port)
                 AppLog.i(
                     "BypassVpnService",
                     "chk s=${position + 1}/${chain.size} ok=${health.ok} st=${health.stage} why=${health.why} ms=${health.ms}"
                 )
-                if (health.ok) {
+                if (TunnelStartupPolicy.accepts(health.ok, stopRequested.get())) {
                     engine = candidate
                     chosenLine = line
                     break
                 }
-                if (firstStarted == null) firstStarted = line
                 candidate.close()
+                if (!stopRequested.get()) failedLines.add(line)
             }
-            if (engine == null && firstStarted != null) {
-                val parsed = DpiStrategyParser.parse(firstStarted) as? DpiStrategyParser.Parsed.Ok
-                engine = parsed?.let { DpiEngine.startForVpn(this, it.args) }
-                chosenLine = firstStarted
-            }
-            if (engine == null) throw BypassStartException(R.string.bypass_vpn_engine_failed)
             if (stopRequested.get()) return
+            // A confirmed working fallback is evidence that these routes failed on THIS network.
+            TunnelStartupPolicy.failuresToLearn(failedLines, chosenLine).forEach { DpiPrefs.quarantine(this, cls, it) }
+            if (engine == null) throw BypassStartException(R.string.bypass_vpn_engine_failed)
 
             tun = buildAppTunnel(appPackage)
                 ?: throw BypassStartException(R.string.bypass_vpn_tunnel_failed)
@@ -337,12 +337,16 @@ class BypassVpnService : VpnService() {
                     // engine here means this flag is already visible: an update-triggered
                     // reconnect is not a failure.
                     if (restarting) continue
-                    AppLog.w("BypassVpnService", "YouTube bypass transport stopped unexpectedly")
-                    BypassVpnController.failed(
-                        if (!engineAlive) R.string.bypass_vpn_engine_failed else R.string.bypass_vpn_tunnel_failed
-                    )
-                    stopSelf()
-                    return
+                    AppLog.w("BypassVpnService", "YouTube bypass transport stopped unexpectedly; trying next route")
+                    val line = currentLine
+                    if (line != null) rotateStrategy(line)
+                    else {
+                        BypassVpnController.failed(R.string.bypass_vpn_tunnel_failed)
+                        requestStop()
+                        return
+                    }
+                    if (stopRequested.get()) return
+                    continue
                 }
                 if (++ticks % NOTIFICATION_CHECK_TICKS == 0) ensureNotificationVisible()
                 if (!updating && !restarting) followConnection()
@@ -512,10 +516,15 @@ class BypassVpnService : VpnService() {
         val tooMany = rotations.size >= MAX_ROTATIONS
         val cls = tunnelClass
         val alternatives = DpiStrategyStore.chain(this, cls).filter { it != line }
-        if (tooSoon || tooMany || alternatives.isEmpty()) {
-            AppLog.w("BypassVpnService", "rotate skipped soon=$tooSoon many=$tooMany alternatives=${alternatives.size}")
+        if (tooMany || alternatives.isEmpty()) {
+            AppLog.w("BypassVpnService", "all recovery routes exhausted; stopping unusable VPN")
+            BypassVpnController.failed(R.string.bypass_vpn_engine_failed)
+            requestStop()
+            return
+        }
+        if (tooSoon) {
+            nextProbeAt = now + MIN_ROTATION_GAP_MS
             failStreak = 0
-            nextProbeAt = now + if (tooMany) ROTATION_WINDOW_MS / 2 else PROBE_INTERVAL_MS
             return
         }
         rotations.addLast(now)
@@ -605,7 +614,7 @@ class BypassVpnService : VpnService() {
     }
 
     private fun stopTunnelInternal(publishStopped: Boolean = true) {
-        if (tunnelRunning) logTunnelTotals()
+        if (tunnelRunning && !stopRequested.get()) logTunnelTotals()
         if (tunnelRunning || runCatching { TProxyService.TProxyIsRunning() }.getOrDefault(false)) {
             runCatching { TProxyService.TProxyStopService() }
         }
@@ -616,7 +625,7 @@ class BypassVpnService : VpnService() {
         engineSession = null
         // A reconnect (Update) publishes "starting" itself right after, so it must not flash
         // "stopped" to the UI in between.
-        if (publishStopped) BypassVpnController.stopped()
+        if (publishStopped && BypassVpnController.state.value.errorRes == null) BypassVpnController.stopped()
         AppLog.i("BypassVpnService", "YouTube-only bypass stopped")
     }
 

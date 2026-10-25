@@ -21,33 +21,7 @@ import androidx.compose.ui.text.googlefonts.Font
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.isSpecified
 
-/**
- * Design tokens. See design.md for the reasoning and honesty caveats
- * (this is a best-effort approximation of the Claude app's look, not
- * an extraction of Anthropic's actual internal design spec — and it
- * deliberately avoids Anthropic's actual licensed fonts, Styrene and
- * a custom serif, in favor of free Google Fonts with a similar
- * character: Inter for UI/body text, Lora for the one serif
- * headline. Also deliberately avoids the Claude name/logo.)
- *
- * NOTE on risk: the downloadable-fonts setup below
- * (GoogleFont.Provider + font_certs.xml) is standard, widely
- * documented Android API, and font_certs.xml was fetched verbatim
- * from Google's own official sample repo rather than hand-typed —
- * see the comment at the top of that file. Still genuinely
- * untested here (no Android SDK in this sandbox). If it fails for
- * any reason, the downloadable-fonts API is designed to fail soft:
- * it falls back to the system default font rather than crashing, so
- * worst case this degrades to the previous system-font look, not a
- * broken build or a broken app.
- *
- * ROADMAP.md Step 6: adds a real dark theme (6.2), three light-mode
- * tokens Material3's baseline ColorScheme has no slot for --
- * `success`, `warning`, `surfaceRaised` (6.1) -- via a small
- * CompositionLocal-backed extension (see YtOfflineExtras below,
- * mirroring how `MaterialTheme.colorScheme` itself is accessed), and
- * fills in the rest of the typography scale (6.3).
- */
+/** Kinescope Material 3 / Neural Expressive-inspired color, shape and type tokens. See design.md. */
 
 // ROADMAP.md Step 6.1/6.2: colors Material3's baseline ColorScheme
 // has no slot for. Exposed via YtOfflineExtras (below) rather than as
@@ -87,17 +61,17 @@ object YtOfflineExtras {
 }
 
 private val LightColors = lightColorScheme(
-    primary = Color(0xFFD97757),
-    onPrimary = Color(0xFF3D1A0E),
-    primaryContainer = Color(0xFFF3DDD2),
-    onPrimaryContainer = Color(0xFF6B3520),
-    background = Color(0xFFFAF9F5),
-    onBackground = Color(0xFF141413),
+    primary = Color(0xFFC74B12),
+    onPrimary = Color(0xFFFFFFFF),
+    primaryContainer = Color(0xFFFFE4D5),
+    onPrimaryContainer = Color(0xFF742B0C),
+    background = Color(0xFFF8F9FB),
+    onBackground = Color(0xFF1E2329),
     surface = Color(0xFFFFFFFF),
-    onSurface = Color(0xFF141413),
-    surfaceVariant = Color(0xFFF0EEE6),
-    onSurfaceVariant = Color(0xFF73726C),
-    outline = Color(0xFFE3E1D9),
+    onSurface = Color(0xFF1E2329),
+    surfaceVariant = Color(0xFFE7E9ED),
+    onSurfaceVariant = Color(0xFF565D65),
+    outline = Color(0xFFB9C0C9),
     error = Color(0xFFBA1A1A),
     onError = Color(0xFFFFFFFF),
     // ROADMAP.md Step 6.1: for error banners and empty-state
@@ -118,17 +92,17 @@ private val LightColors = lightColorScheme(
 // app's one accent color, same job `primary` already does in the
 // light scheme) -- Compose Material3 has no separate "accent" slot.
 private val DarkColors = darkColorScheme(
-    primary = Color(0xFFE08D6D),
-    onPrimary = Color(0xFF3D1A0E),
-    primaryContainer = Color(0xFF5C3423),
-    onPrimaryContainer = Color(0xFFF3DDD2),
-    background = Color(0xFF1B1A17),
-    onBackground = Color(0xFFF5F3EC),
-    surface = Color(0xFF252420),
-    onSurface = Color(0xFFF5F3EC),
-    surfaceVariant = Color(0xFF302E28),
-    onSurfaceVariant = Color(0xFFB8B6AC),
-    outline = Color(0xFF3D3B34),
+    primary = Color(0xFFFFA276),
+    onPrimary = Color(0xFF301508),
+    primaryContainer = Color(0xFF67371F),
+    onPrimaryContainer = Color(0xFFFFE4D5),
+    background = Color(0xFF101317),
+    onBackground = Color(0xFFF3F5F8),
+    surface = Color(0xFF1B2026),
+    onSurface = Color(0xFFF3F5F8),
+    surfaceVariant = Color(0xFF2A3038),
+    onSurfaceVariant = Color(0xFFC3C9D2),
+    outline = Color(0xFF67717E),
     // Material3-standard dark-scheme error red, with its standard
     // paired onError -- see ROADMAP.md Step 6.2's note on `error`.
     error = Color(0xFFFFB4AB),
@@ -154,11 +128,6 @@ private val InterFontFamily = FontFamily(
     Font(googleFont = GoogleFont("Inter"), fontProvider = googleFontProvider, weight = FontWeight.SemiBold)
 )
 
-@OptIn(ExperimentalTextApi::class)
-private val LoraFontFamily = FontFamily(
-    Font(googleFont = GoogleFont("Lora"), fontProvider = googleFontProvider, weight = FontWeight.SemiBold)
-)
-
 private val baseTypography = Typography()
 
 // ROADMAP.md Step 6.3: every role the design system names now has an
@@ -167,11 +136,11 @@ private val baseTypography = Typography()
 // `titleSmall` moves from SemiBold to Medium per the Step 6.3 table.
 private val YtOfflineTypography = baseTypography.copy(
     displaySmall = baseTypography.displaySmall.copy(
-        fontFamily = LoraFontFamily,
+        fontFamily = InterFontFamily,
         fontWeight = FontWeight.SemiBold
     ),
     headlineSmall = baseTypography.headlineSmall.copy(
-        fontFamily = LoraFontFamily,
+        fontFamily = InterFontFamily,
         fontWeight = FontWeight.SemiBold
     ),
     titleMedium = baseTypography.titleMedium.copy(fontFamily = InterFontFamily, fontWeight = FontWeight.SemiBold),

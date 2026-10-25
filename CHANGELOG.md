@@ -1,3 +1,18 @@
+## October 2026 — v.3: restore CI compatibility after dashboard refresh
+
+- Completed the `HANDOFF.md` source-file map for `KinescopeSwitch.kt` and `TunnelStartupPolicy.kt` (fixes `DocumentationTest`).
+- Matched the Android light/dark window backgrounds to `Theme.kt` (fixes `ThemeResourcesTest` and prevents startup color flashes).
+- Kept all pending v.2 router, VPN and UI changes; verify unit tests, lint and debug build before committing/pushing. Real-device network behavior is not verified by these checks.
+
+## October 2026 — adaptive router and dashboard hardening
+
+- The Wi-Fi/mobile classifier, rating records, per-class pins, live checks and learned chains remain separate. The active tunnel evaluates verified strategies in class-specific order. A SOCKS engine that starts but fails the YouTube health probe is **not** accepted as a working route; if all routes fail, the app reports failure rather than an unusable active VPN.
+- Unexpected engine/bridge termination now enters the same rate-limited strategy recovery path as failed probes and one-way traffic. Exhaustion shuts down this app's VPN instead of presenting a stuck active switch. Switching networks retains the stable-handover filter.
+- Toggling bypass off closes the Android TUN descriptor immediately and starts separate cleanup, instead of placing cleanup behind the long-running monitor in the single-thread queue. Only Kinescope's own VPN and engine can be stopped; Android prohibits an app from forcibly closing other apps' VPNs.
+- Home now shows a single clear tunnel toggle, automatic strategy toggle (default on per class), connection label, status/traffic, and **Watch YouTube**. Manual strategy selection resides at the very bottom of Settings and appears only when automatic selection is disabled for the connected class.
+- The visuals use M3 semantics with defined orange-on/gray-off switch colors, card hierarchy and more expressive rounded surfaces; window-aware rail/two-pane and TV focus affordances are retained.
+- Verification required on real devices: Wi-Fi/mobile transitions, blocked networks, VPN permission revocation, stop during a slow probe, light/dark themes, narrow and expanded windows, TV remote, English and Russian. Repository tests cannot demonstrate real-world circumvention or prove vendor-specific Android VPN behavior.
+
 # Changelog
 
 All notable changes to Kinescope are recorded here, one entry per

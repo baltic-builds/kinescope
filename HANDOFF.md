@@ -1,10 +1,19 @@
+## October 2026 — adaptive router and dashboard hardening
+
+- The Wi-Fi/mobile classifier, rating records, per-class pins, live checks and learned chains remain separate. The active tunnel evaluates verified strategies in class-specific order. A SOCKS engine that starts but fails the YouTube health probe is **not** accepted as a working route; if all routes fail, the app reports failure rather than an unusable active VPN.
+- Unexpected engine/bridge termination now enters the same rate-limited strategy recovery path as failed probes and one-way traffic. Exhaustion shuts down this app's VPN instead of presenting a stuck active switch. Switching networks retains the stable-handover filter.
+- Toggling bypass off closes the Android TUN descriptor immediately and starts separate cleanup, instead of placing cleanup behind the long-running monitor in the single-thread queue. Only Kinescope's own VPN and engine can be stopped; Android prohibits an app from forcibly closing other apps' VPNs.
+- Home now shows a single clear tunnel toggle, automatic strategy toggle (default on per class), connection label, status/traffic, and **Watch YouTube**. Manual strategy selection resides at the very bottom of Settings and appears only when automatic selection is disabled for the connected class.
+- The visuals use M3 semantics with defined orange-on/gray-off switch colors, card hierarchy and more expressive rounded surfaces; window-aware rail/two-pane and TV focus affordances are retained.
+- Verification required on real devices: Wi-Fi/mobile transitions, blocked networks, VPN permission revocation, stop during a slow probe, light/dark themes, narrow and expanded windows, TV remote, English and Russian. Repository tests cannot demonstrate real-world circumvention or prove vendor-specific Android VPN behavior.
+
 # Handoff Snapshot
 
 The current state of Kinescope for anyone (human or AI agent) resuming work. It is rewritten in place, not
 appended to: per-patch history lives in `CHANGELOG.md`, open work in `ROADMAP.md`, process rules in `AGENTS.md`,
 product constraints in `CLAUDE.md`. Where this file and the code disagree, the code wins; fix this file.
 
-State as of patch 53 (2026-10-25).
+State as of patch 53, with the October 2026 v.3 verification fixes (2026-10-25).
 
 ## What Kinescope is
 
@@ -192,17 +201,17 @@ UI
 - `AppChrome.kt` -- `AppFrame` (top bar + bottom bar, or header + navigation rail; five destinations since patch 52: Home, Queue, `+`, Library, Settings), responsive column.
 - `HomeScreen.kt` -- Home: the bypass dashboard slot and the banners (errors, sign-in, "app updated"); one column since patch 52.
 - `QueueScreen.kt` -- the download queue as its own screen (patch 52): the full list, Pause / Resume / Stop per row, the empty text.
-- `BypassDashboard.kt` -- the Home hero card: header, the YouTube switch, download speed, the strategy drop-down with stars and its automatic switch, search strip, and the
-  "Unblock YouTube" button below the card (Compose; draws the model).
+- `BypassDashboard.kt` -- the Home hero: bypass and automatic-selection switches, network class, tunnel health/traffic, and "Watch YouTube". Manual strategy selection is in Settings.
 - `LibraryScreen.kt` -- the library of finished downloads as its own screen (patch 51).
 - `BypassDashboardModel.kt` -- pure rules of that card (`bypassDashboardModel`, `formatTransferRate`).
 - `QueueAndLibrary.kt` -- the queue-job row (a Stop button on every device since patch 52), the library-file row and the library file actions.
 - `QuickAddScreen.kt`, `SettingsScreen.kt`, `LogsScreen.kt` -- the Add, Settings and Logs screens.
 - `BypassSettings.kt`, `StrategyPicker.kt` -- the bypass section of Settings and the manual strategy list.
-- `YoutubeApps.kt`, `YoutubeAppSettings.kt` -- the app behind "Unblock YouTube": the candidates, the choice, opening it; its Settings section (patch 51).
+- `YoutubeApps.kt`, `YoutubeAppSettings.kt` -- the app behind "Watch YouTube": the candidates, the choice, opening it; its Settings section (patch 51).
 - `BatteryOptimization.kt` -- the power-saving exemption: intents, the pop-up rule, the dialog and the Settings section (patch 51).
 - `StrategyNames.kt` -- the colour names of the strategies (pure rule + the name book) (patch 51).
 - `AppUpdate.kt` -- fresh install / update classification, the post-update refresh and `UpdateNotice` (patch 51).
+- `KinescopeSwitch.kt` -- shared Material 3 switch with explicit orange-on and gray-off tokens in both themes.
 - `Theme.kt` -- Material3 tokens, Inter/Lora via the Google Fonts provider, shapes (`design.md`).
 
 Network bypass
@@ -215,6 +224,7 @@ Network bypass
 - `StrategyRating.kt`, `StrategyRouter.kt` -- the pure rating (last test + real use) and the router policy; see `STRATEGY_ROUTER.md` (patch 53).
 - `StrategyMemory.kt` -- pure record of which strategies really carried traffic (real outcomes only since patch 53; fading score, text form); `MaintenanceSchedule.kt` -- pure 25-day calendar of the upkeep (strategy re-check, yt-dlp update).
 - `NetworkCheck.kt`, `NetworkState.kt` -- layered reachability probe through the engine; third-party VPN detection; the connection class (patch 53).
+- `TunnelStartupPolicy.kt` -- checks verified route health before activation and only learns failed candidates after a successful fallback.
 - `BypassVpnService.kt` -- `BypassVpnController` and the YouTube-only `VpnService` (`:dpi_vpn`).
 - `TunnelFlow.kt` -- pure judge of the YouTube app's traffic through the tunnel (idle / flowing / one-way, from the bridge counters), plus the tunnel's speed (`TunnelRate`) and the snapshot the dashboard reads (`TunnelTraffic`).
 - `app/src/main/java/hev/htproxy/TProxyService.java` -- JNI contract of the vendored `hev-socks5-tunnel`; `app/src/main/cpp/` -- ByeDPI sources, `dpi_jni.c`, `CMakeLists.txt`; `app/src/main/jniLibs/` -- the tunnel library with its license and provenance.

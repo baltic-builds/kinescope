@@ -163,7 +163,7 @@
 <string name="bypass_enable_locked">Станет доступно, когда стратегия пройдёт проверку.</string>
 <string name="bypass_youtube_active">Обход для YouTube активен</string>
 <string name="bypass_home_hint">Смотрите YouTube, даже если он заблокирован</string>
-<string name="bypass_quick_action">Разблокировать YouTube</string>
+<string name="bypass_quick_action">Смотреть YouTube</string>
 <string name="bypass_starting_short">Запуск…</string>
 <string name="bypass_need_test">Сначала проверьте обход в настройках.</string>
 <string name="bypass_vpn_permission_denied">Разрешение Android VPN не предоставлено.</string>
@@ -247,7 +247,7 @@
     <string name="dash_ways_ready">Готово способов: %1$d</string>
     <string name="dash_ways_ready_checked">Готово способов: %1$d · проверено %2$s</string>
     <string name="dash_just_now">только что</string>
-    <string name="dash_youtube_label">Приложение YouTube</string>
+    <string name="dash_youtube_label">Обход ограничений</string>
     <string name="dash_youtube_on">Туннель включён</string>
     <string name="dash_youtube_idle">Трафика пока нет</string>
     <string name="dash_youtube_no_answer">Приложение отправляет данные, но ответа нет</string>
@@ -399,8 +399,8 @@
     <string name="dash_strategy_auto_title">Выбирать стратегию автоматически</string>
     <string name="dash_strategy_auto_on">Используется лучшая стратегия; если она перестанет работать, приложение переключится.</string>
     <string name="dash_strategy_auto_off">Ваш выбор пробуется первым. Если он перестанет работать, приложение всё равно переключится.</string>
-    <string name="settings_youtube_app">Приложение для «Разблокировать YouTube»</string>
-    <string name="youtube_app_hint">Выберите приложение, которое открывает кнопка «Разблокировать YouTube» и которому обход помогает. По умолчанию это официальное YouTube; подойдёт и другое приложение для YouTube или браузер.</string>
+    <string name="settings_youtube_app">Приложение для «Смотреть YouTube»</string>
+    <string name="youtube_app_hint">Выберите приложение, которое открывает кнопка «Смотреть YouTube» и которому обход помогает. По умолчанию это официальное YouTube; подойдёт и другое приложение для YouTube или браузер.</string>
     <string name="youtube_app_default">По умолчанию</string>
     <string name="youtube_app_none">Не найдено приложений, которые открывают YouTube.</string>
     <string name="youtube_app_note">Вступит в силу при следующем запуске обхода YouTube. Обход использует только это приложение.</string>

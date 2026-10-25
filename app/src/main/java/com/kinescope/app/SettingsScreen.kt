@@ -237,6 +237,8 @@ internal fun SettingsScreen(
                     .padding(bottom = 16.dp)
             ) {
                 bypass()
+                SettingsDivider()
+                ManualStrategySettings()
             }
         }
     } else {
@@ -253,6 +255,8 @@ internal fun SettingsScreen(
             accounts()
             SettingsDivider()
             interfaceSection()
+            SettingsDivider()
+            ManualStrategySettings()
         }
     }
 }

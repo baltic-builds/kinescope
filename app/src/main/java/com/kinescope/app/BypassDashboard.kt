@@ -18,15 +18,11 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -41,36 +37,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
-// Patch 45: the Home hero card, a dashboard instead of one YouTube button. Patch 51: redrawn for the new brief.
-// Patch 52: redrawn again.
-//
-// - Header: the state of the YouTube bypass (on / off), or the first-run message "Please wait while we update the
-//   strategies." (no Stop: that check is mandatory), a visible check, or "not set up yet".
-// - YouTube bypass: ONE on/off switch for the YouTube-only tunnel (its live speed and strategy position while it runs).
-//   Patch 52: the "Unblock YouTube" button no longer sits in the card next to that switch, where it said the same thing
-//   twice; it is drawn BELOW the card and does what it always did: starts the tunnel if needed and opens the app chosen
-//   in Settings.
-// - Download speed: the speed of the download that is running, only while one is.
-// - Strategy: a drop-down of the 15 most successful strategies by name (a colour, `StrategyNames`) with 1-5 stars for how
-//   effective each is (patch 53: the rating of the connection the phone is on, Wi-Fi or mobile data -- the last test and
-//   real use together, see `StrategyRating`), and under it a switch for choosing the strategy automatically. The field shows
-//   the strategy in use (by default the one that works best). Picking another one uses it and switches the automatic
-//   choice off (the same as "Use" in Settings: pinned, tried first); switching the automatic choice back on lifts the
-//   pin; switching it off pins the strategy shown.
-//
-// The downloads-through-the-bypass switch left the card for Settings (on by default). What is shown and which controls are
-// enabled is decided in `BypassDashboardModel.kt` (unit-tested); this file maps the real state into it, draws the result and
-// forwards taps. Every control sits in a `FocusRing` (TV).
+// The home surface shows live tunnel status, automatic selection and the Watch YouTube action.
+// Detailed manual strategy selection is intentionally at the bottom of Settings.
 
 /** The result messages of a finished search that still make sense on a card that says "not set up". */
 private val SETUP_MESSAGES = setOf(
@@ -94,14 +67,11 @@ private class DashPrefs(
     val pinned: String?,
     /** The strategy in use: the pinned one, else the first of the chain (the one that works best). */
     val selected: String?,
-    /** What the drop-down lists ([strategyChoices]). */
-    val choices: List<DashStrategy>,
-    val names: StrategyNameBook
+    /** The strategy selected for this connection class. */
+    val currentStrategy: String?
 )
 
 private data class DashPalette(val container: Color, val primary: Color, val secondary: Color, val divider: Color)
-
-private fun starsText(stars: Int): String = "★".repeat(stars) + "☆".repeat((5 - stars).coerceAtLeast(0))
 
 @Composable
 internal fun BypassDashboard(
@@ -140,8 +110,7 @@ internal fun BypassDashboard(
             verifiedAt = DpiPrefs.verifiedAt(context, cls),
             pinned = pinned,
             selected = selected,
-            choices = strategyChoices(DpiPrefs.ratings(context, cls), DpiStrategyStore.candidates(context), chain, selected),
-            names = DpiStrategyStore.names(context)
+            currentStrategy = selected
         )
     }
 
@@ -168,14 +137,6 @@ internal fun BypassDashboard(
         requestNotifications()
         DpiSearchService.start(context)
     }
-    // Choosing the strategy that is already shown changes nothing; to lock it, switch the automatic choice off.
-    val pick: (String) -> Unit = pick@{ line ->
-        if (line == prefs.selected) return@pick
-        DpiPrefs.pin(context, prefs.cls, line)
-        prefsVersion++
-        AppLog.i("BypassDashboard", "home pick jobs=$activeDownloads tunnel=${tunnel.active}")
-        Toast.makeText(context, R.string.strategy_pinned_done, Toast.LENGTH_SHORT).show()
-    }
     val setAuto: (Boolean) -> Unit = setAuto@{ on ->
         if (on) {
             DpiPrefs.unpin(context, prefs.cls)
@@ -194,7 +155,7 @@ internal fun BypassDashboard(
     val scheme = MaterialTheme.colorScheme
     val isOn = model.headline == DashHeadline.ON
     val palette = DashPalette(
-        container = if (isOn) scheme.primaryContainer else scheme.surfaceVariant,
+        container = if (isOn) scheme.primaryContainer else scheme.surface,
         primary = if (isOn) scheme.onPrimaryContainer else scheme.onSurface,
         secondary = if (isOn) scheme.onPrimaryContainer.copy(alpha = 0.85f) else scheme.onSurfaceVariant,
         divider = scheme.outline
@@ -203,14 +164,14 @@ internal fun BypassDashboard(
     Column(modifier = Modifier.fillMaxWidth()) {
         Surface(
             modifier = Modifier.fillMaxWidth(),
-            shape = MaterialTheme.shapes.large,
+            shape = MaterialTheme.shapes.extraLarge,
             color = palette.container,
-            tonalElevation = 1.dp
+            tonalElevation = 2.dp
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 14.dp)
+                    .padding(horizontal = 20.dp, vertical = 22.dp)
             ) {
                 val setupMessage = search.resultMessageRes?.takeIf { it in SETUP_MESSAGES }
                 Text(
@@ -223,7 +184,7 @@ internal fun BypassDashboard(
                             DashHeadline.OFF -> R.string.dash_headline_off
                         }
                     ),
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.headlineSmall,
                     color = palette.primary
                 )
                 Spacer(modifier = Modifier.height(2.dp))
@@ -285,11 +246,10 @@ internal fun BypassDashboard(
                         onToggle = onToggleTunnel
                     )
                     HorizontalDivider(color = palette.divider)
-                    StrategySection(
+                    AutomaticStrategySection(
                         prefs = prefs,
                         model = model,
                         palette = palette,
-                        onPick = pick,
                         onAuto = setAuto
                     )
                 }
@@ -409,7 +369,7 @@ private fun SearchStrip(
 /**
  * The YouTube bypass: the whole row is the on/off switch (a `toggleable` row with a read-only [Switch] inside, so a screen
  * reader and a D-pad both meet one control that has a name) with the live state under its name. Patch 52: it is the only
- * switch for the tunnel on the card; the "Unblock YouTube" button is below the card.
+ * switch for the tunnel on the card; the "Watch YouTube" button is below the card.
  */
 @Composable
 private fun YouTubeChannel(
@@ -483,7 +443,7 @@ private fun YouTubeChannel(
                     )
                 }
             }
-            Switch(
+            KinescopeSwitch(
                 checked = model.tunnelSwitchOn,
                 onCheckedChange = null,
                 enabled = model.tunnelSwitchEnabled
@@ -492,159 +452,51 @@ private fun YouTubeChannel(
     }
 }
 
-/**
- * The strategies: a drop-down with the one in use selected (by default the one that works best; the list is the most
- * successful ones by colour name with their stars) and, under it, the switch for choosing automatically. Picking from
- * the menu uses that strategy and so switches the automatic choice off; switching it off pins the strategy shown;
- * switching it on lifts the pin.
- */
+/** Automatic strategy selection is the only strategy control on Home. Manual choices are in Settings. */
 @Composable
-private fun StrategySection(
+private fun AutomaticStrategySection(
     prefs: DashPrefs,
     model: BypassDashboardModel,
     palette: DashPalette,
-    onPick: (String) -> Unit,
     onAuto: (Boolean) -> Unit
 ) {
     val auto = prefs.pinned == null
-    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
-        Text(
-            // Patch 53: "Strategy · Wi-Fi" / "Strategy · mobile data": the choice below is for this connection only.
-            text = stringResource(R.string.dash_strategy_title_net, stringResource(prefs.cls.labelRes())),
-            style = MaterialTheme.typography.titleSmall,
-            color = palette.primary
-        )
-        Spacer(modifier = Modifier.height(6.dp))
-        if (prefs.choices.isEmpty()) {
-            Text(
-                text = stringResource(R.string.dash_strategies_empty),
-                style = MaterialTheme.typography.bodySmall,
-                color = palette.secondary
-            )
-        } else {
-            StrategyDropdown(prefs = prefs, enabled = model.strategiesEnabled, palette = palette, onPick = onPick)
-            Spacer(modifier = Modifier.height(4.dp))
-            FocusRing(modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .toggleable(
-                            value = auto,
-                            enabled = model.strategiesEnabled,
-                            role = Role.Switch,
-                            onValueChange = onAuto
-                        )
-                        .padding(vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = stringResource(R.string.dash_strategy_auto_title),
-                            style = MaterialTheme.typography.titleSmall,
-                            color = palette.primary
-                        )
-                        Text(
-                            text = stringResource(
-                                if (auto) R.string.dash_strategy_auto_on else R.string.dash_strategy_auto_off
-                            ),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = palette.secondary
-                        )
-                    }
-                    Switch(checked = auto, onCheckedChange = null, enabled = model.strategiesEnabled)
-                }
-            }
-        }
-        if (prefs.seeded) {
-            Text(
-                text = stringResource(R.string.dash_strategy_untested_here, stringResource(prefs.cls.labelRes())),
-                style = MaterialTheme.typography.bodySmall,
-                color = palette.secondary,
-                modifier = Modifier.padding(top = 4.dp)
-            )
-        }
-        if (model.strategyNote == DashStrategyNote.APPLIES_NEXT) {
-            Text(
-                text = stringResource(R.string.dash_strategy_applies_next),
-                style = MaterialTheme.typography.bodySmall,
-                color = palette.secondary,
-                modifier = Modifier.padding(top = 4.dp)
-            )
-        }
-    }
-}
-
-/** "Crimson  ★★★★☆" (the name alone when the strategy has no passed test, so no stars are claimed). */
-private fun strategyLabel(name: String, stars: Int): String =
-    if (stars > 0) "$name  ${starsText(stars)}" else name
-
-/**
- * The drop-down field and its menu: a full-width outlined button showing the strategy in use, and a `DropdownMenu` (the
- * same component the library rows use) listing the choices. The chosen row is bold; a row says its name and stars to a
- * screen reader ("Crimson, 4 of 5 stars"). No width is forced on the menu: Material sizes it to its rows (112-280dp).
- */
-@Composable
-private fun StrategyDropdown(prefs: DashPrefs, enabled: Boolean, palette: DashPalette, onPick: (String) -> Unit) {
-    var open by remember { mutableStateOf(false) }
-    val shown = prefs.choices.firstOrNull { it.line == prefs.selected } ?: prefs.choices.first()
-    Box(modifier = Modifier.fillMaxWidth()) {
-        FocusRing(modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium) {
-            OutlinedButton(
-                onClick = { open = true },
-                enabled = enabled,
-                shape = MaterialTheme.shapes.medium,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = LocalAdaptive.current.controlHeightDp.dp),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
-            ) {
+    FocusRing(modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.large) {
+        Row(
+            modifier = Modifier.fillMaxWidth().toggleable(
+                value = auto,
+                enabled = model.strategiesEnabled,
+                role = Role.Switch,
+                onValueChange = onAuto
+            ).padding(vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = strategyLabel(prefs.names.nameOf(shown.line), shown.stars),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = palette.primary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.Start,
-                    modifier = Modifier.weight(1f)
+                    text = stringResource(R.string.dash_strategy_auto_title),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = palette.primary
                 )
-                Icon(
-                    painter = painterResource(R.drawable.ic_arrow_drop_down),
-                    contentDescription = null,
-                    tint = palette.primary
+                Text(
+                    text = stringResource(if (auto) R.string.dash_strategy_auto_on else R.string.dash_strategy_auto_off),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = palette.secondary
                 )
-            }
-        }
-        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            for (row in prefs.choices) {
-                val name = prefs.names.nameOf(row.line)
-                val chosen = row.line == shown.line
-                val description = if (row.stars > 0) {
-                    stringResource(R.string.dash_strategy_cd, name, row.stars)
-                } else {
-                    name
-                }
-                DropdownMenuItem(
-                    text = {
-                        Text(
-                            text = strategyLabel(name, row.stars),
-                            fontWeight = if (chosen) FontWeight.Bold else FontWeight.Normal,
-                            modifier = Modifier.semantics { contentDescription = description }
-                        )
-                    },
-                    onClick = {
-                        open = false
-                        onPick(row.line)
-                    }
+                Text(
+                    text = stringResource(prefs.cls.labelRes()),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = palette.secondary
                 )
             }
+            KinescopeSwitch(checked = auto, onCheckedChange = null, enabled = model.strategiesEnabled)
         }
     }
 }
 
 /**
  * Patch 48: the height is a minimum (a control token: 48dp touch, 56dp TV), not a fixed height. A fixed 48dp
- * clipped the second line of "Unblock YouTube" (longer in Russian) at a large font size or in a narrow pane; now the
+ * clipped the second line of "Watch YouTube" (longer in Russian) at a large font size or in a narrow pane; now the
  * button grows with its label.
  */
 @Composable

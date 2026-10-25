@@ -163,7 +163,7 @@
 <string name="bypass_enable_locked">Available once a strategy passes the test.</string>
 <string name="bypass_youtube_active">YouTube bypass active</string>
 <string name="bypass_home_hint">Watch YouTube even where it’s blocked</string>
-<string name="bypass_quick_action">Unblock YouTube</string>
+<string name="bypass_quick_action">Watch YouTube</string>
 <string name="bypass_starting_short">Starting…</string>
 <string name="bypass_need_test">Test the bypass in Settings first.</string>
 <string name="bypass_vpn_permission_denied">Android VPN permission was not granted.</string>
@@ -247,7 +247,7 @@
     <string name="dash_ways_ready">Ways ready: %1$d</string>
     <string name="dash_ways_ready_checked">Ways ready: %1$d · checked %2$s</string>
     <string name="dash_just_now">just now</string>
-    <string name="dash_youtube_label">YouTube app</string>
+    <string name="dash_youtube_label">Bypass restrictions</string>
     <string name="dash_youtube_on">Tunnel is on</string>
     <string name="dash_youtube_idle">No traffic yet</string>
     <string name="dash_youtube_no_answer">The app is sending, but nothing is coming back</string>
@@ -399,8 +399,8 @@
     <string name="dash_strategy_auto_title">Choose the strategy automatically</string>
     <string name="dash_strategy_auto_on">The best strategy is used, and the app switches if it stops working.</string>
     <string name="dash_strategy_auto_off">Your choice is tried first. The app still switches if it stops working.</string>
-    <string name="settings_youtube_app">App for “Unblock YouTube”</string>
-    <string name="youtube_app_hint">Choose the app that the “Unblock YouTube” button opens and that the bypass lets through. The official YouTube app is the default; another app for YouTube, or a browser, works too.</string>
+    <string name="settings_youtube_app">App for “Watch YouTube”</string>
+    <string name="youtube_app_hint">Choose the app that the “Watch YouTube” button opens and that the bypass lets through. The official YouTube app is the default; another app for YouTube, or a browser, works too.</string>
     <string name="youtube_app_default">Default</string>
     <string name="youtube_app_none">No app that opens YouTube was found.</string>
     <string name="youtube_app_note">Applies the next time the YouTube bypass starts. Only this app uses the bypass.</string>

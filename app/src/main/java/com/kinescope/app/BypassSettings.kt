@@ -229,7 +229,7 @@ fun BypassSettingsSection(requestNotifications: () -> Unit = {}) {
     ) {
         Text(stringResource(R.string.bypass_enable), style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
         FocusRing(shape = MaterialTheme.shapes.extraLarge) {
-            Switch(
+            KinescopeSwitch(
                 checked = enabled,
                 enabled = verified && controlsEnabled,
                 onCheckedChange = {
@@ -270,18 +270,42 @@ fun BypassSettingsSection(requestNotifications: () -> Unit = {}) {
         color = MaterialTheme.colorScheme.onSurfaceVariant
     )
 
-    // Patch 35: test one strategy, or pin one, like the strategy list in ByeByeDPI.
-    StrategyPicker(
-        enabled = controlsEnabled,
-        refreshKey = searchState.resultMessageRes,
-        onMessage = { message = it },
-        onChanged = {
-            verified = DpiStrategyStore.chain(context, cls).isNotEmpty()
-            verifiedAt = DpiPrefs.verifiedAt(context, cls)
-            enabled = DpiPrefs.isEnabled(context)
-        }
-    )
+
 }
 
 private fun formatBypassTimestamp(timestamp: Long): String =
     DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(timestamp))
+
+/** The last section of Settings, shown only when auto mode was disabled on Home. */
+@Composable
+internal fun ManualStrategySettings() {
+    val context = LocalContext.current
+    val netClass by NetClassWatcher.state.collectAsState()
+    val cls = netClass ?: NetworkState.currentClass(context)
+    val search by DpiSearchController.state.collectAsState()
+    val vpn by BypassVpnController.state.collectAsState()
+    val jobs by DownloadQueueBus.jobs.collectAsState()
+    var refresh by remember { mutableStateOf(0) }
+    var message by remember { mutableStateOf<String?>(null) }
+    // A manual pin is the per-network-class indication that auto mode is off.
+    val pinned = remember(cls, refresh) { DpiPrefs.pinned(context, cls) }
+    if (pinned == null) return
+    val downloadBusy = jobs.any {
+        it.state in setOf(JobState.PREPARING, JobState.RUNNING, JobState.PROCESSING, JobState.SAVING)
+    }
+    val canEdit = !search.running && !vpn.active && !vpn.starting && !downloadBusy
+    SettingsManualHeading()
+    StrategyPicker(
+        enabled = canEdit,
+        refreshKey = search.resultMessageRes to refresh,
+        onMessage = { message = it },
+        onChanged = { refresh++ }
+    )
+    message?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+}
+
+@Composable
+private fun SettingsManualHeading() {
+    Text(stringResource(R.string.dash_strategy_auto_off), style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant)
+}
