@@ -47,8 +47,8 @@
     <string name="banner_no_internet">Нет подключения к интернету — некоторые загрузки не удалось запустить.</string>
     <string name="banner_youtube_verification">YouTube запрашивает дополнительную проверку. Kinescope уже выполнил автоматическое восстановление; вход в аккаунт может сделать сессию более доверенной.</string>
 
-    <string name="empty_queue">Очередь пуста. Нажмите центральную кнопку ниже или поделитесь ссылкой YouTube или Instagram с Kinescope.</string>
-    <string name="quick_add_hint">Вставьте ссылку YouTube или Instagram Reel. Если подходящая ссылка уже скопирована, Kinescope автоматически подставит её при открытии этого раздела.</string>
+    <string name="empty_queue">Очередь пуста. Скопируйте ссылку YouTube или Instagram и нажмите кнопку «+» внизу либо поделитесь ссылкой с Kinescope.</string>
+    <string name="quick_add_hint">Вставьте ссылку YouTube или Instagram Reel и выберите качество. В следующий раз скопируйте ссылку и нажмите «+»: загрузка начнётся сразу.</string>
     <string name="link_placeholder">Вставьте ссылку YouTube или Instagram…</string>
     <string name="start_download">Начать загрузку</string>
 
@@ -228,7 +228,7 @@
     <string name="nav_home">Главная</string>
     <string name="nav_add">Добавить</string>
     <string name="nav_settings">Настройки</string>
-    <string name="empty_queue_side">Очередь пуста. Нажмите кнопку «Добавить» слева или поделитесь ссылкой YouTube или Instagram с Kinescope.</string>
+    <string name="empty_queue_side">Очередь пуста. Скопируйте ссылку YouTube или Instagram и нажмите «+» слева либо поделитесь ссылкой с Kinescope.</string>
     <string name="empty_queue_tv">Очередь пуста. Выберите «Добавить» в меню слева и введите ссылку YouTube или Instagram.</string>
     <string name="settings_interface">Интерфейс</string>
     <string name="interface_hint">«Автоматически» подбирает вид под это устройство. Выберите «ТВ» для телевизора или приставки, «Телефон и планшет» — для сенсорного экрана.</string>
@@ -376,18 +376,29 @@
     <string name="dash_sub_first_run">Это делается один раз после установки, пропустить нельзя. Может занять несколько минут.</string>
     <string name="dash_speed">Скорость загрузки: %1$s</string>
     <string name="dash_speed_waiting">Скорость загрузки: измеряем…</string>
-    <string name="dash_strategy_title">Стратегия</string>
-    <string name="dash_strategy_current">Сейчас: %1$s</string>
+    <string name="dash_strategy_title_net">Стратегия · %1$s</string>
+    <!-- Patch 53: strategies are rated per connection (Wi-Fi, mobile data). -->
+    <string name="net_wifi">Wi-Fi</string>
+    <string name="net_mobile">мобильный интернет</string>
+    <string name="dash_strategy_untested_here">Это подключение (%1$s) ещё не проверялось. Способы взяты из другого подключения; если один не сработает, приложение переключится само.</string>
+    <string name="strategy_rating">Рейтинг %1$d</string>
+    <string name="bypass_search_network_changed">Подключение изменилось во время проверки, результаты не сохранены.</string>
     <string name="dash_strategies_empty">Запустите проверку стратегий в настройках, чтобы их сравнить.</string>
     <string name="dash_strategy_cd">%1$s, звёзд: %2$d из 5</string>
     <string name="dash_strategy_applies_next">Идущая загрузка или туннель продолжают со старой стратегией; новая применится со следующего запуска.</string>
     <string name="bypass_first_run_note">Эту первую проверку остановить нельзя.</string>
     <string name="banner_updated">Kinescope обновлён. yt-dlp и список стратегий уже свежие. Чтобы всё работало лучше, запустите проверку стратегий в настройках.</string>
     <string name="banner_updated_action">Открыть настройки</string>
-    <string name="queue_show_all">Показать все (%1$d)</string>
-    <string name="queue_show_fewer">Свернуть</string>
     <string name="nav_library">Библиотека</string>
     <string name="cd_library">Библиотека</string>
+    <!-- Patch 52: the Queue destination, the + button that downloads the clipboard link, the automatic strategy switch. -->
+    <string name="nav_queue">Очередь</string>
+    <string name="cd_queue">Очередь</string>
+    <string name="quick_add_started">Загрузка добавлена в очередь.</string>
+    <string name="quick_add_no_link">В буфере обмена нет ссылки YouTube или Instagram. Вставьте её здесь.</string>
+    <string name="dash_strategy_auto_title">Выбирать стратегию автоматически</string>
+    <string name="dash_strategy_auto_on">Используется лучшая стратегия; если она перестанет работать, приложение переключится.</string>
+    <string name="dash_strategy_auto_off">Ваш выбор пробуется первым. Если он перестанет работать, приложение всё равно переключится.</string>
     <string name="settings_youtube_app">Приложение для «Разблокировать YouTube»</string>
     <string name="youtube_app_hint">Выберите приложение, которое открывает кнопка «Разблокировать YouTube» и которому обход помогает. По умолчанию это официальное YouTube; подойдёт и другое приложение для YouTube или браузер.</string>
     <string name="youtube_app_default">По умолчанию</string>

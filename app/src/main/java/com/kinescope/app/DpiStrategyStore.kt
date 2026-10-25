@@ -7,27 +7,37 @@ import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 
-/** Preferences of the network bypass. Kept apart from [Settings] so this feature stays self-contained. */
+/**
+ * Preferences of the network bypass. Kept apart from [Settings] so this feature stays self-contained.
+ *
+ * Patch 53: everything the app knows about strategies is kept per [NetClass] (Wi-Fi, mobile data): the chain, the pin, the
+ * strategy that last carried a download, the quarantine, and what real use has taught it (the last tests are in
+ * `DpiResultsStore`, per class too). A class-scoped key is its name plus [NetClass.suffix]; the Wi-Fi class has no suffix,
+ * so the data of builds from before patch 53 is the Wi-Fi record. The switches, the calendars and the names are shared.
+ */
 object DpiPrefs {
     private const val FILE = "kinescope_dpi"
     private const val KEY_ENABLED = "enabled"
-    private const val KEY_STRATEGY = "strategy"
     private const val KEY_LIST_UPDATED_AT = "list_updated_at"
+    private const val KEY_INITIAL_SEARCH_DONE = "initial_search_done"
+    private const val KEY_SEARCH_VERSION = "search_version"
+    private const val KEY_SEARCH_AT = "search_at"
+    private const val KEY_MAINTENANCE_TRY_AT = "maintenance_try_at"
+    private const val KEY_NAMES = "strategy_names"
+    private const val KEY_SEEN_VERSION = "seen_version"
+    private const val KEY_UPDATE_NOTICE = "update_notice"
+
+    // Class-scoped (see NetClass.suffix).
+    private const val KEY_STRATEGY = "strategy"
     private const val KEY_VERIFIED_STRATEGY = "verified_strategy"
     private const val KEY_VERIFIED_AT = "verified_at"
     private const val KEY_VERIFIED_FALLBACKS = "verified_fallbacks"
-    private const val KEY_INITIAL_SEARCH_DONE = "initial_search_done"
     private const val KEY_PINNED = "pinned_strategy"
     private const val KEY_PROVEN = "proven_strategy"
     private const val KEY_PROVEN_AT = "proven_at"
     private const val KEY_QUARANTINE = "quarantine"
-    private const val KEY_SEARCH_VERSION = "search_version"
-    private const val KEY_SEARCH_AT = "search_at"
-    private const val KEY_MAINTENANCE_TRY_AT = "maintenance_try_at"
     private const val KEY_LEARNED = "learned"
-    private const val KEY_NAMES = "strategy_names"
-    private const val KEY_SEEN_VERSION = "seen_version"
-    private const val KEY_UPDATE_NOTICE = "update_notice"
+    private const val KEY_SEEDED = "seeded"
     private const val PROVEN_MAX_AGE_MS = 14L * MaintenanceSchedule.DAY_MS
     private const val QUARANTINE_MS = 10L * 60L * 1000L
 
@@ -41,6 +51,8 @@ object DpiPrefs {
     private val writeLock = Any()
 
     private fun prefs(context: Context) = context.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE)
+
+    private fun key(base: String, cls: NetClass) = base + cls.suffix
 
     /**
      * Patch 47: runs [block] while no change to the chain, the quarantine or the record is half written. A chain is read
@@ -59,19 +71,31 @@ object DpiPrefs {
         prefs(context).edit().putBoolean(KEY_ENABLED, enabled).apply()
     }
 
-    internal fun storedStrategy(context: Context): String? = prefs(context).getString(KEY_STRATEGY, null)
+    internal fun storedStrategy(context: Context, cls: NetClass): String? =
+        prefs(context).getString(key(KEY_STRATEGY, cls), null)
 
-    fun isStrategyVerified(context: Context, line: String): Boolean =
-        prefs(context).getString(KEY_VERIFIED_STRATEGY, null) == line
+    internal fun isStrategyVerified(context: Context, cls: NetClass, line: String): Boolean =
+        prefs(context).getString(key(KEY_VERIFIED_STRATEGY, cls), null) == line
 
-    fun verifiedAt(context: Context): Long = prefs(context).getLong(KEY_VERIFIED_AT, 0L)
+    /** When the chain of [cls] was last set by a search (0 = never: no search has run on this class, or the chain is borrowed). */
+    internal fun verifiedAt(context: Context, cls: NetClass): Long = prefs(context).getLong(key(KEY_VERIFIED_AT, cls), 0L)
+
+    /** Patch 53: the chain of [cls] was borrowed from the other class and no search has run on this one yet. */
+    internal fun isSeeded(context: Context, cls: NetClass): Boolean = prefs(context).getBoolean(key(KEY_SEEDED, cls), false)
 
     /**
      * Records the strategy to use plus, when the search found more than one working
      * strategy, up to [MAX_FALLBACKS] more to fall back to if the primary one fails to
-     * start at run time (see [DpiStrategyStore.verifiedChain]).
+     * start at run time (see [DpiStrategyStore.verifiedChain]). Patch 53: for one class; [seeded] marks a chain borrowed from
+     * the other class, which has not been tested here (its time stays 0, see [verifiedAt]).
      */
-    fun markStrategiesVerified(context: Context, primary: String, fallbacks: List<String> = emptyList()) {
+    internal fun markStrategiesVerified(
+        context: Context,
+        cls: NetClass,
+        primary: String,
+        fallbacks: List<String> = emptyList(),
+        seeded: Boolean = false
+    ) {
         require(DpiStrategyParser.parse(primary) is DpiStrategyParser.Parsed.Ok)
         val validFallbacks = fallbacks
             .filter { it != primary && DpiStrategyParser.parse(it) is DpiStrategyParser.Parsed.Ok }
@@ -80,18 +104,28 @@ object DpiPrefs {
         // Patch 47: under the lock, so a download's promotion cannot write an older chain over a fresh search result.
         synchronized(writeLock) {
             prefs(context).edit()
-                .putString(KEY_STRATEGY, primary)
-                .putString(KEY_VERIFIED_STRATEGY, primary)
-                .putLong(KEY_VERIFIED_AT, System.currentTimeMillis())
-                .putString(KEY_VERIFIED_FALLBACKS, validFallbacks.joinToString("\n"))
+                .putString(key(KEY_STRATEGY, cls), primary)
+                .putString(key(KEY_VERIFIED_STRATEGY, cls), primary)
+                .putLong(key(KEY_VERIFIED_AT, cls), if (seeded) 0L else System.currentTimeMillis())
+                .putString(key(KEY_VERIFIED_FALLBACKS, cls), validFallbacks.joinToString("\n"))
+                .putBoolean(key(KEY_SEEDED, cls), seeded)
                 .apply()
         }
     }
 
-    fun verifiedFallbacks(context: Context): List<String> {
-        val raw = prefs(context).getString(KEY_VERIFIED_FALLBACKS, null) ?: return emptyList()
+    internal fun verifiedFallbacks(context: Context, cls: NetClass): List<String> {
+        val raw = prefs(context).getString(key(KEY_VERIFIED_FALLBACKS, cls), null) ?: return emptyList()
         return raw.split("\n")
             .filter { it.isNotBlank() && DpiStrategyParser.parse(it) is DpiStrategyParser.Parsed.Ok }
+    }
+
+    /** Writes a re-ordered chain without touching its time or its seeded mark. Call with [writeLock] held. */
+    private fun writeChain(context: Context, cls: NetClass, ordered: List<String>) {
+        prefs(context).edit()
+            .putString(key(KEY_STRATEGY, cls), ordered.first())
+            .putString(key(KEY_VERIFIED_STRATEGY, cls), ordered.first())
+            .putString(key(KEY_VERIFIED_FALLBACKS, cls), ordered.drop(1).joinToString("\n"))
+            .apply()
     }
 
     /** True once the one-time automatic first-run strategy search has been attempted. */
@@ -102,19 +136,22 @@ object DpiPrefs {
         prefs(context).edit().putBoolean(KEY_INITIAL_SEARCH_DONE, done).apply()
     }
 
-    /** Patch 35: the strategy the user pinned in Settings; it always leads the chain. */
-    fun pinned(context: Context): String? = prefs(context).getString(KEY_PINNED, null)?.takeIf { it.isNotBlank() }
+    /** Patch 35: the strategy the user pinned in Settings or on Home; it always leads the chain. Patch 53: per class. */
+    internal fun pinned(context: Context, cls: NetClass): String? =
+        prefs(context).getString(key(KEY_PINNED, cls), null)?.takeIf { it.isNotBlank() }
 
-    /** Pins [line]: it becomes the verified primary (the previous chain follows it) and the bypass is switched on. */
-    fun pin(context: Context, line: String) {
-        val existing = DpiStrategyStore.verifiedChain(context)
-        markStrategiesVerified(context, line, existing.filter { it != line })
-        prefs(context).edit().putString(KEY_PINNED, line).putBoolean(KEY_ENABLED, true).apply()
-        clearQuarantine(context, line)
+    /** Pins [line] for [cls]: it becomes the verified primary (the previous chain follows it) and the bypass is switched on. */
+    internal fun pin(context: Context, cls: NetClass, line: String) {
+        // A class that was never tested borrows the other one's chain first, so the pin leads a full chain and not a lone line.
+        DpiStrategyStore.ensureSeeded(context, cls)
+        val existing = DpiStrategyStore.verifiedChain(context, cls)
+        markStrategiesVerified(context, cls, line, existing.filter { it != line }, seeded = isSeeded(context, cls))
+        prefs(context).edit().putString(key(KEY_PINNED, cls), line).putBoolean(KEY_ENABLED, true).apply()
+        clearQuarantine(context, cls, line)
     }
 
-    fun unpin(context: Context) {
-        prefs(context).edit().remove(KEY_PINNED).apply()
+    internal fun unpin(context: Context, cls: NetClass) {
+        prefs(context).edit().remove(key(KEY_PINNED, cls)).apply()
     }
 
     /**
@@ -152,39 +189,47 @@ object DpiPrefs {
         prefs(context).edit().putBoolean(KEY_UPDATE_NOTICE, pending).apply()
     }
 
-    /** The strategy that last carried a real download, if that was within two weeks. */
-    fun provenLine(context: Context, now: Long = System.currentTimeMillis()): String? {
+    /** The strategy that last carried a real download on [cls], if that was within two weeks. */
+    internal fun provenLine(context: Context, cls: NetClass, now: Long = System.currentTimeMillis()): String? {
         val store = prefs(context)
-        val age = now - store.getLong(KEY_PROVEN_AT, 0L)
-        return if (age in 0..PROVEN_MAX_AGE_MS) store.getString(KEY_PROVEN, null) else null
+        val age = now - store.getLong(key(KEY_PROVEN_AT, cls), 0L)
+        return if (age in 0..PROVEN_MAX_AGE_MS) store.getString(key(KEY_PROVEN, cls), null) else null
     }
 
-    /** Keeps [line] out of the front of the chain for ten minutes after it failed in real use. */
-    fun quarantine(context: Context, line: String, forMs: Long = QUARANTINE_MS) {
+    /**
+     * Keeps [line] out of the front of the chain of [cls] for ten minutes after it failed in real use.
+     *
+     * Patch 46: a failure in real use also goes into the long-term record ([StrategyMemory]). Patch 53: the record is the
+     * class's, and the stored chain is re-ordered at once ([StrategyRouter.afterFailure]), so the strategy is not back in
+     * front when the ten minutes are over unless its rating still puts it there.
+     */
+    internal fun quarantine(context: Context, cls: NetClass, line: String, forMs: Long = QUARANTINE_MS) {
         val now = System.currentTimeMillis()
         synchronized(writeLock) {
-            val current = QuarantineList.parse(prefs(context).getString(KEY_QUARANTINE, null), now)
+            val current = QuarantineList.parse(prefs(context).getString(key(KEY_QUARANTINE, cls), null), now)
             val next = QuarantineList.add(current, line, now + forMs)
-            prefs(context).edit().putString(KEY_QUARANTINE, QuarantineList.serialize(next)).apply()
-            // Patch 46: a failure in real use also goes into the long-term record (StrategyMemory), where it lowers the
-            // strategy's place among the fallbacks long after the ten minutes are over.
-            recordOutcome(context, line, StrategyOutcome.REAL_BAD, now)
+            prefs(context).edit().putString(key(KEY_QUARANTINE, cls), QuarantineList.serialize(next)).apply()
+            recordOutcome(context, cls, line, StrategyOutcome.REAL_BAD, now)
+            val primary = prefs(context).getString(key(KEY_VERIFIED_STRATEGY, cls), null) ?: return
+            val chain = (listOf(primary) + verifiedFallbacks(context, cls)).distinct()
+            val ordered = StrategyRouter.afterFailure(chain, line, ratings(context, cls, now))
+            if (ordered != chain) writeChain(context, cls, ordered)
         }
     }
 
-    fun quarantined(context: Context): Set<String> =
-        QuarantineList.parse(prefs(context).getString(KEY_QUARANTINE, null), System.currentTimeMillis()).keys
+    internal fun quarantined(context: Context, cls: NetClass): Set<String> =
+        QuarantineList.parse(prefs(context).getString(key(KEY_QUARANTINE, cls), null), System.currentTimeMillis()).keys
 
-    fun clearQuarantine(context: Context, line: String? = null) {
+    internal fun clearQuarantine(context: Context, cls: NetClass, line: String? = null) {
         val store = prefs(context)
         if (line == null) {
-            store.edit().remove(KEY_QUARANTINE).apply()
+            store.edit().remove(key(KEY_QUARANTINE, cls)).apply()
             return
         }
         val now = System.currentTimeMillis()
         synchronized(writeLock) {
-            val next = QuarantineList.parse(store.getString(KEY_QUARANTINE, null), now) - line
-            store.edit().putString(KEY_QUARANTINE, QuarantineList.serialize(next)).apply()
+            val next = QuarantineList.parse(store.getString(key(KEY_QUARANTINE, cls), null), now) - line
+            store.edit().putString(key(KEY_QUARANTINE, cls), QuarantineList.serialize(next)).apply()
         }
     }
 
@@ -211,7 +256,8 @@ object DpiPrefs {
      * Patch 46: whether the quiet strategy re-check is due: 25 days since the last finished search and no attempt in
      * the last day (see [MaintenanceSchedule]). Never before the first search has finished. A build from before this
      * patch has no search time yet; its calendar starts the first time it is asked, so installing this patch does not
-     * itself start a re-check.
+     * itself start a re-check. Patch 53: the calendar is shared; the re-check only runs on an unmetered network, so in
+     * practice it keeps the Wi-Fi record fresh, and the mobile one is tested by hand (Settings -> Test).
      */
     fun isMaintenanceDue(context: Context, now: Long = System.currentTimeMillis()): Boolean {
         if (!hasRunInitialSearch(context)) return false
@@ -224,46 +270,26 @@ object DpiPrefs {
     }
 
     /**
-     * Patch 46: what the app has learned about strategies from real use and from searches (see [StrategyMemory]).
-     * Validated again on every read, like the rest of the stored strategies: the parser is the gatekeeper.
+     * Patch 46: what the app has learned about strategies from real use (see [StrategyMemory]). Patch 53: the record of
+     * [cls]. Validated again on every read, like the rest of the stored strategies: the parser is the gatekeeper.
      */
-    internal fun learned(context: Context): Map<String, LearnedStrategy> =
-        StrategyMemory.parse(prefs(context).getString(KEY_LEARNED, null))
+    internal fun learned(context: Context, cls: NetClass): Map<String, LearnedStrategy> =
+        StrategyMemory.parse(prefs(context).getString(key(KEY_LEARNED, cls), null))
             .filterKeys { DpiStrategyParser.parse(it) is DpiStrategyParser.Parsed.Ok }
 
-    /** Patch 46: the score of a strategy from its record as of [now] ([StrategyMemory.NEUTRAL] when nothing is known). */
-    internal fun scorer(context: Context, now: Long = System.currentTimeMillis()): (String) -> Double {
-        val memory = learned(context)
-        return { line -> StrategyMemory.score(memory[line], now) }
-    }
-
-    /** Patch 46: the strategies with real evidence in their favour, best first (see [StrategyMemory.good]). */
-    internal fun learnedGood(context: Context, now: Long = System.currentTimeMillis()): List<String> =
-        StrategyMemory.good(learned(context), now)
-
-    internal fun recordOutcome(context: Context, line: String, outcome: StrategyOutcome, now: Long = System.currentTimeMillis()) {
-        recordOutcomes(context, listOf(line), outcome, now)
-    }
-
     /**
-     * Patch 46: records [outcome] for every strategy in [lines]. A line the strategy parser would reject is ignored;
-     * with [onlyIfKnown] a strategy with no record yet is skipped.
+     * Patch 53: the rating (0-100) of every strategy [cls] has a test or a real record for, as of [now]: the last test on
+     * that class and real use together ([StrategyRating]).
      */
-    internal fun recordOutcomes(
-        context: Context,
-        lines: List<String>,
-        outcome: StrategyOutcome,
-        now: Long = System.currentTimeMillis(),
-        onlyIfKnown: Boolean = false
-    ) {
-        if (lines.isEmpty()) return
+    internal fun ratings(context: Context, cls: NetClass, now: Long = System.currentTimeMillis()): Map<String, Int> =
+        StrategyRating.ratings(DpiResultsStore.load(context, cls), learned(context, cls), now)
+
+    internal fun recordOutcome(context: Context, cls: NetClass, line: String, outcome: StrategyOutcome, now: Long = System.currentTimeMillis()) {
         synchronized(writeLock) {
-            var memory = learned(context)
-            for (line in lines) {
-                if (DpiStrategyParser.parse(line) !is DpiStrategyParser.Parsed.Ok) continue
-                memory = StrategyMemory.record(memory, line, outcome, now, onlyIfKnown)
+            val memory = StrategyMemory.record(learned(context, cls), line, outcome, now)
+            if (DpiStrategyParser.parse(line) is DpiStrategyParser.Parsed.Ok) {
+                prefs(context).edit().putString(key(KEY_LEARNED, cls), StrategyMemory.serialize(memory)).apply()
             }
-            prefs(context).edit().putString(KEY_LEARNED, StrategyMemory.serialize(memory)).apply()
         }
     }
 
@@ -274,26 +300,22 @@ object DpiPrefs {
      *
      * Patch 46: the same call is how real traffic is remembered (also from the YouTube tunnel, see
      * `TunnelFlow.proves`): the success goes into the long-term record, and the fallbacks behind the winner are
-     * ordered by their score there instead of staying in the order of the last search.
+     * ordered by their score there instead of staying in the order of the last search. Patch 53: for the class the
+     * traffic went through, and the order is the rating (test and real use) of that class.
      */
-    fun promoteVerified(context: Context, line: String) {
+    internal fun promoteVerified(context: Context, cls: NetClass, line: String) {
         val store = prefs(context)
         val now = System.currentTimeMillis()
         // Patch 47: one turn for the whole read-order-write, because a download and the tunnel can finish together.
         synchronized(writeLock) {
-            recordOutcome(context, line, StrategyOutcome.REAL_OK, now)
+            recordOutcome(context, cls, line, StrategyOutcome.REAL_OK, now)
             // Patch 35: a download really finished through this strategy; a background re-check keeps it in front.
-            store.edit().putString(KEY_PROVEN, line).putLong(KEY_PROVEN_AT, now).apply()
-            val primary = store.getString(KEY_VERIFIED_STRATEGY, null) ?: return
-            val chain = (listOf(primary) + verifiedFallbacks(context)).distinct()
+            store.edit().putString(key(KEY_PROVEN, cls), line).putLong(key(KEY_PROVEN_AT, cls), now).apply()
+            val primary = store.getString(key(KEY_VERIFIED_STRATEGY, cls), null) ?: return
+            val chain = (listOf(primary) + verifiedFallbacks(context, cls)).distinct()
             // Patch 46: the winner leads, the others follow by their score instead of staying in the order of the last search.
-            val ordered = ChainPlanner.promote(chain, line, scorer(context, now), MAX_FALLBACKS + 1)
-            if (ordered == chain) return
-            store.edit()
-                .putString(KEY_STRATEGY, ordered.first())
-                .putString(KEY_VERIFIED_STRATEGY, ordered.first())
-                .putString(KEY_VERIFIED_FALLBACKS, ordered.drop(1).joinToString("\n"))
-                .apply()
+            val ordered = StrategyRouter.afterSuccess(chain, line, ratings(context, cls, now), MAX_FALLBACKS + 1)
+            if (ordered != chain) writeChain(context, cls, ordered)
         }
     }
 
@@ -350,7 +372,7 @@ object DpiStrategyStore {
      */
     internal fun names(context: Context): StrategyNameBook {
         val palette = context.applicationContext.resources.getStringArray(R.array.strategy_colors).toList()
-        val keep = (verifiedChain(context) + listOfNotNull(DpiPrefs.pinned(context))).toSet()
+        val keep = NetClass.entries.flatMap { cls -> verifiedChain(context, cls) + listOfNotNull(DpiPrefs.pinned(context, cls)) }.toSet()
         return DpiPrefs.nameBook(context, palette, candidates(context), keep)
     }
 
@@ -379,38 +401,50 @@ object DpiStrategyStore {
         return DpiStrategyParser.parseList(text)
     }
 
-    /** The strategy to run: the user's choice if it is still valid, otherwise the first built-in. */
-    fun selected(context: Context): String {
-        val stored = DpiPrefs.storedStrategy(context)
+    /** The strategy to run on [cls]: the stored choice if it is still valid, otherwise the first built-in. */
+    internal fun selected(context: Context, cls: NetClass): String {
+        val stored = DpiPrefs.storedStrategy(context, cls)
         if (stored != null && DpiStrategyParser.parse(stored) is DpiStrategyParser.Parsed.Ok) return stored
         return DpiBuiltInStrategies.lines.first()
     }
 
     /**
-     * The verified strategy to try first, followed by its verified fallbacks -- empty when
-     * nothing has been verified yet. Callers that actually start the engine should try each
-     * line in order and use the first one that starts (see [DpiBypass] and
-     * `BypassVpnService`); callers that only need "is the feature usable right now" should
-     * check whether this list is empty.
-     */
-    /**
-     * Patch 35: the chain to use right now: the verified strategies, the pinned one first, and
+     * Patch 35: the chain to use right now on [cls]: the verified strategies, the pinned one first, and
      * strategies that failed in real use in the last ten minutes last. Empty when nothing is verified.
+     * Patch 53: a class with no chain of its own first borrows the other class's ([ensureSeeded]), so a connection that
+     * has never been tested still has strategies to try; the first real outcomes and the live checks reorder them.
      */
-    fun chain(context: Context): List<String> {
-        val stored = verifiedChain(context)
-        val pinned = DpiPrefs.pinned(context)
+    internal fun chain(context: Context, cls: NetClass): List<String> {
+        ensureSeeded(context, cls)
+        val stored = verifiedChain(context, cls)
+        val pinned = DpiPrefs.pinned(context, cls)
         if (stored.isEmpty()) {
-            return if (pinned != null && DpiPrefs.isStrategyVerified(context, pinned)) listOf(pinned) else emptyList()
+            return if (pinned != null && DpiPrefs.isStrategyVerified(context, cls, pinned)) listOf(pinned) else emptyList()
         }
-        return ChainPlanner.order(stored, pinned, DpiPrefs.quarantined(context))
+        return ChainPlanner.order(stored, pinned, DpiPrefs.quarantined(context, cls))
     }
 
     // Patch 47: read under the lock the writers take, so a promotion that is half written is never seen.
-    fun verifiedChain(context: Context): List<String> = DpiPrefs.consistently {
-        val primary = selected(context)
-        if (!DpiPrefs.isStrategyVerified(context, primary)) return@consistently emptyList<String>()
-        (listOf(primary) + DpiPrefs.verifiedFallbacks(context)).distinct()
+    // Patch 53: the stored chain of one class, without the borrowing of [chain].
+    internal fun verifiedChain(context: Context, cls: NetClass): List<String> = DpiPrefs.consistently {
+        val primary = selected(context, cls)
+        if (!DpiPrefs.isStrategyVerified(context, cls, primary)) return@consistently emptyList<String>()
+        (listOf(primary) + DpiPrefs.verifiedFallbacks(context, cls)).distinct()
+    }
+
+    /**
+     * Patch 53: gives [cls] a first chain when it has none: the other class's, marked as borrowed (`DpiPrefs.isSeeded`,
+     * and its time stays 0). A real search on the class replaces it. Does nothing when [cls] has a chain or the other
+     * class has none either (a fresh install).
+     */
+    internal fun ensureSeeded(context: Context, cls: NetClass) {
+        DpiPrefs.consistently {
+            if (verifiedChain(context, cls).isNotEmpty()) return@consistently
+            val seed = StrategyRouter.seed(emptyList(), verifiedChain(context, cls.other), ChainPlanner.MAX_CHAIN)
+            if (seed.isEmpty()) return@consistently
+            DpiPrefs.markStrategiesVerified(context, cls, seed.first(), seed.drop(1), seeded = true)
+            AppLog.i("DpiStrategyStore", "seed net=${cls.key} from=${cls.other.key} n=${seed.size}")
+        }
     }
 
     /** Blocking network call: run it on a background thread. */

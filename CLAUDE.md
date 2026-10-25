@@ -121,3 +121,17 @@ future sessions don't lose them.)
   after an app update yt-dlp and the list refresh themselves and the user is only advised to re-test. (4) `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`
   is declared on purpose: Google Play restricts it, this app is sideload-only (see "no Google Play" above). (5) The library left
   Home at the user's request but is kept as its own screen so downloads can still be played; delete the entry to drop it.
+- **Decision (patch 52): the queue is a destination, Home is the dashboard, "+" downloads the clipboard link.** (1) The navigation has five
+  entries in this order: Home, Queue, "+", Library, Settings; the bottom-bar buttons are 48dp so that five fit a 320dp window. (2) "+"
+  reads the clipboard only on that tap, starts a valid YouTube or Instagram link with the default quality and folder from Settings, and opens
+  the Add screen only when the clipboard holds no such link (the Add screen is also where a shared link lands). (3) The dashboard card keeps ONE
+  switch for the YouTube bypass; "Unblock YouTube" is a button below the card. (4) Strategies are a drop-down (default: the one in use) with a
+  switch for choosing automatically: picking from the menu or switching the automatic choice off pins (`DpiPrefs.pin`), switching it on lifts
+  the pin. Do not bring back the chips, a second tunnel switch inside the card or the queue on Home without being asked.
+- **Decision (patch 53): strategies are rated per connection, from the test and from real use.** (1) Everything the app learns about a
+  strategy (the last test, real use, the chain, the pin, the quarantine, the route that carried the last download) is kept per
+  connection class: Wi-Fi/Ethernet, or mobile data (and a metered Wi-Fi, i.e. a hotspot). The Wi-Fi record uses the pre-patch-53 keys. (2) One rating
+  (0-100) is made of the last test and real use; stars, drop-downs and chain order come from it; a search's findings are not also recorded as
+  real use. (3) `StrategyRouter` decides the chain after a search, a success, a failure and for a class with no chain (it borrows the other's);
+  a running tunnel follows a change of connection class after two seconds and a change of class is never counted as a failure. (4) No full
+  search on a metered connection without the user starting it. The mechanism is documented in `STRATEGY_ROUTER.md`; keep that file in step with the code.

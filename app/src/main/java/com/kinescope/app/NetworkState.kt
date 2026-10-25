@@ -33,6 +33,29 @@ internal object NetworkState {
     fun systemVpnActive(context: Context): Boolean = snapshot(context).vpn
 
     /**
+     * Patch 53: the connection class of the active network (see [NetClass.classify]), or null when there is none or it
+     * says nothing usable.
+     */
+    fun connectionClass(context: Context): NetClass? {
+        val manager = context.applicationContext.getSystemService(ConnectivityManager::class.java) ?: return null
+        val capabilities = runCatching { manager.getNetworkCapabilities(manager.activeNetwork) }.getOrNull() ?: return null
+        return classify(capabilities)
+    }
+
+    internal fun classify(capabilities: NetworkCapabilities): NetClass? = NetClass.classify(
+        wifi = capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI),
+        ethernet = capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET),
+        cellular = capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR),
+        metered = !capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
+    )
+
+    /**
+     * Patch 53: the class to rate and choose strategies for right now. With no usable connection there is nothing to learn
+     * from or to choose for, so it is Wi-Fi, where the app's records have always been.
+     */
+    fun currentClass(context: Context): NetClass = connectionClass(context) ?: NetClass.WIFI
+
+    /**
      * Patch 47: whether the active network is metered (mobile data, a phone hotspot) or there is no network at all.
      * The quiet 25-day re-check moves tens of megabytes (a real transfer and a load test per strategy), so it waits
      * for an unmetered one. Uses only API 23 calls, like [snapshot].

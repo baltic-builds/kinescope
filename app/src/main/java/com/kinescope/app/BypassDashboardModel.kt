@@ -6,6 +6,9 @@ import java.util.Locale
 // on the JVM (`BypassDashboardTest`). `BypassDashboard.kt` only maps the real states into [BypassDashInputs], draws the
 // [BypassDashboardModel] it gets back and forwards taps; it decides nothing itself.
 //
+// Patch 52: the card has ONE switch for the YouTube bypass (the "Unblock YouTube" button moved below the card and the
+// two no longer repeat each other), and the strategies are a drop-down with an "automatic" switch under it.
+//
 // Two different things are called "bypass" in this app:
 // - DOWNLOADS: Kinescope's own downloads go through a verified ByeDPI strategy when `DpiPrefs.isEnabled` is on (the
 //   default). Since patch 51 that switch lives in Settings only; the dashboard does not offer it.
@@ -62,9 +65,9 @@ internal data class BypassDashboardModel(
     /** The on/off switch of the YouTube bypass: its position and whether it can be used right now. */
     val tunnelSwitchOn: Boolean,
     val tunnelSwitchEnabled: Boolean,
-    /** The "Unblock YouTube" / "Open" button (starts the tunnel when it is off, then opens the chosen app). */
+    /** The "Unblock YouTube" button below the card (starts the tunnel when it is off, then opens the chosen app). */
     val openEnabled: Boolean,
-    /** The YouTube switch, the open button and the strategy list. */
+    /** The YouTube switch, the strategy drop-down and the button below the card. */
     val showControls: Boolean,
     /** Choosing a strategy: not while a search is changing the results. */
     val strategiesEnabled: Boolean,
@@ -131,8 +134,8 @@ internal fun bypassDashboardModel(inputs: BypassDashInputs): BypassDashboardMode
 
 /**
  * Patch 51: the strategy's effectiveness as the 1-5 stars the dashboard draws. The app measures it as a percentage
- * (`StrategyResult.score`, 0-100); the thresholds are the user's: 100 -> 5, 85-99 -> 4, 75-84 -> 3, 60-74 -> 2,
- * anything below -> 1.
+ * (patch 53: the strategy's [StrategyRating], 0-100); the thresholds are the user's: 100 -> 5, 85-99 -> 4, 75-84 -> 3,
+ * 60-74 -> 2, anything below -> 1.
  */
 internal fun strategyStars(percent: Int): Int = when {
     percent >= 100 -> 5
@@ -149,25 +152,50 @@ internal data class DashStrategy(val line: String, val percent: Int, val stars: 
 internal const val DASH_STRATEGY_LIMIT = 15
 
 /**
- * Patch 51: the most successful strategies for the dashboard: the ones that passed their last test and are still in
- * the list ([candidates]; a line the list dropped, such as a flag-fixed variant, is not offered), best score first,
- * then faster, then in list order. At most [limit].
+ * Patch 51: the most successful strategies for the dashboard. Patch 53: by RATING ([StrategyRating]: the last test on
+ * this connection and real use together) and not by the last test alone: the strategies rated at least
+ * [StrategyRating.ELIGIBLE] that are still in the list ([candidates]; a line the list dropped, such as a flag-fixed variant,
+ * is not offered), best first, then in list order. At most [limit]. The stars are the rating's.
  */
 internal fun topStrategies(
-    results: Map<String, StoredResult>,
+    ratings: Map<String, Int>,
     candidates: List<String>,
     limit: Int = DASH_STRATEGY_LIMIT
 ): List<DashStrategy> {
     val order = candidates.withIndex().associate { it.value to it.index }
-    return results.values
-        .filter { it.passed && it.line in order }
+    return ratings.entries
+        .filter { it.value >= StrategyRating.ELIGIBLE && it.key in order }
         .sortedWith(
-            compareByDescending<StoredResult> { it.score }
-                .thenByDescending { it.kbps }
-                .thenBy { order.getValue(it.line) }
+            compareByDescending<Map.Entry<String, Int>> { it.value }
+                .thenBy { order.getValue(it.key) }
         )
         .take(limit)
-        .map { DashStrategy(it.line, it.score, strategyStars(it.score)) }
+        .map { DashStrategy(it.key, it.value, strategyStars(it.value)) }
+}
+
+/**
+ * Patch 52: what the strategy drop-down offers. Patch 53: the [topStrategies] by rating, then the strategies of the
+ * connection's [chain] that are not among them (a chain borrowed from the other connection has no ratings here yet; a
+ * strategy that failed in real use is rated low but is still in the chain), and the strategy in use ([selected]) first if it
+ * is somehow in neither, so the field never shows something the menu cannot list. [DashStrategy.stars] is 0 for a strategy
+ * with no rating at all: the menu then shows the name alone, because empty stars would claim a score nobody measured.
+ */
+internal fun strategyChoices(
+    ratings: Map<String, Int>,
+    candidates: List<String>,
+    chain: List<String>,
+    selected: String?,
+    limit: Int = DASH_STRATEGY_LIMIT
+): List<DashStrategy> {
+    val top = topStrategies(ratings, candidates, limit)
+    val extra = chain.filter { line -> top.none { it.line == line } }.distinct().map { line ->
+        val rating = ratings[line]
+        DashStrategy(line, rating ?: 0, if (rating != null) strategyStars(rating) else 0)
+    }
+    val all = top + extra
+    if (selected == null || all.any { it.line == selected }) return all
+    val rating = ratings[selected]
+    return listOf(DashStrategy(selected, rating ?: 0, if (rating != null) strategyStars(rating) else 0)) + all
 }
 
 /**

@@ -4,7 +4,7 @@ The current state of Kinescope for anyone (human or AI agent) resuming work. It 
 appended to: per-patch history lives in `CHANGELOG.md`, open work in `ROADMAP.md`, process rules in `AGENTS.md`,
 product constraints in `CLAUDE.md`. Where this file and the code disagree, the code wins; fix this file.
 
-State as of patch 51 (2026-10-23).
+State as of patch 53 (2026-10-25).
 
 ## What Kinescope is
 
@@ -27,7 +27,10 @@ hardened in patch 42), the build and packaging changes of patch 43, the tunnel t
 25-day upkeep of patch 46, the first implementation of the outside tablet/TV UI audit (patch 48), and the overflow
 sweep with the TV-detection fix of patch 49, and the explicit app theme of patch 50 (no native action bar), and the Home dashboard sprint of patch 51 (named
 strategies, stars, the YouTube bypass switch, the app behind "Unblock YouTube", the power-saving prompt, the mandatory
-first check, the update notice). The exact
+first check, the update notice), and the Home/Queue rework of patch 52 (one YouTube switch, the strategy drop-down with its
+automatic switch, the queue as a destination, the five-entry navigation whose `+` downloads the clipboard link), and the strategy router of patch 53 (separate Wi-Fi and
+mobile-data records, one rating from the test and real use, borrowing and switching with the connection; `STRATEGY_ROUTER.md`).
+The exact
 checklist is `ROADMAP.md`; do not tick a box without the user's report.
 **CI:** the release workflow was red at patch 42 (`AdaptiveLayoutTest` still referenced the removed
 `WidthClass`). Patch 43 fixes it, pins the NDK/CMake, and restructures the workflow (validate, tests + lint,
@@ -77,13 +80,14 @@ not yet being 16 KB page-size compatible (upstream).
 - **Diagnostics.** `AppLog` is a rotating private journal: one line, `key=value` tokens, under 220 characters, no
   URLs, no cookies; `DiagnosticSanitizer` redacts URLs, YouTube and Instagram cookie values and private paths;
   `DiagnosticReport` adds the header for Settings -> Copy report. Backup is disabled.
-- **UI.** Home (bypass dashboard, compact queue), Add, Library (its own screen since patch 51), Settings, Logs (Settings -> Diagnostics; five taps on the
+- **UI.** Home (bypass dashboard, its "Unblock YouTube" button, banners), Queue (its own screen since patch 52), Add (`+` opens it only when
+  the clipboard holds no link; a shared link lands there too), Library (its own screen since patch 51), Settings, Logs (Settings -> Diagnostics; five taps on the
   Settings icon still open it), sign-in screens. English default, Russian in `values-ru`; every string exists in both.
 - **Adaptive layout (patch 41).** One APK for phones, tablets and Android TV. `AdaptiveRoot` classifies the window
   (`adaptiveSpecFor`, Material breakpoints 600/840dp) and provides `LocalAdaptive`; screens read it. Phone in
   portrait: bottom bar, one column. Medium/expanded windows (patch 48: never a compact-width one, however short): a
-  navigation rail with labels and, when 700dp of content fits, two panes (Home: dashboard | queue; Settings: general |
-  bypass). TV (device report or Settings -> Interface override): rail with labels, an edge margin of 0-5% of the
+  navigation rail with labels and, when 700dp of content fits, two panes (Settings: general |
+  bypass; since patch 52 Home is one centred column of at most 640dp). TV (device report or Settings -> Interface override): rail with labels, an edge margin of 0-5% of the
   window (a setting, default 5% = 48dp x 27dp on 960x540dp), text x1.15, a `FocusRing` around every control, no
   touch-only gestures. Heights of the controls the layout sizes itself are tokens (`controlHeightDp`, `headerHeightDp`)
   used as MINIMUMS: never give a button with text a fixed `height`, and put a group of buttons in a `FlowRow`, not a
@@ -92,12 +96,16 @@ not yet being 16 KB page-size compatible (upstream).
   through `AdaptiveSpec`, not through ad-hoc `if (isTv)` checks. `AppFrame` is ONE structure for every layout
   (a Scaffold with empty bars in the rail layout, a Row, a Column, a single call of the screen content): a
   second branch around the content would rebuild every screen when a phone is rotated.
-- **Home dashboard (patch 45, redrawn in patch 51).** The hero card on Home (`BypassDashboard`) shows: the state of the YouTube
+- **Home dashboard (patch 45, redrawn in patches 51 and 52).** The hero card on Home (`BypassDashboard`) shows: the state of the YouTube
   bypass with its on/off switch (the YouTube-only tunnel: start / stop, live speed, strategy position and traffic verdict,
-  `TunnelTraffic` from `BypassVpnController.traffic`) and the "Unblock YouTube" button; the speed of the running download
-  (`DownloadJobStatus.speedKbps`, only while one runs); and the 15 most successful strategies as chips with a colour name and
-  1-5 stars (`topStrategies`, `strategyStars`: 100% -> 5, 85-99 -> 4, 75-84 -> 3, 60-74 -> 2, below -> 1). A tap pins the
-  strategy (`DpiPrefs.pin`). The DOWNLOADS switch (`DpiPrefs.enabled`, ON by default since patch 51) is in Settings only. Every
+  `TunnelTraffic` from `BypassVpnController.traffic`); the speed of the running download
+  (`DownloadJobStatus.speedKbps`, only while one runs); and the strategies: a drop-down of the 15 most successful ones with a
+  colour name and 1-5 stars (`topStrategies`, plus the one in use through `strategyChoices`; `strategyStars`: 100% -> 5, 85-99 -> 4,
+  75-84 -> 3, 60-74 -> 2, below -> 1) that shows the strategy in use, and under it a switch for choosing automatically (on = no
+  pin; choosing from the menu or switching it off calls `DpiPrefs.pin`, switching it on `DpiPrefs.unpin`). Patch 52: the card has
+  ONE tunnel switch; the "Unblock YouTube" button is drawn BELOW the card (`onOpenApp`), and the queue is not on Home.
+  `+` in the navigation (`addFromClipboard` in `MainActivity.kt`) reads the clipboard on the tap and enqueues a valid link at the
+  default quality; with no link it opens the Add screen. The DOWNLOADS switch (`DpiPrefs.enabled`, ON by default since patch 51) is in Settings only. Every
   rule lives in the pure `bypassDashboardModel`; the composable maps state in and draws. Preferences are read when a watched
   state changes, not through a live observer.
 - **Strategy names (patch 51) -- THE RULE.** Every strategy has a colour name from `R.array.strategy_colors` (EN and RU, 100
@@ -118,13 +126,11 @@ not yet being 16 KB page-size compatible (upstream).
 - **Power saving (patch 51).** `BatteryOptimization`: the system exemption dialog (`REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`, sideload-only), then
   the list of apps' settings, then the app's system page. A pop-up on the second launch (once) and a Settings section.
 - **Learned strategies and the 25-day upkeep (patch 46).** `StrategyMemory` (pure) keeps, per strategy, faded sums of
-  good and bad evidence: a finished download or a `tun proven` window counts 1.0 good, a search that moved a real
-  transfer 0.5 good, a failure while another route finished the job 1.0 bad (it weighs double in the score), and all
-  evidence halves every week. `DpiPrefs.promoteVerified` (success) and `DpiPrefs.quarantine` (failure) feed it,
+  good and bad evidence: a finished download or a `tun proven` window counts 1.0 good, a failure while another route finished the job 1.0 bad (it weighs double in the score), and all
+  evidence halves every week (patch 53: only real use is recorded here; what a search found is the test half of the rating). `DpiPrefs.promoteVerified` (success) and `DpiPrefs.quarantine` (failure) feed it,
   `DpiBypass.applySearchResults` adds the search's own findings, and `ChainPlanner.merge` / `promote` put the
   learned-good strategies into the chain and order the pool by score, so the fallbacks are in order of how well they
-  have worked (the chain holds six). The record is one preference string (`DpiPrefs.learned`), global rather than
-  per network. The re-check no longer follows the app version: `MaintenanceSchedule` (25 days, at most one attempt a
+  have worked (the chain holds six). The record is one preference string per connection class (`DpiPrefs.learned`; patch 53). The re-check no longer follows the app version: `MaintenanceSchedule` (25 days, at most one attempt a
   day) decides, `MainActivity` starts the quiet `MODE_BACKGROUND` search with no popup (`DpiSearchService` refreshes
   the community list first), and `YtOfflineApp` applies the same interval to the yt-dlp update. The first-run
   search and its popup are unchanged. The calendar is kept in `DpiPrefs` (`search_at`, `maintenance_try_at`); a
@@ -132,6 +138,17 @@ not yet being 16 KB page-size compatible (upstream).
   also waits for an unmetered network (`NetworkState.isMetered`) and for a successful foreground start of the
   search service; `DpiPrefs` makes the chain, quarantine and record changes take turns with one lock; the chain
   size is `ChainPlanner.MAX_CHAIN`.
+
+- **Strategy router (patch 53).** Full account: `STRATEGY_ROUTER.md`. Everything about a strategy is kept per connection class
+  (`NetClass`: Wi-Fi/Ethernet, or mobile data and metered Wi-Fi): the verified chain, the pin, the proven strategy, the quarantine, the
+  learned record and the last test results. The Wi-Fi class uses the pre-patch-53 preference keys (no migration); mobile has `_mobile`
+  keys. `StrategyRating` blends the last test (fading, 14-day half-life) with real use (`StrategyMemory`) into one 0-100 rating; stars,
+  the Home drop-down and the order of every chain come from it. `StrategyRouter` decides the chain after a search, a success
+  (`afterSuccess`: the winner leads), a failure (`afterFailure`: the loser moves down at once) and for a class with no chain (`seed`:
+  it borrows the other class's, marked `seeded`, time 0). `NetClassWatcher` follows the default network; `BypassVpnService`
+  reconnects on the new class's chain after the class has differed for four 500 ms ticks (`NetSwitch`), without counting it as a
+  failure; `RouteLadder` and `RouteScoreboard` work per class. A search whose connection changed class is dropped
+  (`DpiBypass.recordSearch`). No automatic full search on a metered network. Not confirmed on a device.
 
 - **Recreation (patch 48).** `MainActivity` keeps `uiMode` out of `configChanges` on purpose (the system-bar icon colours
   are set once in `onCreate`), so a dark-mode or language change recreates the activity. The current screen, the typed
@@ -172,12 +189,14 @@ Links and sites
 UI
 - `MainActivity.kt` -- the activity, `AppSection`, `KinescopeApp` (state, navigation, handlers).
 - `AdaptiveLayout.kt` -- window classification (`AdaptiveSpec`, `adaptiveSpecFor`), TV detection, `InterfaceMode`, `LocalAdaptive`, `AdaptiveRoot`, `FocusRing`.
-- `AppChrome.kt` -- `AppFrame` (top bar + bottom bar, or header + navigation rail; four destinations since patch 51), responsive column.
-- `HomeScreen.kt` -- Home: the bypass dashboard slot, the compact queue, banners (errors, sign-in, "app updated").
-- `BypassDashboard.kt` -- the Home hero card: header, YouTube switch and button, download speed, the strategy chips with stars, search strip (Compose; draws the model).
+- `AppChrome.kt` -- `AppFrame` (top bar + bottom bar, or header + navigation rail; five destinations since patch 52: Home, Queue, `+`, Library, Settings), responsive column.
+- `HomeScreen.kt` -- Home: the bypass dashboard slot and the banners (errors, sign-in, "app updated"); one column since patch 52.
+- `QueueScreen.kt` -- the download queue as its own screen (patch 52): the full list, Pause / Resume / Stop per row, the empty text.
+- `BypassDashboard.kt` -- the Home hero card: header, the YouTube switch, download speed, the strategy drop-down with stars and its automatic switch, search strip, and the
+  "Unblock YouTube" button below the card (Compose; draws the model).
 - `LibraryScreen.kt` -- the library of finished downloads as its own screen (patch 51).
 - `BypassDashboardModel.kt` -- pure rules of that card (`bypassDashboardModel`, `formatTransferRate`).
-- `QueueAndLibrary.kt` -- the queue-job row, the library-file row and the library file actions.
+- `QueueAndLibrary.kt` -- the queue-job row (a Stop button on every device since patch 52), the library-file row and the library file actions.
 - `QuickAddScreen.kt`, `SettingsScreen.kt`, `LogsScreen.kt` -- the Add, Settings and Logs screens.
 - `BypassSettings.kt`, `StrategyPicker.kt` -- the bypass section of Settings and the manual strategy list.
 - `YoutubeApps.kt`, `YoutubeAppSettings.kt` -- the app behind "Unblock YouTube": the candidates, the choice, opening it; its Settings section (patch 51).
@@ -188,12 +207,14 @@ UI
 
 Network bypass
 - `DpiNative.kt`, `DpiEngineService.kt`, `DpiEngine.kt` -- JNI binding, the `:dpi` host service, the bind/start/close client.
-- `DpiStrategies.kt` -- allowlist parser and built-in strategies; `DpiStrategyStore.kt` -- bypass preferences (`DpiPrefs`: the verified chain, the learned record, the upkeep calendar).
+- `DpiStrategies.kt` -- allowlist parser and built-in strategies; `DpiStrategyStore.kt` -- bypass preferences (`DpiPrefs`: per connection class the verified chain, pin, quarantine and learned record; the shared upkeep calendar).
 - `DpiSearch.kt`, `DpiSearchService.kt` -- the strategy search and its foreground service/controller; `DpiResultsStore.kt` -- last test results.
 - `DpiBypass.kt` -- glue used by downloads and Settings (active chain, health check, applying results).
 - `ChainPlanner.kt`, `BypassRoutes.kt`, `RouteScoreboard.kt` -- pure ordering rules for strategies and routes.
-- `StrategyMemory.kt` -- pure record of which strategies really carried traffic (outcomes, fading score, text form); `MaintenanceSchedule.kt` -- pure 25-day calendar of the upkeep (strategy re-check, yt-dlp update).
-- `NetworkCheck.kt`, `NetworkState.kt` -- layered reachability probe through the engine; third-party VPN detection.
+- `NetClass.kt`, `NetClassWatcher.kt` -- the connection class (Wi-Fi / mobile data), the rule for when the tunnel follows a change, and the flow that follows the default network (patch 53).
+- `StrategyRating.kt`, `StrategyRouter.kt` -- the pure rating (last test + real use) and the router policy; see `STRATEGY_ROUTER.md` (patch 53).
+- `StrategyMemory.kt` -- pure record of which strategies really carried traffic (real outcomes only since patch 53; fading score, text form); `MaintenanceSchedule.kt` -- pure 25-day calendar of the upkeep (strategy re-check, yt-dlp update).
+- `NetworkCheck.kt`, `NetworkState.kt` -- layered reachability probe through the engine; third-party VPN detection; the connection class (patch 53).
 - `BypassVpnService.kt` -- `BypassVpnController` and the YouTube-only `VpnService` (`:dpi_vpn`).
 - `TunnelFlow.kt` -- pure judge of the YouTube app's traffic through the tunnel (idle / flowing / one-way, from the bridge counters), plus the tunnel's speed (`TunnelRate`) and the snapshot the dashboard reads (`TunnelTraffic`).
 - `app/src/main/java/hev/htproxy/TProxyService.java` -- JNI contract of the vendored `hev-socks5-tunnel`; `app/src/main/cpp/` -- ByeDPI sources, `dpi_jni.c`, `CMakeLists.txt`; `app/src/main/jniLibs/` -- the tunnel library with its license and provenance.
@@ -231,7 +252,8 @@ parser/search/ranking/store, the network probe, the privacy redaction, the windo
   job, eng, upd, auth, ui, lib, media. Keys: `j` job (8 hex), `p` yt-dlp profile, `src` site (`yt`/`ig`), `fmt`
   chosen format ids, `r` route (`s2/4` = strategy 2 of 4), `chk` live check, `hb` heartbeat, `end` run summary,
   `rotate` tunnel strategy switch. Patch 46 adds `tun proven`, the header tokens `learned=` and `search_age=`, and
-  `#learn` lines (place in the chain, ok/bad weights, score).
+  `#learn` lines (place in the chain, ok/bad weights, score). Patch 53 replaces `learned=` and `#learn` with `cls=`, `seeded=`, `rated=`, `#rate`
+  and `#other` (`STRATEGY_ROUTER.md` section 9) and adds `net=` to the route, tunnel and ladder lines.
 
 - Patch 48, read from the androidx source (main): `FlowRow` is still `@ExperimentalLayoutApi` (opt in with
   `@OptIn(ExperimentalLayoutApi::class)`); `widthIn` uses `enforceIncoming`, so it must come BEFORE `fillMaxWidth`

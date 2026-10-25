@@ -290,3 +290,30 @@ Arrangement and sizing only; colours, type and shapes are unchanged. Still drawn
   deliberate departure from the 48dp tile of patch 36 for the queue rows only; the touch target of the row's buttons is unchanged.
 - Honesty: the stars are the app's own percentage (`StrategyResult.score`) rounded into five bands; they say how a strategy did
   in the last test on the last network, not how it will do elsewhere.
+
+## Patch 52 — one switch, a strategy drop-down, five navigation entries
+
+Arrangement and sizing only; colours, type and shapes are unchanged. Still drawn without a tablet or a TV at hand.
+
+- **The card has one switch.** The YouTube row is the only toggle for the tunnel. "Unblock YouTube" is the one filled button of
+  Home and sits BELOW the card at the column's full width (it is no longer capped at 280dp: it is the screen's main action, not a
+  rival of the bottom bar, and the column is at most 640dp wide).
+- **Strategy field.** An outlined, full-width, `medium`-shaped field with the strategy name and its stars and a drop arrow
+  (`ic_arrow_drop_down.xml`); the menu is the standard `DropdownMenu` (112-280dp), the row in use in bold. Under it, a
+  `toggleable` row with a read-only Switch ("Choose the strategy automatically") and a `bodySmall` line saying what each state
+  means. Supersedes the chips of patch 51.
+- **Navigation.** Five equal buttons, in the order Home, Queue, + (accent circle), Library, Settings. In the bottom bar they are
+  **48dp** (five 56dp buttons do not fit a 320dp window); the strip keeps its 280-380dp width rule. The rail keeps 56dp (64dp on
+  TV) with a label under each icon and scrolls when the window is short. This supersedes the "three equal 56dp targets" of patch 36
+  and the four entries of patch 51.
+- **Queue.** A screen of its own (the full list, rows as before). Every row has a visible Stop (remove) button on every device;
+  the end-to-start swipe remains. This supersedes the patch 28 line "pause/resume remains the only persistent per-row control" and the
+  compact three-row queue of patch 51 (the row's 32dp tile stays).
+- **Home** is one centred column of at most 640dp on every window; there is no second pane.
+
+## Patch 53 — strategy router: what shows on the connection
+
+- The strategy title of the Home card names the connection it is for: "Strategy · Wi-Fi" / "Strategy · mobile data" (`titleSmall`, same colour as before).
+- When a connection's chain is borrowed from the other one, a `bodySmall` line in the card's secondary colour says it has not been tested; it
+  sits under the automatic switch and above the "applies on the next start" note. Strategies without a rating are listed by name with no stars.
+- Settings: the strategy list title carries the connection ("Strategies · Wi-Fi"), and each row's status line starts with "Rating N".

@@ -1,6 +1,6 @@
 # Roadmap
 
-State after patch 51 (2026-10-23). This file tracks only what is still open: device verification gates,
+State after patch 53 (2026-10-25). This file tracks only what is still open: device verification gates,
 technical debt and what is out of scope. How each item was closed lives in `CHANGELOG.md`; the state a new
 session needs is in `HANDOFF.md`.
 
@@ -41,6 +41,14 @@ session needs is in `HANDOFF.md`.
   behind "Unblock YouTube" and has a power-saving section (plus a pop-up on the second launch); the queue is compact; the
   library is its own screen; the first-run check is mandatory and an app update refreshes yt-dlp and the list and shows a
   notice. The strategy list mirrors its source again (12 built-in + 60 = 72, not 76). Not confirmed on a device.
+- **Patch 52 (2026-10-24) reshapes Home and the navigation.** The dashboard card has one YouTube switch and "Unblock YouTube" is
+  a button below it; strategies are a drop-down (default: the one in use) with a switch for choosing automatically; the queue
+  is its own screen; the navigation is Home, Queue, "+", Library, Settings, and "+" downloads the clipboard link with the default
+  settings. Not confirmed on a device; the Compose code was not compiled in the session that wrote it.
+- **Patch 53 (2026-10-25) is the strategy router.** Strategies are rated separately for Wi-Fi and for mobile data, each rating blends
+  the last test with real use, a class with no chain borrows the other's, a failure moves a strategy down at once, and a running
+  tunnel follows the phone from one connection to the other. The mechanism is `STRATEGY_ROUTER.md`. Not confirmed on a device; the
+  preference-backed code and the tunnel could not be run in the session that wrote it.
 - **Everything below needs the user's phone or a real GitHub Actions run.** Do not tick a box from code review, a
   local compile or a green build alone (`AGENTS.md`, "What done means").
 
@@ -57,6 +65,52 @@ session needs is in `HANDOFF.md`.
   "no authentication / no embedded browser" assumption stays superseded.
 
 ## Verification gates (open)
+
+### Strategy router: Wi-Fi and mobile data (patch 53)
+Needs a phone with a mobile data connection; the Wi-Fi checks can be done on the corporate network. `Copy report` (Settings) shows what
+the app decided (`cls=`, `seeded=`, `#rate`, `#other`; see `STRATEGY_ROUTER.md` section 9): paste it with any failure.
+- [ ] `./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug` is green (the Android-dependent code of patch 53 was only type-checked).
+- [ ] Upgrade over a patch 52 install on Wi-Fi: the strategies, the pin and the stars are still there (they are the Wi-Fi record); Home says
+  "Strategy · Wi-Fi"; the report shows `cls=wifi`.
+- [ ] Switch the phone to mobile data only (Wi-Fi off): within a few seconds Home says "Strategy · mobile data", the drop-down lists the
+  borrowed strategies without stars and a line says the connection has not been tested; the report shows `cls=mobile seeded=1`.
+- [ ] On mobile data, with the tunnel on: it comes up on a strategy of the mobile chain; if the YouTube app does not load, the tunnel moves
+  to another strategy by itself within about two minutes (log: `rotate net=mobile`), and `#rate` lines appear for what failed. Say how long it took
+  and whether the app recovered.
+- [ ] On mobile data, run Settings -> Test strategies: the title of the list says mobile data, the stars on Home change to the new ratings,
+  the line about the untested connection goes away, and the Wi-Fi ratings are unchanged after going back to Wi-Fi. Note how much data it used.
+- [ ] A download on mobile data finishes (or fails) through the mobile chain: the report shows `ladder ... net=mobile`; after it finishes the
+  strategy that carried it leads the mobile chain and is not demoted on Wi-Fi.
+- [ ] With the tunnel running, switch from Wi-Fi to mobile data and back: the log shows `net change wifi->mobile` about two seconds after the
+  switch, the tunnel reconnects on the other chain, and the YouTube app keeps working (or recovers). A short loss of Wi-Fi that returns
+  does not restart the tunnel.
+- [ ] Pin a strategy on Wi-Fi, go to mobile data: the mobile list is not pinned (the switch reads "automatic"); back on Wi-Fi the pin is still there.
+- [ ] A phone hotspot (Wi-Fi marked as metered by Android) is treated as mobile data: record whether Home says so.
+- [ ] Open question for the user: is a borrowed chain on first use of mobile data acceptable, or should the app offer the test at once?
+
+### Home, Queue and the five-entry navigation (patch 52)
+Patch 52 replaced the strategy chips by a drop-down, moved the queue to its own screen and made the navigation five entries;
+where the boxes below (patch 51 and older) name chips, "Show all (N)", a "Choose automatically" button, a four-entry bar, the queue or
+the library on Home, or the Add screen filling itself from the clipboard, this list is the one to check.
+- [ ] `./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug` is green (the Compose code of patch 52 has never been compiled).
+- [ ] The bottom bar shows five round buttons in this order: Home, Queue, + (accent), Library, Settings. All five fit, clear of the
+  system bar, on a narrow phone (320-360dp) and in Russian. In a tablet's or TV's rail the same five have labels, and the rail scrolls if
+  the window is short.
+- [ ] Home: the card has exactly one switch for the YouTube bypass, "Unblock YouTube" is a separate button BELOW the card (it starts
+  the tunnel when needed and opens the chosen app); no queue and no library on Home; the banners still appear there.
+- [ ] Strategy drop-down: it shows the strategy in use; the menu lists up to 15 (plus the one in use when it is not among them) with
+  colour names and stars; choosing another one pins it, shows the toast and turns the automatic switch off; choosing the shown one does
+  nothing; the menu opens and closes with a D-pad on a TV.
+- [ ] Automatic switch: on in a fresh install; off pins the strategy shown; on lifts the pin. Note what the field shows right after
+  switching it on (it keeps the pinned strategy until a search or a finished download reorders the chain) and say whether that is
+  acceptable.
+- [ ] "+" with a YouTube or Instagram link copied: the download starts at once at the default quality, a toast says so, the Queue tab
+  shows the row. The same link again: the duplicate toast. Nothing copied: a toast and the Add screen. A link shared from another app
+  still opens the Add screen with the link filled in. Android 12+ shows its own "pasted from clipboard" notice: record it.
+- [ ] Queue tab: lists every job; Pause while it downloads, Resume when paused, interrupted or failed, Stop (trash) on every row that
+  is not being saved, the swipe still removes a row; the empty text mentions the + button.
+- [ ] Tablet / TV: Home is one centred column (about 640dp) with no empty pane; Queue and Library are single lists; every control has a
+  focus ring; on a TV with an empty clipboard "+" opens the Add screen.
 
 ### Home dashboard, names, power saving, YouTube app, first run (patch 51)
 - [ ] Fresh install (clear the app's data): Home shows "Please wait while we update the strategies." with a progress bar

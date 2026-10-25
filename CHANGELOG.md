@@ -13,6 +13,157 @@ patch's own `.py` script for the exact, idempotent, exact-match-guarded
 edits it makes.
 
 
+## Patch 53 — Strategy router: separate Wi-Fi and mobile-data records, one rating from the test and real use
+
+Requires patch 52. Requested: (1) keep statistics of how well each strategy does, with the final rating made of its
+effectiveness in the test AND its effectiveness in real work and downloads; (2) rate strategies separately for Wi-Fi and for mobile
+data, because strategies that were excellent on Wi-Fi behave completely differently on mobile data; (3) a strategy router that
+chooses strategies by the type of connection first and then changes them intelligently when the current one stops working,
+substituting the next, more effective one, documented in the project documentation. The mechanism, with its numbers, is
+`STRATEGY_ROUTER.md`; this entry is the account of what changed.
+
+### What the code did before (read first, not assumed)
+One verified chain, one learned record (`StrategyMemory`), one set of test results and one quarantine for every network. A search
+stored its findings twice: as test results (stars on Home) and as weak "probe" evidence in the learned record (which ordered the
+chain). The tunnel and the downloads switched strategy on failure (quarantine, then the next of the chain), but never looked at
+which network they were on, and a change from Wi-Fi to mobile data did not touch a running tunnel.
+
+### 1. A connection class and per-class records (`NetClass.kt`, `NetClassWatcher.kt`, `DpiStrategyStore.kt`, `DpiResultsStore.kt`)
+- `NetClass` is `WIFI` or `MOBILE`. Wi-Fi and Ethernet are `WIFI`; cellular, and a Wi-Fi that Android marks as metered (a phone
+  hotspot), are `MOBILE`. `NetworkState.connectionClass` reads it; `NetClassWatcher` follows it as a flow (a default-network callback,
+  started by `YtOfflineApp` and by the tunnel service).
+- Everything about a strategy is now per class: the verified chain, the pin, the strategy that last carried a download, the
+  quarantine, the learned record and the last test results. The Wi-Fi class uses the old preference keys, so the data of older builds
+  is the Wi-Fi record with no migration; mobile has its own keys (`..._mobile`, and a second results key) and starts empty.
+
+### 2. One rating from the test and from real use (`StrategyRating.kt`, `StrategyMemory.kt`)
+- `rating = blend(test, real use)`: the last test on the class (fading to "unknown" with a 14-day half-life) and real use (a finished
+  download or a healthy tunnel window counts for a strategy, a failure that another route survived counts double against it, a 7-day
+  half-life). With no real use the rating is the test; at 3 units of evidence real use weighs as much as the test; beyond that it
+  outweighs it. Examples are in `STRATEGY_ROUTER.md` section 4 and are unit tests.
+- The stars on Home and the order of every chain come from the rating. Settings shows "Rating N" in front of the last test.
+- The two probe outcomes of patch 46 (`PROBE_OK`, `PROBE_BAD`), `StrategyMemory.good` and the `onlyIfKnown` option are removed: a
+  search's findings are now the test half of the rating, and recording them as weak real use as well counted them twice.
+
+### 3. The router (`StrategyRouter.kt`, `ChainPlanner.demote`, `DpiPrefs`, `BypassVpnService`, `RouteLadder`)
+- A search stores its results for the class it ran on and rebuilds that class's chain from the passes and every strategy rated at
+  least 50 (`afterSearch`). If the connection changed class while the search ran, the results are dropped (new message), because they
+  would describe neither network.
+- A success promotes the winner (`afterSuccess`); a real failure now also moves the strategy DOWN the stored chain to where its lowered
+  rating puts it (`afterFailure`, `ChainPlanner.demote`), so it is not back in front when its ten minutes of quarantine end unless it
+  still rates highest. Before, the stored order was unchanged by a failure.
+- A class with no chain of its own starts from the other class's, marked as borrowed (`ensureSeeded`, `seed`); a search replaces it.
+  A fresh install, where neither has a chain, still runs the mandatory first-run check.
+- The tunnel reconnects on the chain of the new class when the system has reported the other class for four monitor ticks (2 s) in
+  a row (`NetSwitch`); that is not a failure and is not counted against the 3-switches-in-10-minutes limit. `RouteScoreboard`
+  (the route that carried the last download) is per class. The download ladder reads the class at the start of every attempt.
+- Not added, on purpose: automatic full searches on mobile data (tens of megabytes; the quiet 25-day re-check still waits for an
+  unmetered network), per-SSID or per-operator records (location and phone-state permissions), and trying the other class's
+  strategies when a whole chain has failed. See `STRATEGY_ROUTER.md` sections 3 and 7.
+
+### 4. What the user sees
+- Home: the title is "Strategy · Wi-Fi" or "Strategy · mobile data", the drop-down lists that connection's strategies by rating
+  (strategies of a borrowed chain have no stars until tested or used), and a line says when the connection has not been tested.
+  The card follows a change of connection by itself. Picking a strategy or switching the automatic choice off pins it for that
+  connection only.
+- Settings: the strategy list is the connection's (title says which), ordered by rating. The "verified" state, the enable switch and
+  the time of the last test are the connection's too.
+- Copy report: `cls=`, `seeded=`, `rated=` in the state line, `#rate` lines (place, rating, test, real evidence) instead of
+  `#learn`, and a `#other` line. Log lines carry `net=wifi|mobile`; new ones: `seed`, `net change`, `search net-changed`.
+- New strings (EN and RU): the two connection names, the title, the not-tested line, "Rating N", the dropped-search message.
+  `dash_strategy_title` was replaced by `dash_strategy_title_net`.
+
+### Not changed
+`DpiStrategyParser`, the strategy list and its names, the engine, the chain size (6), the ten-minute quarantine, the 25-day
+calendar, the downloads switch, the Home layout of patch 52 (apart from the title and the note), the live checks of the ladder.
+
+### Verification done in this session (sandbox: no Android SDK, no Compose libraries, no device, no Gradle)
+- The patch script applied to a fresh copy of the patch 52 tree; a second and a third run changed nothing.
+- The pure logic (`NetClass`, `NetSwitch`, `StrategyRating`, `StrategyRouter`, `ChainPlanner`, `StrategyMemory`, the dashboard model)
+  compiled with `kotlinc` 2.1.0 and its tests ran against a JUnit stand-in: 89 passed, including the new `NetClassTest`,
+  `StrategyRatingTest`, `StrategyRouterTest` and the `ChainPlanner.demote` cases.
+- The whole `app/src/main/java` tree was compiled without the Compose and androidx libraries but against a real API 35 `android.jar`
+  and the coroutines library: no error of a new kind against the patch 52 tree, and the only new unresolved names are Compose,
+  `R` and androidx symbols; so every call into `DpiPrefs`, `DpiStrategyStore`, `DpiBypass`, `RouteLadder`, `BypassVpnService` and
+  `NetworkState` type-checks against the platform API. The Compose edits (`BypassDashboard`, `StrategyPicker`, `BypassSettings`) use only
+  components the repo already compiles (`collectAsState`, `stringResource`).
+- The real `DpiPrefs`, `DpiStrategyStore` and `DpiResultsStore` were compiled and run against an in-memory stand-in for `Context` and
+  `SharedPreferences` through a scenario of 35 checks (not part of the repository): a fresh install; a Wi-Fi search; the first use of
+  mobile data borrowing the Wi-Fi chain (marked, time 0); a pin, a real failure and a success on mobile changing mobile only; a mobile
+  search replacing the borrowed chain; the data of an older build reading as the Wi-Fi record. All passed.
+- NOT possible here, so not verified: the real `SharedPreferences` and threads, the tunnel, the download ladder, the network callback and
+  the screens, which need a device. They are thin over the tested code, but `./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug`
+  and the device checklist in `ROADMAP.md` are the real gate.
+
+## Patch 52 — Home without the queue, a five-entry navigation, one YouTube switch, a strategy drop-down
+
+Requires patch 51. Requested as five items: (1) the "Unblock YouTube" button and the bypass switch on the dashboard said the
+same thing, so the card keeps ONE switch and the button moves below the card; (2) the strategies are chosen from a
+drop-down whose default is the strategy that works; (3) under it, a switch for choosing the strategy automatically; (4) the
+queue leaves the main screen for the bottom navigation; (5) the navigation has five entries in this order: Home, Queue (with
+stop and resume), "+" (starts the link in the clipboard with the default settings), Library, Settings.
+
+### 1. One switch on the card, the button below it (`BypassDashboard.kt`)
+The card keeps the YouTube bypass switch (the whole row is the control, as before). "Unblock YouTube" is no longer in the
+card: it is a filled button BELOW it, full width of the Home column, and does what it always did (starts the tunnel when it is
+off, then opens the app chosen in Settings). The label is unchanged; it is the same string the Settings section and the docs
+use. Both still appear only once the strategies are ready (`showControls`).
+
+### 2-3. Strategy drop-down and the automatic switch (`BypassDashboard.kt`, `strategyChoices` in `BypassDashboardModel.kt`)
+- The 15 chips and their Show/Hide fold are gone. The field shows the strategy in use (`pinned ?: chain().first()`): by
+  default the one that works best. Its menu is the same list as before (`topStrategies`: passed their last test, still in the
+  list, best first) with the colour name and 1-5 stars per row; when the strategy in use is not among the 15 (a pin from
+  Settings, a strategy whose test is old) it is added at the top, with no stars if it has no passed test (`strategyChoices`,
+  unit-tested). Built from `OutlinedButton` + `DropdownMenu`, the menu the library rows already use.
+- Choosing another strategy uses it exactly as "Use" in Settings does (`DpiPrefs.pin`: tried first, the app still switches away
+  if it stops working) and so turns the automatic switch off. Choosing the strategy that is already shown does nothing.
+- Under the field, a switch "Choose the strategy automatically". On = no pin (the default). Off = the strategy shown is pinned.
+  Turning it on lifts the pin (`DpiPrefs.unpin`). A short line under the switch says which of the two is true.
+- The "Choose automatically" button of the old chip row is gone from Home; Settings -> the strategy list still has its own.
+
+### 4-5. Queue screen and the five-entry navigation (`AppChrome.kt`, `QueueScreen.kt`, `MainActivity.kt`, `HomeScreen.kt`)
+- New destination `AppSection.QUEUE` and `QueueScreen`: every job (no "Show all" fold), the same `QueueRow`s. Home no longer
+  takes the pause/resume/stop callbacks and no longer shows the queue or its empty text (they live in `QueueScreen.kt`).
+- The navigation (bottom bar and rail share `navEntries`) is Home, Queue, "+", Library, Settings. The Queue icon is a new static
+  vector (`ic_queue.xml`); `NavEntry.icon` is now a painter, so a Material icon and an app drawable are drawn the same way.
+- "+" does not open a screen any more: `addFromClipboard()` reads the clipboard on that tap only, and a valid YouTube or
+  Instagram link goes to `DownloadService.enqueue` with the default quality from Settings (the folder default applies inside
+  the service), then a toast says "Download added to the queue." (or the existing duplicate / unsupported / start-failed text) and
+  the user stays where they were. With no usable link a toast says so and the Add screen opens, so a link can still be typed.
+  A shared link still opens the Add screen with the link filled in (unchanged). On a TV, whose clipboard is usually empty, "+"
+  therefore opens the Add screen. No URL is logged.
+- Stop and resume on the Queue screen: Pause while a job downloads, Resume when it is paused, interrupted or failed (as
+  before), and now a visible Stop (remove) button on every row that is not being saved. Before, only a TV had the button and a
+  touch screen had the end-to-start swipe alone, which nothing on the row hints at; the swipe still works.
+- Home is ONE column on every window, at most 640dp wide and centred: the right-hand pane that held the queue is gone, and a card
+  of a few rows would only have been stretched across a tablet. The banners (no internet, sign-in, "app updated") stay on Home.
+
+### Judgement calls (the brief did not say)
+- The bottom-bar buttons are 48dp (the Material minimum) instead of 56dp: five 56dp buttons (280dp) plus the strip's padding do
+  not fit a 320dp-wide phone, and five 64dp TV buttons do not fit any phone. The rail keeps 56dp (64dp on TV).
+- `empty_queue`, `empty_queue_side` and `quick_add_hint` (EN and RU) were rewritten: the first two named a "center button" and the
+  Add screen's hint promised a clipboard fill that "+" now makes unnecessary. `dash_strategy_current`, `queue_show_all` and
+  `queue_show_fewer` were removed (no longer used); EN and RU stay in sync (unit test).
+- Switching the automatic choice back ON only lifts the pin: the field keeps showing the strategy that was pinned until a search
+  or a finished download reorders the chain. That is how `DpiPrefs.unpin` has always behaved; it is recorded as a thing to watch
+  on the device in `ROADMAP.md`, not changed here.
+
+### Not changed
+`DpiPrefs`, `DpiStrategyStore`, the tunnel, the downloads switch in Settings, the share-sheet route, `QuickAddScreen`, the
+library, the YouTube-app choice, the banners' rules.
+
+### Verification done in this session (sandbox: no Android SDK, no Compose libraries, no device)
+- The patch script applied to a fresh copy of the patch 51 snapshot, a second and a third run changed nothing.
+- `BypassDashboardModel.kt` (with its dependencies) and `BypassDashboardTest.kt` compiled with `kotlinc` 2.1.0 (the project's
+  Kotlin) against a JUnit stand-in and ran: 23 tests passed, including the four new `strategyChoices` cases.
+- The Compose files could NOT be compiled here (Google's Maven is not reachable). What was checked instead: the whole
+  `app/src/main/java` tree parses (no syntax errors) and its compiler error profile without the libraries has no new kind of
+  error against the patch 51 tree; every `R.string` / `R.drawable` it uses exists; strings are 1:1 in EN and RU; braces and XML
+  balance; Kotlin API shapes were taken from what this repo already compiles (`DropdownMenu`, `toggleable` + `Switch`,
+  `painterResource`). Three things are new to the repo and rest on the library's documented API, not on a build here:
+  `OutlinedButton`, `rememberVectorPainter` and `FontWeight`. `./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug`
+  is the real gate.
+
 ## Patch 51 — Home dashboard with named strategies, power-saving prompt, YouTube app choice, mandatory first check
 
 Requires patch 50. Requested as one sprint of seven items: (1) a prompt to switch off power saving, (2) a current strategy

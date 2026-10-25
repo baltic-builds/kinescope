@@ -166,44 +166,80 @@ class BypassDashboardTest {
         assertEquals(1, strategyStars(-3))
     }
 
-    private fun result(line: String, score: Int, passed: Boolean = true, kbps: Int = 0) =
-        StoredResult(line, score, passed, kbps, 0, 0, 0, 0L)
-
     @Test
-    fun theTopListHoldsOnlyPassedStrategiesThatAreStillInTheList() {
+    fun theTopListHoldsOnlyRatedStrategiesThatAreStillInTheList() {
         val candidates = listOf("a", "b", "c", "d")
-        val results = listOf(
-            result("a", 70),
-            result("b", 90),
-            result("c", 0, passed = false),
-            result("gone", 99)
-        ).associateBy { it.line }
-        val top = topStrategies(results, candidates)
+        // "c" is rated below the line (it failed), "gone" is no longer in the list.
+        val ratings = mapOf("a" to 70, "b" to 90, "c" to 30, "gone" to 99)
+        val top = topStrategies(ratings, candidates)
         assertEquals(listOf("b", "a"), top.map { it.line })
         assertEquals(listOf(4, 2), top.map { it.stars })
+        assertEquals(listOf(90, 70), top.map { it.percent })
     }
 
     @Test
-    fun theTopListIsOrderedByScoreThenSpeedThenListPosition() {
+    fun theTopListIsOrderedByRatingThenListPosition() {
         val candidates = listOf("a", "b", "c", "d")
-        val results = listOf(
-            result("a", 80, kbps = 100),
-            result("b", 80, kbps = 300),
-            result("c", 80, kbps = 100),
-            result("d", 95)
-        ).associateBy { it.line }
-        assertEquals(listOf("d", "b", "a", "c"), topStrategies(results, candidates).map { it.line })
+        val ratings = mapOf("a" to 80, "b" to 80, "c" to 80, "d" to 95)
+        assertEquals(listOf("d", "a", "b", "c"), topStrategies(ratings, candidates).map { it.line })
     }
 
     @Test
     fun theTopListHoldsAtMostFifteen() {
         val candidates = (1..40).map { "s$it" }
-        val results = candidates.mapIndexed { index, line -> result(line, 50 + index) }.associateBy { it.line }
-        val top = topStrategies(results, candidates)
+        val ratings = candidates.mapIndexed { index, line -> line to 50 + index }.toMap()
+        val top = topStrategies(ratings, candidates)
         assertEquals(DASH_STRATEGY_LIMIT, top.size)
         assertEquals(15, DASH_STRATEGY_LIMIT)
         assertEquals("s40", top.first().line)
-        assertEquals(topStrategies(results, candidates, limit = 3).size, 3)
+        assertEquals(topStrategies(ratings, candidates, limit = 3).size, 3)
+    }
+
+    @Test
+    fun theDropDownOffersTheTopListWhenTheStrategyInUseIsInIt() {
+        val candidates = listOf("a", "b", "c")
+        val ratings = mapOf("a" to 70, "b" to 90)
+        assertEquals(listOf("b", "a"), strategyChoices(ratings, candidates, chain = listOf("a", "b"), selected = "a").map { it.line })
+        assertEquals(listOf("b", "a"), strategyChoices(ratings, candidates, chain = emptyList(), selected = null).map { it.line })
+    }
+
+    @Test
+    fun aChainBorrowedFromTheOtherConnectionIsOfferedWithoutStars() {
+        // On mobile data nothing has been tested or used yet: the chain came from Wi-Fi and has no ratings here.
+        val candidates = listOf("a", "b", "c")
+        val choices = strategyChoices(emptyMap(), candidates, chain = listOf("b", "a", "c"), selected = "b")
+        assertEquals(listOf("b", "a", "c"), choices.map { it.line })
+        assertEquals(listOf(0, 0, 0), choices.map { it.stars })
+    }
+
+    @Test
+    fun aStrategyThatFailedForRealStaysListedWithItsLowRating() {
+        val candidates = listOf("a", "f")
+        val ratings = mapOf("a" to 70, "f" to 20)
+        val choices = strategyChoices(ratings, candidates, chain = listOf("a", "f"), selected = "a")
+        assertEquals(listOf("a", "f"), choices.map { it.line })
+        assertEquals(listOf(2, 1), choices.map { it.stars })
+    }
+
+    @Test
+    fun aStrategyInUseOutsideBothListsIsOfferedFirst() {
+        // "z" was pinned from Settings, has left the list and the chain, and has a rating from an old test.
+        val candidates = listOf("a")
+        val ratings = mapOf("a" to 70, "z" to 90)
+        val choices = strategyChoices(ratings, candidates, chain = listOf("a"), selected = "z")
+        assertEquals(listOf("z", "a"), choices.map { it.line })
+        assertEquals(listOf(4, 2), choices.map { it.stars })
+        assertEquals(0, strategyChoices(ratings, candidates, chain = listOf("a"), selected = "never-seen").first().stars)
+    }
+
+    @Test
+    fun theDropDownHoldsTheFifteenBestThenTheChainRemainder() {
+        val candidates = (1..40).map { "s$it" }
+        val ratings = candidates.mapIndexed { index, line -> line to 50 + index }.toMap()
+        val choices = strategyChoices(ratings, candidates, chain = listOf("s1", "s40"), selected = "s1")
+        assertEquals(DASH_STRATEGY_LIMIT + 1, choices.size)
+        assertEquals("s40", choices.first().line)
+        assertEquals("s1", choices.last().line)
     }
 
     @Test

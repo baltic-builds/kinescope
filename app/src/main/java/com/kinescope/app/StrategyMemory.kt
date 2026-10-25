@@ -1,18 +1,16 @@
 package com.kinescope.app
 
-/** Patch 46: one thing that happened to a strategy. A search only proves a probe passes; real traffic proves more. */
+/**
+ * Patch 46: one thing that happened to a strategy in real use. Patch 53: only real use is recorded here; what a search
+ * found is kept apart, per connection class, in `DpiResultsStore`, and [StrategyRating] blends the two. (The two probe
+ * outcomes of patch 46 counted a search's findings twice, once there and once here, and are gone.)
+ */
 internal enum class StrategyOutcome(val weight: Double, val good: Boolean) {
     /** A download finished through it, or the YouTube tunnel carried real data through it. */
     REAL_OK(1.0, true),
 
-    /** A search moved a real transfer through it. Weaker than real use: the probe is not the YouTube app. */
-    PROBE_OK(0.5, true),
-
     /** It failed in real use although another route then finished the same job. */
-    REAL_BAD(1.0, false),
-
-    /** A search tested it and it no longer passes. */
-    PROBE_BAD(0.5, false)
+    REAL_BAD(1.0, false)
 }
 
 /**
@@ -28,7 +26,8 @@ internal data class LearnedStrategy(
 
 /**
  * Patch 46: the app's memory of which strategies really carried traffic, and how well. Pure: the preferences file
- * only stores the text this builds (`DpiPrefs.recordOutcomes`). Unit-tested in `StrategyMemoryTest`.
+ * only stores the text this builds (`DpiPrefs.recordOutcomes`). Unit-tested in `StrategyMemoryTest`. Patch 53: one
+ * memory per connection class (Wi-Fi, mobile data), and the real half of [StrategyRating].
  *
  * The score of a strategy is the share of good evidence with a little doubt added, so a strategy with no history
  * sits exactly in the middle ([NEUTRAL]), one that worked a few times is above it and one that kept failing below:
@@ -47,9 +46,6 @@ internal object StrategyMemory {
     const val MAX_ENTRIES = 40
 
     private const val BAD_FACTOR = 2.0
-
-    /** Less good evidence than this (a single probe pass two weeks ago) is not worth adding a strategy to the chain for. */
-    private const val MIN_GOOD_EVIDENCE = 0.3
 
     /** Entries whose evidence has faded below this are dropped. */
     private const val NEGLIGIBLE = 0.05
@@ -72,21 +68,15 @@ internal object StrategyMemory {
         return (f.okWeight + 1.0) / (f.okWeight + BAD_FACTOR * f.badWeight + 2.0)
     }
 
-    /**
-     * Adds one outcome for [line]. With [onlyIfKnown] a strategy the app has no record of is left alone (a search
-     * that finds 60 strategies failing says nothing worth remembering about the ones never used). A line that cannot
-     * be stored in the text form is ignored.
-     */
+    /** Adds one outcome for [line]. A line that cannot be stored in the text form is ignored. */
     fun record(
         memory: Map<String, LearnedStrategy>,
         line: String,
         outcome: StrategyOutcome,
-        now: Long,
-        onlyIfKnown: Boolean = false
+        now: Long
     ): Map<String, LearnedStrategy> {
         if (line.isBlank() || line.any { it == '\t' || it == '\n' || it == '\r' }) return memory
         val old = memory[line]
-        if (old == null && onlyIfKnown) return memory
         val base = if (old != null) faded(old, now) else LearnedStrategy(0.0, 0.0, now, 0L)
         val next = base.copy(
             okWeight = base.okWeight + if (outcome.good) outcome.weight else 0.0,
@@ -114,17 +104,6 @@ internal object StrategyMemory {
         }
         return memory
     }
-
-    /**
-     * The strategies with real evidence in their favour, best first: enough good evidence left and a score above
-     * [NEUTRAL]. These are the ones that join the fallback chain even when the last search did not rank them.
-     */
-    fun good(memory: Map<String, LearnedStrategy>, now: Long): List<String> =
-        memory.entries
-            .map { (line, entry) -> Triple(line, faded(entry, now), score(entry, now)) }
-            .filter { (_, f, s) -> f.okWeight >= MIN_GOOD_EVIDENCE && s > NEUTRAL }
-            .sortedWith(compareByDescending<Triple<String, LearnedStrategy, Double>> { it.third }.thenByDescending { it.second.lastRealOkAt })
-            .map { it.first }
 
     /** One entry per line: `strategy TAB ok TAB bad TAB updatedAt TAB lastRealOkAt`. */
     fun serialize(memory: Map<String, LearnedStrategy>): String =

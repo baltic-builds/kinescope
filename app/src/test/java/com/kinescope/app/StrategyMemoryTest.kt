@@ -6,7 +6,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** Patch 46: the memory of which strategies really carried traffic. */
+/** Patch 46: the memory of which strategies really carried traffic (patch 53: real use only; tests are rated apart). */
 class StrategyMemoryTest {
     private val day = MaintenanceSchedule.DAY_MS
     private val t0 = 500L * day
@@ -37,14 +37,6 @@ class StrategyMemoryTest {
     }
 
     @Test
-    fun aSearchProbeIsWeakerEvidenceThanRealUse() {
-        val probe = record(emptyMap(), "a", StrategyOutcome.PROBE_OK)
-        val real = record(emptyMap(), "a", StrategyOutcome.REAL_OK)
-        assertTrue(StrategyMemory.score(probe["a"], t0) > StrategyMemory.NEUTRAL)
-        assertTrue(StrategyMemory.score(real["a"], t0) > StrategyMemory.score(probe["a"], t0))
-    }
-
-    @Test
     fun evidenceHalvesEveryWeek() {
         val memory = record(emptyMap(), "a", StrategyOutcome.REAL_OK)
         // one success faded to half a success: (0.5 + 1) / (0.5 + 2)
@@ -54,7 +46,7 @@ class StrategyMemoryTest {
 
     @Test
     fun onlyRealSuccessSetsTheLastRealSuccessTime() {
-        var memory = record(emptyMap(), "a", StrategyOutcome.PROBE_OK, t0)
+        var memory = record(emptyMap(), "a", StrategyOutcome.REAL_BAD, t0)
         assertEquals(0L, memory["a"]!!.lastRealOkAt)
         memory = record(memory, "a", StrategyOutcome.REAL_OK, t0 + day)
         assertEquals(t0 + day, memory["a"]!!.lastRealOkAt)
@@ -63,37 +55,10 @@ class StrategyMemoryTest {
     }
 
     @Test
-    fun aStrategyThatIsNotKnownIsLeftAloneWhenOnlyKnownOnesAreWanted() {
-        val unknown = StrategyMemory.record(emptyMap(), "a", StrategyOutcome.PROBE_BAD, t0, onlyIfKnown = true)
-        assertTrue(unknown.isEmpty())
-        val known = record(emptyMap(), "a", StrategyOutcome.REAL_OK)
-        val after = StrategyMemory.record(known, "a", StrategyOutcome.PROBE_BAD, t0, onlyIfKnown = true)
-        assertTrue(StrategyMemory.score(after["a"], t0) < StrategyMemory.score(known["a"], t0))
-    }
-
-    @Test
     fun aLineThatCannotBeStoredAsTextIsIgnored() {
         assertTrue(record(emptyMap(), "a\tb", StrategyOutcome.REAL_OK).isEmpty())
         assertTrue(record(emptyMap(), "a\nb", StrategyOutcome.REAL_OK).isEmpty())
         assertTrue(record(emptyMap(), "  ", StrategyOutcome.REAL_OK).isEmpty())
-    }
-
-    @Test
-    fun goodListsTheStrategiesWithRealEvidenceBestFirst() {
-        var memory = emptyMap<String, LearnedStrategy>()
-        repeat(3) { memory = record(memory, "strong", StrategyOutcome.REAL_OK) }
-        memory = record(memory, "once", StrategyOutcome.REAL_OK)
-        memory = record(memory, "mixed", StrategyOutcome.REAL_OK)
-        memory = record(memory, "mixed", StrategyOutcome.REAL_BAD)
-        memory = record(memory, "failing", StrategyOutcome.REAL_BAD)
-        assertEquals(listOf("strong", "once"), StrategyMemory.good(memory, t0))
-    }
-
-    @Test
-    fun goodDropsEvidenceThatHasFadedAway() {
-        val memory = record(emptyMap(), "a", StrategyOutcome.REAL_OK)
-        assertEquals(listOf("a"), StrategyMemory.good(memory, t0 + 7 * day))
-        assertTrue(StrategyMemory.good(memory, t0 + 21 * day).isEmpty())
     }
 
     @Test
@@ -108,7 +73,7 @@ class StrategyMemoryTest {
 
     @Test
     fun entriesWhoseEvidenceFadedToNothingAreDroppedOnTheNextRecord() {
-        var memory = record(emptyMap(), "old", StrategyOutcome.PROBE_BAD)
+        var memory = record(emptyMap(), "old", StrategyOutcome.REAL_BAD)
         memory = record(memory, "new", StrategyOutcome.REAL_OK, t0 + 120 * day)
         assertFalse("old" in memory)
         assertTrue("new" in memory)

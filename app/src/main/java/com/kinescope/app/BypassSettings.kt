@@ -51,11 +51,13 @@ fun BypassSettingsSection(requestNotifications: () -> Unit = {}) {
     val searchState by DpiSearchController.state.collectAsState()
     val searching = searchState.running
 
-    val initialStrategy = remember { DpiStrategyStore.selected(context) }
-    val initialVerified = remember { DpiPrefs.isStrategyVerified(context, initialStrategy) }
+    // Patch 53: the strategies are those of the connection the phone is on (Wi-Fi or mobile data).
+    val netClass by NetClassWatcher.state.collectAsState()
+    val cls = netClass ?: NetClass.WIFI
+    val initialVerified = remember { DpiStrategyStore.chain(context, NetClassWatcher.current(context)).isNotEmpty() }
     var enabled by remember { mutableStateOf(DpiPrefs.isEnabled(context) && initialVerified) }
     var verified by remember { mutableStateOf(initialVerified) }
-    var verifiedAt by remember { mutableStateOf(DpiPrefs.verifiedAt(context)) }
+    var verifiedAt by remember { mutableStateOf(DpiPrefs.verifiedAt(context, cls)) }
     var listUpdatedAt by remember { mutableStateOf(DpiPrefs.listUpdatedAt(context)) }
     var busy by remember { mutableStateOf(BypassBusy.NONE) }
     var message by remember { mutableStateOf<String?>(null) }
@@ -74,11 +76,16 @@ fun BypassSettingsSection(requestNotifications: () -> Unit = {}) {
         // directly (same reason vpnErrorRes is extracted from vpnState.errorRes above).
         val resultMessageRes = searchState.resultMessageRes
         if (!searching && resultMessageRes != null) {
-            verified = DpiPrefs.isStrategyVerified(context, DpiStrategyStore.selected(context))
-            verifiedAt = DpiPrefs.verifiedAt(context)
+            verified = DpiStrategyStore.chain(context, cls).isNotEmpty()
+            verifiedAt = DpiPrefs.verifiedAt(context, cls)
             enabled = DpiPrefs.isEnabled(context)
             message = context.getString(resultMessageRes)
         }
+    }
+    // Patch 53: another connection has its own chain and its own time of the last test.
+    LaunchedEffect(cls) {
+        verified = DpiStrategyStore.chain(context, cls).isNotEmpty()
+        verifiedAt = DpiPrefs.verifiedAt(context, cls)
     }
 
     val downloadActive = queueJobs.any {
@@ -269,8 +276,8 @@ fun BypassSettingsSection(requestNotifications: () -> Unit = {}) {
         refreshKey = searchState.resultMessageRes,
         onMessage = { message = it },
         onChanged = {
-            verified = DpiPrefs.isStrategyVerified(context, DpiStrategyStore.selected(context))
-            verifiedAt = DpiPrefs.verifiedAt(context)
+            verified = DpiStrategyStore.chain(context, cls).isNotEmpty()
+            verifiedAt = DpiPrefs.verifiedAt(context, cls)
             enabled = DpiPrefs.isEnabled(context)
         }
     )

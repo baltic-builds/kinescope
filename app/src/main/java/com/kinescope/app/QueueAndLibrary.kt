@@ -50,7 +50,7 @@ import androidx.compose.ui.unit.dp
 import java.text.DateFormat
 import java.util.Date
 
-// The two list rows of Home (a queue job, a library file) and the library file actions.
+// The two list rows of the queue and library screens (a queue job, a library file) and the library file actions.
 // Patch 40: moved out of MainActivity.kt unchanged. Patch 41: on a TV (no touch) a queue row gets an explicit
 // remove button instead of the swipe gesture, and a library row shows Play/Share/Delete in the row itself
 // instead of an overflow menu; both get focus rings.
@@ -63,9 +63,11 @@ internal fun QueueRow(
     onResume: (String) -> Unit,
     onStop: (String) -> Unit
 ) {
+    // Patch 52: the removal (Stop) is a button on every layout, now that the queue has a screen of its own; before, a
+    // touch screen had only the swipe, which nothing on the row hints at. A row in SAVING cannot be removed.
+    val onRemove: (() -> Unit)? = if (job.state != JobState.SAVING) ({ onStop(job.id) }) else null
     if (LocalAdaptive.current.isTv) {
-        // A D-pad cannot swipe: the same removal (same rule, a row in SAVING cannot be removed) is a button.
-        val onRemove: (() -> Unit)? = if (job.state != JobState.SAVING) ({ onStop(job.id) }) else null
+        // A D-pad cannot swipe: the button is the only way.
         QueueRowCard(job = job, onPause = onPause, onResume = onResume, onRemove = onRemove)
         return
     }
@@ -102,11 +104,11 @@ internal fun QueueRow(
             }
         }
     ) {
-        QueueRowCard(job = job, onPause = onPause, onResume = onResume, onRemove = null)
+        QueueRowCard(job = job, onPause = onPause, onResume = onResume, onRemove = onRemove)
     }
 }
 
-/** The card of one queue job. [onRemove] is null where removal is a swipe (touch) or not allowed (SAVING). */
+/** The card of one queue job. [onRemove] is null where removal is not allowed (a row in SAVING). */
 @Composable
 private fun QueueRowCard(
     job: DownloadJobStatus,

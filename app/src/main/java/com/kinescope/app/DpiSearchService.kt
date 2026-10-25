@@ -132,8 +132,12 @@ class DpiSearchService : Service() {
                 refreshStrategyList(context)
             }
             val directWorks = DpiBypass.directConnectionWorks()
+            // Patch 53: a search describes the connection it ran on. The class is read once, here, and the results are
+            // stored for it only if the connection is still of that class when the search ends.
+            val cls = NetworkState.currentClass(context)
             val results = DpiBypass.search(
                 context,
+                cls,
                 // The first launch, the quiet 25-day re-check and a strategy test look at everything.
                 fullScan = testOnly || background || !DpiPrefs.hasRunInitialSearch(context),
                 only = only,
@@ -147,14 +151,17 @@ class DpiSearchService : Service() {
                     }
                 }
             )
-            DpiResultsStore.save(context, results)
+            if (!DpiBypass.recordSearch(context, cls, results)) {
+                DpiSearchController.finished(R.string.bypass_search_network_changed)
+                return
+            }
             when {
                 testOnly -> DpiSearchController.finished(R.string.bypass_strategy_tested)
                 stopRequested.get() -> {
                     // Patch 35: a stopped search used to throw away everything it had found. Keep the
                     // passes (the old chain stays behind them), as long as something really carried traffic.
                     val kept = results.any { it.fullPass && it.deepOk } &&
-                        DpiBypass.applySearchResults(context, results, keepProven = background, partial = true)
+                        DpiBypass.applySearchResults(context, cls, results, keepProven = background, partial = true)
                     if (kept && !background) DpiPrefs.setEnabled(context, true)
                     DpiSearchController.finished(if (kept) R.string.bypass_search_partial else R.string.bypass_search_stopped)
                 }
@@ -164,7 +171,7 @@ class DpiSearchService : Service() {
                     DpiPrefs.setLastSearchVersion(context, appVersionCode(context))
                     // Patch 46: the 25-day upkeep counts from the last finished search, a manual one included.
                     DpiPrefs.setLastSearchAt(context, System.currentTimeMillis())
-                    if (DpiBypass.applySearchResults(context, results, keepProven = background)) {
+                    if (DpiBypass.applySearchResults(context, cls, results, keepProven = background)) {
                         // A quiet re-check must not switch a bypass the user turned off back on.
                         if (!background) DpiPrefs.setEnabled(context, true)
                         DpiSearchController.finished(

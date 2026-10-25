@@ -78,6 +78,34 @@ class ChainPlannerLearningTest {
         assertEquals(chain, ChainPlanner.promote(chain, "z", scores("b" to 0.9), 6))
     }
 
+    @Test
+    fun aFailureMovesTheLoserDownToWhereItsScorePutsIt() {
+        val chain = listOf("a", "b", "c")
+        // a dropped to 0.6: below b (0.8), above c (0.4).
+        val demoted = ChainPlanner.demote(chain, "a", scores("a" to 0.6, "b" to 0.8, "c" to 0.4))
+        assertEquals(listOf("b", "a", "c"), demoted)
+    }
+
+    @Test
+    fun aFailureThatLeavesTheLoserStillAheadChangesNothing() {
+        val chain = listOf("a", "b", "c")
+        assertEquals(chain, ChainPlanner.demote(chain, "a", scores("a" to 0.9, "b" to 0.8, "c" to 0.4)))
+    }
+
+    @Test
+    fun aDemotionNeverMovesAStrategyUp() {
+        val chain = listOf("b", "c", "a")
+        assertEquals(chain, ChainPlanner.demote(chain, "a", scores("a" to 0.99, "b" to 0.8, "c" to 0.4)))
+    }
+
+    @Test
+    fun aLoserBelowEveryoneGoesLastAndTiesAreAfterEqualScores() {
+        val chain = listOf("a", "b", "c")
+        assertEquals(listOf("b", "c", "a"), ChainPlanner.demote(chain, "a", scores("a" to 0.1, "b" to 0.8, "c" to 0.4)))
+        assertEquals(listOf("b", "c", "a"), ChainPlanner.demote(chain, "a", scores()))
+        assertEquals(chain, ChainPlanner.demote(chain, "z", scores()))
+    }
+
     /** Keeps the "bad history" case readable: r1 failed in real use, the others are unknown. */
     private object ChainPlannerWithBad {
         fun merge(): List<String> = ChainPlanner.merge(

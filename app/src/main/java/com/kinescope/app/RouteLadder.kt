@@ -44,14 +44,17 @@ internal class RouteLadder(base: Context, private val ytDlp: YtDlpRun) : Context
         outputTemplate: String,
         profile: RecoveryProfile
     ) {
-        val chain = DpiBypass.activeChain(this)
+        // Patch 53: the strategies are those of the connection class the download runs on, and what the attempt learns
+        // (a route that finished, routes that failed first) is recorded for that class.
+        val cls = NetworkState.currentClass(this)
+        val chain = DpiBypass.activeChain(this, cls)
         if (chain.isEmpty()) {
             ytDlp.executeAttemptOverBypass(job, preset, outputTemplate, profile, null)
             return
         }
 
         val vpn = NetworkState.systemVpnActive(this)
-        val recent = RouteScoreboard.recentGood(SystemClock.elapsedRealtime())
+        val recent = RouteScoreboard.recentGood(cls, SystemClock.elapsedRealtime())
             ?.takeIf { it == BypassRoutes.DIRECT || it in chain }
         val order = BypassRoutes.order(chain, vpn, recent)
         val failures = ArrayList<String>()
@@ -60,7 +63,7 @@ internal class RouteLadder(base: Context, private val ytDlp: YtDlpRun) : Context
         val slow = ArrayList<Pair<String, Int>>()
         AppLog.i(
             "DownloadService",
-            "ladder j=${job.id} routes=${order.size} vpn=${if (vpn) 1 else 0} recent=${recent?.let { BypassRoutes.label(it, chain) } ?: "-"}"
+            "ladder j=${job.id} net=${cls.key} routes=${order.size} vpn=${if (vpn) 1 else 0} recent=${recent?.let { BypassRoutes.label(it, chain) } ?: "-"}"
         )
 
         for ((index, route) in order.withIndex()) {
@@ -73,7 +76,7 @@ internal class RouteLadder(base: Context, private val ytDlp: YtDlpRun) : Context
                 failures = failures, deferred = deferred
             )
             when (run.outcome) {
-                RouteOutcome.OK -> return finishOnRoute(route, chain, hardFailed)
+                RouteOutcome.OK -> return finishOnRoute(cls, route, chain, hardFailed)
                 RouteOutcome.SLOW -> slow += route to run.kbps
                 RouteOutcome.FAILED -> if (route !in deferred) hardFailed += route
             }
@@ -85,7 +88,7 @@ internal class RouteLadder(base: Context, private val ytDlp: YtDlpRun) : Context
                 job, preset, outputTemplate, profile, route, BypassRoutes.label(route, chain),
                 checkFirst = false, limits = TIGHT_LIMITS, failures = failures, deferred = null
             )
-            if (run.outcome == RouteOutcome.OK) return finishOnRoute(route, chain, hardFailed)
+            if (run.outcome == RouteOutcome.OK) return finishOnRoute(cls, route, chain, hardFailed)
             if (run.outcome == RouteOutcome.FAILED) hardFailed += route
         }
 
@@ -96,7 +99,7 @@ internal class RouteLadder(base: Context, private val ytDlp: YtDlpRun) : Context
                 job, preset, outputTemplate, profile, bestSlow.first, BypassRoutes.label(bestSlow.first, chain),
                 checkFirst = false, limits = NORMAL_LIMITS, failures = failures, deferred = null
             )
-            if (run.outcome == RouteOutcome.OK) return finishOnRoute(bestSlow.first, chain, hardFailed)
+            if (run.outcome == RouteOutcome.OK) return finishOnRoute(cls, bestSlow.first, chain, hardFailed)
         }
 
         if (!vpn && DpiBypass.directConnectionWorks()) {
@@ -105,19 +108,23 @@ internal class RouteLadder(base: Context, private val ytDlp: YtDlpRun) : Context
                 job, preset, outputTemplate, profile, BypassRoutes.DIRECT, BypassRoutes.DIRECT,
                 checkFirst = false, limits = NORMAL_LIMITS, failures = failures, deferred = null
             )
-            if (run.outcome == RouteOutcome.OK) return finishOnRoute(BypassRoutes.DIRECT, chain, hardFailed)
+            if (run.outcome == RouteOutcome.OK) return finishOnRoute(cls, BypassRoutes.DIRECT, chain, hardFailed)
         }
 
         AppLog.w("DownloadService", "ladder exhausted j=${job.id} fails=[${failures.joinToString("; ")}]")
         throw BypassTransportException("bypass transport failure: ${firstLine(failures.lastOrNull().orEmpty())}")
     }
 
-    /** Remembers the route that carried the download and quarantines the ones that failed before it. */
-    private fun finishOnRoute(route: String, chain: List<String>, hardFailed: List<String>) {
-        RouteScoreboard.record(route, SystemClock.elapsedRealtime())
-        if (route != BypassRoutes.DIRECT) DpiPrefs.promoteVerified(this, route)
+    /**
+     * Remembers the route that carried the download and quarantines the ones that failed before it. Patch 53: all of it
+     * for [cls], the connection class the attempt ran on: the success goes into that class's record and moves the route up
+     * its chain, each failure goes into the same record and moves its route down ([StrategyRouter]).
+     */
+    private fun finishOnRoute(cls: NetClass, route: String, chain: List<String>, hardFailed: List<String>) {
+        RouteScoreboard.record(cls, route, SystemClock.elapsedRealtime())
+        if (route != BypassRoutes.DIRECT) DpiPrefs.promoteVerified(this, cls, route)
         for (failed in hardFailed) {
-            if (failed != BypassRoutes.DIRECT && failed != route) DpiPrefs.quarantine(this, failed)
+            if (failed != BypassRoutes.DIRECT && failed != route) DpiPrefs.quarantine(this, cls, failed)
         }
         if (hardFailed.isNotEmpty()) {
             AppLog.i("DownloadService", "quarantined n=${hardFailed.size} kept=${BypassRoutes.label(route, chain)}")
@@ -204,7 +211,7 @@ internal class RouteLadder(base: Context, private val ytDlp: YtDlpRun) : Context
         // Patch 35: with verified strategies already in place the download does not wait for the
         // whole check; it only waits for the strategy the check is testing right now, and the
         // check pauses before the next one (see holdForDownload). With none, it waits as before.
-        val haveChain = DpiStrategyStore.chain(this).isNotEmpty()
+        val haveChain = DpiStrategyStore.chain(this, NetworkState.currentClass(this)).isNotEmpty()
         if (!haveChain && DpiBypass.directConnectionWorks()) return
         DownloadQueueBus.update(job.id) { it.copy(progressText = getString(R.string.status_waiting_for_check)) }
         val deadline = SystemClock.elapsedRealtime() + if (haveChain) ENGINE_WAIT_LIMIT_MS else SEARCH_WAIT_LIMIT_MS

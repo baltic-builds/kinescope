@@ -12,6 +12,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -53,17 +54,21 @@ internal fun StrategyPicker(
     var expanded by rememberSaveable { mutableStateOf(false) }
     var shown by rememberSaveable { mutableIntStateOf(PICKER_PAGE_SIZE) }
     var version by remember { mutableStateOf(0) }
-    val results = remember(version, refreshKey) { DpiResultsStore.load(context) }
+    // Patch 53: the list is the connection's (Wi-Fi or mobile data): its tests, its pin and its ratings.
+    val netClass by NetClassWatcher.state.collectAsState()
+    val cls = netClass ?: NetClass.WIFI
+    val results = remember(version, refreshKey, cls) { DpiResultsStore.load(context, cls) }
+    val ratings = remember(version, refreshKey, cls) { DpiPrefs.ratings(context, cls) }
     val candidates = remember(version, refreshKey) { DpiStrategyStore.candidates(context) }
-    val pinned = remember(version, refreshKey) { DpiPrefs.pinned(context) }
+    val pinned = remember(version, refreshKey, cls) { DpiPrefs.pinned(context, cls) }
     // Patch 51: every strategy is shown by its colour name instead of a position number.
     val names = remember(version, refreshKey) { DpiStrategyStore.names(context) }
-    val rows = remember(candidates, results, pinned) {
+    val rows = remember(candidates, results, ratings, pinned) {
         candidates.mapIndexed { index, line -> PickerRow(index + 1, line, results[line]) }
             .sortedWith(
                 compareByDescending<PickerRow> { it.line == pinned }
+                    .thenByDescending { ratings[it.line] ?: -1 }
                     .thenByDescending { it.result?.passed == true }
-                    .thenByDescending { it.result?.score ?: -1 }
                     .thenBy { it.number }
             )
     }
@@ -75,7 +80,7 @@ internal fun StrategyPicker(
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         Text(
-            stringResource(R.string.strategy_picker_title),
+            stringResource(R.string.strategy_picker_title) + " · " + stringResource(cls.labelRes()),
             style = MaterialTheme.typography.titleSmall,
             modifier = Modifier.weight(1f)
         )
@@ -102,7 +107,7 @@ internal fun StrategyPicker(
             TextButton(
                 enabled = enabled,
                 onClick = {
-                    DpiPrefs.unpin(context)
+                    DpiPrefs.unpin(context, cls)
                     version++
                     onChanged()
                     onMessage(context.getString(R.string.strategy_unpinned))
@@ -147,7 +152,7 @@ internal fun StrategyPicker(
                                 TextButton(
                                     enabled = enabled && !isPinned,
                                     onClick = {
-                                        DpiPrefs.pin(context, row.line)
+                                        DpiPrefs.pin(context, cls, row.line)
                                         version++
                                         onChanged()
                                         onMessage(context.getString(R.string.strategy_pinned_done))
@@ -156,15 +161,18 @@ internal fun StrategyPicker(
                             }
                         }
                     }
+                    val detail = when {
+                        result == null -> stringResource(R.string.strategy_untested)
+                        !result.passed -> stringResource(R.string.strategy_result_failed)
+                        result.loadTotal > 0 -> stringResource(
+                            R.string.strategy_result_ok, result.score, result.kbps, result.loadPassed, result.loadTotal
+                        )
+                        else -> stringResource(R.string.strategy_result_basic, result.score, result.kbps)
+                    }
+                    // Patch 53: the rating (the last test and real use together) leads the line when there is one.
+                    val rating = ratings[row.line]
                     Text(
-                        when {
-                            result == null -> stringResource(R.string.strategy_untested)
-                            !result.passed -> stringResource(R.string.strategy_result_failed)
-                            result.loadTotal > 0 -> stringResource(
-                                R.string.strategy_result_ok, result.score, result.kbps, result.loadPassed, result.loadTotal
-                            )
-                            else -> stringResource(R.string.strategy_result_basic, result.score, result.kbps)
-                        },
+                        if (rating != null) stringResource(R.string.strategy_rating, rating) + " · " + detail else detail,
                         style = MaterialTheme.typography.bodySmall
                     )
                     Text(

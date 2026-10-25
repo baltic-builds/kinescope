@@ -23,6 +23,8 @@ class YtOfflineApp : Application() {
         if (Application.getProcessName() != packageName) return
         AppLog.init(this)
         installCrashLogger()
+        // Patch 53: follow the connection (Wi-Fi or mobile data): Home shows the strategies of the one the phone is on.
+        NetClassWatcher.start(this)
         // Patch 51: a fresh install, an update or the same build (see AppUpdate). An update refreshes yt-dlp and the
         // community strategy list below and raises a notice on Home; a fresh install is handled by MainActivity.
         val launch = AppUpdate.onProcessStart(this)

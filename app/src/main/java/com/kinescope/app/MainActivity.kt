@@ -122,7 +122,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-internal enum class AppSection { HOME, QUICK_ADD, LIBRARY, SETTINGS, LOGS, YOUTUBE_AUTH, INSTAGRAM_AUTH }
+internal enum class AppSection { HOME, QUEUE, QUICK_ADD, LIBRARY, SETTINGS, LOGS, YOUTUBE_AUTH, INSTAGRAM_AUTH }
 
 private fun clipboardMediaUrl(context: Context): String? {
     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return null
@@ -201,7 +201,8 @@ private fun KinescopeApp(
     LaunchedEffect(Unit) {
         if (
             !DpiPrefs.hasRunInitialSearch(context) &&
-            DpiStrategyStore.verifiedChain(context).isEmpty() &&
+            // Patch 53: nothing verified on either connection class (a fresh install).
+            NetClass.entries.all { DpiStrategyStore.verifiedChain(context, it).isEmpty() } &&
             !DpiSearchController.state.value.running
         ) {
             // The check runs in a foreground service whose notification needs the permission.
@@ -273,19 +274,35 @@ private fun KinescopeApp(
         }
     }
 
-    fun openQuickAdd() {
-        clipboardMediaUrl(context)?.let {
-            url = it
-            urlError = null
+    // Patch 52: the "+" of the navigation downloads the link in the clipboard at once, with the default quality and
+    // folder from Settings (the same defaults the Add screen starts from). The Add screen opens only when the
+    // clipboard holds no YouTube or Instagram link, so a link can still be typed, and on a TV (no clipboard to speak
+    // of) it is the way in. No URL is logged.
+    fun addFromClipboard() {
+        val link = clipboardMediaUrl(context)
+        if (link == null) {
+            Toast.makeText(context, R.string.quick_add_no_link, Toast.LENGTH_SHORT).show()
+            section = AppSection.QUICK_ADD
+            return
         }
-        section = AppSection.QUICK_ADD
+        val result = DownloadService.enqueue(context, link, Settings.getDefaultQualityIndex(context))
+        if (result == DownloadService.EnqueueResult.ACCEPTED) requestNotifications()
+        val message = when (result) {
+            DownloadService.EnqueueResult.ACCEPTED -> R.string.quick_add_started
+            DownloadService.EnqueueResult.DUPLICATE -> R.string.error_duplicate_job
+            DownloadService.EnqueueResult.INVALID -> R.string.error_unsupported_link
+            DownloadService.EnqueueResult.START_FAILED -> R.string.error_service_start
+        }
+        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+        AppLog.i("MainActivity", "plus result=${result.name.lowercase()}")
     }
 
     // Patch 51: the switch on Home starts or stops the tunnel; the "Unblock YouTube" button starts it when needed and
     // opens the app chosen in Settings (YoutubeApps). [openApp] is remembered in openYouTubeWhenReady until the tunnel is up.
     fun startBypass(openApp: Boolean) {
-        val strategy = DpiStrategyStore.selected(context)
-        if (!DpiPrefs.isStrategyVerified(context, strategy)) {
+        // Patch 53: the chain of the connection the phone is on; a class that was never tested borrows the other's
+        // (DpiStrategyStore.chain), so the switch works on mobile data before the first test there.
+        if (DpiStrategyStore.chain(context, NetworkState.currentClass(context)).isEmpty()) {
             section = AppSection.SETTINGS
             Toast.makeText(context, R.string.bypass_need_test, Toast.LENGTH_SHORT).show()
             return
@@ -364,6 +381,7 @@ private fun KinescopeApp(
         section = section,
         title = when (section) {
             AppSection.HOME -> stringResource(R.string.app_name)
+            AppSection.QUEUE -> stringResource(R.string.queue_title)
             AppSection.QUICK_ADD -> stringResource(R.string.quick_add_title)
             AppSection.LIBRARY -> stringResource(R.string.library_title)
             AppSection.SETTINGS -> stringResource(R.string.settings_title)
@@ -375,7 +393,8 @@ private fun KinescopeApp(
         showNavigation = section != AppSection.YOUTUBE_AUTH && section != AppSection.INSTAGRAM_AUTH,
         onBack = { goBack() },
         onHome = { section = AppSection.HOME },
-        onQuickAdd = { openQuickAdd() },
+        onQueue = { section = AppSection.QUEUE },
+        onQuickAdd = { addFromClipboard() },
         onLibrary = { section = AppSection.LIBRARY },
         onSettings = { openSettingsWithSecretTap() }
     ) { innerPadding ->
@@ -387,12 +406,15 @@ private fun KinescopeApp(
                     onToggleTunnel = { on -> if (on) startBypass(openApp = false) else BypassVpnService.stop(context) },
                     onOpenApp = { startBypass(openApp = true) },
                     requestNotifications = requestNotifications,
-                    onPause = { DownloadService.pause(context, it) },
-                    onResume = { DownloadService.resume(context, it) },
-                    onStop = { DownloadService.stop(context, it) },
                     onSignIn = { section = AppSection.YOUTUBE_AUTH },
                     onSignInInstagram = { section = AppSection.INSTAGRAM_AUTH },
                     onOpenSettings = { section = AppSection.SETTINGS }
+                )
+                AppSection.QUEUE -> QueueScreen(
+                    jobs = jobs,
+                    onPause = { DownloadService.pause(context, it) },
+                    onResume = { DownloadService.resume(context, it) },
+                    onStop = { DownloadService.stop(context, it) }
                 )
                 AppSection.LIBRARY -> LibraryScreen(
                     library = library,

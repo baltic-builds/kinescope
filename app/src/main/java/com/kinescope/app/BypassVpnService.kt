@@ -113,9 +113,15 @@ class BypassVpnService : VpnService() {
     @Volatile private var rateSample: TunnelCounters? = null
     @Volatile private var rateSampleAt = 0L
 
+    // Patch 53: the connection class (Wi-Fi, mobile data) the tunnel's strategies were chosen for, and for how many monitor
+    // ticks in a row the system has reported another one (see followConnection).
+    @Volatile private var tunnelClass: NetClass = NetClass.WIFI
+    @Volatile private var netSwitchStreak = 0
+
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+        NetClassWatcher.start(this)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -189,7 +195,9 @@ class BypassVpnService : VpnService() {
         var tun: ParcelFileDescriptor? = null
         var hevStarted = false
         try {
-            val chain = DpiStrategyStore.chain(this)
+            // Patch 53: the strategies of the connection the phone is on now (a class with none borrows the other's).
+            val cls = NetClassWatcher.current(this)
+            val chain = DpiStrategyStore.chain(this, cls)
             if (chain.isEmpty()) {
                 fail(R.string.bypass_vpn_no_verified_strategy)
                 return
@@ -266,6 +274,8 @@ class BypassVpnService : VpnService() {
             engineSession = engine
             tunInterface = tun
             tunnelRunning = true
+            tunnelClass = cls
+            netSwitchStreak = 0
             currentLine = chosenLine
             failStreak = 0
             val startedNow = SystemClock.elapsedRealtime()
@@ -286,7 +296,7 @@ class BypassVpnService : VpnService() {
                 .notify(NOTIFICATION_ID, buildNotification(active = true))
             AppLog.i(
                 "BypassVpnService",
-                "tun up mtu=$TUN_MTU v6=1 dns=1.1.1.1 udp=udp s=${chain.indexOf(chosenLine) + 1}/${chain.size} " +
+                "tun up mtu=$TUN_MTU v6=1 dns=1.1.1.1 udp=udp net=${cls.key} s=${chain.indexOf(chosenLine) + 1}/${chain.size} " +
                     "app=${if (appPackage == YoutubeApps.DEFAULT_PACKAGE) "yt" else "other"}"
             )
             AppLog.i("BypassVpnService", "YouTube-only bypass active")
@@ -335,6 +345,7 @@ class BypassVpnService : VpnService() {
                     return
                 }
                 if (++ticks % NOTIFICATION_CHECK_TICKS == 0) ensureNotificationVisible()
+                if (!updating && !restarting) followConnection()
                 if (ticks % TRAFFIC_TICKS == 0) publishTrafficRate()
                 if (!updating && !restarting && SystemClock.elapsedRealtime() >= nextFlowCheckAt) checkTunnelFlow()
                 if (!updating && !restarting && SystemClock.elapsedRealtime() >= nextProbeAt) probeTunnel()
@@ -347,14 +358,33 @@ class BypassVpnService : VpnService() {
     }
 
     /**
+     * Patch 53: the connection changed from Wi-Fi to mobile data or back. The strategies that carry traffic on one are no
+     * guide on the other, so once the system has reported the other class for [NetSwitch.STABLE_TICKS] ticks in a row (a
+     * handover flickers) the tunnel reconnects on the strategies of the new class ([restartTunnel] reads the class again).
+     * Not a failure: it is not counted against the rotation limit and nothing is quarantined. No connection at all
+     * changes nothing; the tunnel waits for one.
+     */
+    private fun followConnection() {
+        val seen = NetClassWatcher.state.value
+        netSwitchStreak = NetSwitch.streakAfter(netSwitchStreak, tunnelClass, seen)
+        if (!NetSwitch.shouldSwitch(netSwitchStreak)) return
+        AppLog.i("BypassVpnService", "net change ${tunnelClass.key}->${seen?.key}: reconnecting on that class's strategies")
+        netSwitchStreak = 0
+        restartTunnel()
+    }
+
+    /**
      * Re-tests every strategy while the tunnel keeps running, then reconnects with the new
      * verified chain -- but only if that chain differs from the current one. Nothing found, or
      * the same chain: the running connection is left alone.
      */
     private fun updateStrategies() {
         try {
+            // Patch 53: the update tests the connection the tunnel runs on and stores its findings for that class.
+            val cls = tunnelClass
             val results = DpiBypass.search(
                 applicationContext,
+                cls,
                 isCancelled = { stopRequested.get() },
                 onProgress = { snapshot ->
                     updateProgress = snapshot
@@ -362,13 +392,14 @@ class BypassVpnService : VpnService() {
                 }
             )
             if (stopRequested.get()) return
-            val previousChain = DpiStrategyStore.verifiedChain(applicationContext)
+            val previousChain = DpiStrategyStore.verifiedChain(applicationContext, cls)
+            if (!DpiBypass.recordSearch(applicationContext, cls, results)) return
             // Patch 33: ranked (real transfer first) instead of the first passes in list order.
-            if (!DpiBypass.applySearchResults(applicationContext, results)) {
+            if (!DpiBypass.applySearchResults(applicationContext, cls, results)) {
                 AppLog.i("BypassVpnService", "Strategy update found nothing; keeping the current connection")
                 return
             }
-            if (DpiStrategyStore.verifiedChain(applicationContext) == previousChain) {
+            if (DpiStrategyStore.verifiedChain(applicationContext, cls) == previousChain) {
                 AppLog.i("BypassVpnService", "Strategy update found the same methods; keeping the connection")
                 return
             }
@@ -436,10 +467,10 @@ class BypassVpnService : VpnService() {
         // traffic. Remember it once per tunnel run; the chain then puts it first and keeps the others in order of success.
         if (provedLine != line && TunnelFlow.proves(previous, current)) {
             provedLine = line
-            DpiPrefs.promoteVerified(this, line)
-            val chain = DpiStrategyStore.chain(this)
+            DpiPrefs.promoteVerified(this, tunnelClass, line)
+            val chain = DpiStrategyStore.chain(this, tunnelClass)
             BypassVpnController.publishPosition(chain.indexOf(line) + 1, chain.size)
-            AppLog.i("BypassVpnService", "tun proven s=${chain.indexOf(line) + 1}/${chain.size}")
+            AppLog.i("BypassVpnService", "tun proven net=${tunnelClass.key} s=${chain.indexOf(line) + 1}/${chain.size}")
         }
         if (TunnelFlow.shouldRotate(oneWayStreak)) {
             AppLog.w("BypassVpnService", "tun one-way windows=$oneWayStreak: the app sends, nothing comes back")
@@ -479,7 +510,8 @@ class BypassVpnService : VpnService() {
         while (rotations.isNotEmpty() && now - rotations.first() > ROTATION_WINDOW_MS) rotations.removeFirst()
         val tooSoon = rotations.isNotEmpty() && now - rotations.last() < MIN_ROTATION_GAP_MS
         val tooMany = rotations.size >= MAX_ROTATIONS
-        val alternatives = DpiStrategyStore.chain(this).filter { it != line }
+        val cls = tunnelClass
+        val alternatives = DpiStrategyStore.chain(this, cls).filter { it != line }
         if (tooSoon || tooMany || alternatives.isEmpty()) {
             AppLog.w("BypassVpnService", "rotate skipped soon=$tooSoon many=$tooMany alternatives=${alternatives.size}")
             failStreak = 0
@@ -487,8 +519,8 @@ class BypassVpnService : VpnService() {
             return
         }
         rotations.addLast(now)
-        DpiPrefs.quarantine(this, line)
-        AppLog.w("BypassVpnService", "rotate quarantined=1 alternatives=${alternatives.size}")
+        DpiPrefs.quarantine(this, cls, line)
+        AppLog.w("BypassVpnService", "rotate net=${cls.key} quarantined=1 alternatives=${alternatives.size}")
         failStreak = 0
         restartTunnel()
     }

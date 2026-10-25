@@ -1,18 +1,16 @@
 package com.kinescope.app
 
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListScope
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Icon
@@ -26,7 +24,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -34,15 +31,17 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 
-// Home: the bypass dashboard slot, the banners and the download queue.
+// Home: the bypass dashboard slot and the banners.
 // Patch 40: moved out of MainActivity.kt unchanged. Patch 41: two panes on wide windows, focus rings for TV, an
 // empty-state text that names the control the screen really has.
-// Patch 51: the library left Home (it has its own screen, `LibraryScreen.kt`); the queue is compact (three rows, a
-// one-line empty state) so the dashboard has the screen; two panes are now the dashboard (left) and the queue (right);
-// a notice recommends re-checking the strategies after an app update.
+// Patch 51: the library left Home (it has its own screen, `LibraryScreen.kt`); the queue became compact; a notice
+// recommends re-checking the strategies after an app update.
+// Patch 52: the queue left Home too (it is the second destination of the navigation, `QueueScreen.kt`). Home is now
+// the dashboard, its "Unblock YouTube" button and the banners in ONE column on every window: the right-hand pane that
+// held the queue is gone, and a card of one-line rows would only be stretched by a second, empty pane.
 
-/** How many queue rows a single-column Home shows before "Show all". */
-private const val QUEUE_COLLAPSED_ROWS = 3
+/** The widest Home column; on a tablet or TV the column is centred instead of stretching the dashboard across. */
+private val HomeMaxWidth = 640.dp
 
 @Composable
 internal fun HomeScreen(
@@ -51,15 +50,11 @@ internal fun HomeScreen(
     onToggleTunnel: (Boolean) -> Unit,
     onOpenApp: () -> Unit,
     requestNotifications: () -> Unit,
-    onPause: (String) -> Unit,
-    onResume: (String) -> Unit,
-    onStop: (String) -> Unit,
     onSignIn: () -> Unit,
     onSignInInstagram: () -> Unit,
     onOpenSettings: () -> Unit
 ) {
     val context = LocalContext.current
-    val spec = LocalAdaptive.current
     val updateNotice by UpdateNotice.pending.collectAsState()
     val networkFailure = jobs.any {
         it.failureKind == FailureKind.NO_INTERNET && it.state in setOf(JobState.INTERRUPTED, JobState.FAILED)
@@ -75,144 +70,67 @@ internal fun HomeScreen(
             (it.state == JobState.PAUSED || it.state == JobState.FAILED)
     }
     var instagramBannerDismissed by remember { mutableStateOf(false) }
-    var showAllQueue by rememberSaveable { mutableStateOf(false) }
 
-    // The two blocks of Home. One column shows them one after another (a phone, a narrow window); two panes put the
-    // dashboard and the banners on the left and the queue on the right, each scrolling on its own.
-    val topItems: LazyListScope.() -> Unit = {
-        item {
-            // Patch 45: the hero card is a dashboard (see BypassDashboard.kt).
-            BypassDashboard(
-                tunnel = bypassState,
-                jobs = jobs,
-                onToggleTunnel = onToggleTunnel,
-                onOpenApp = onOpenApp,
-                requestNotifications = requestNotifications
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-        }
-        if (updateNotice) {
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+        // `widthIn` first: after `fillMaxSize` the cap would change nothing (HANDOFF.md, patch 48).
+        LazyColumn(
+            modifier = Modifier.widthIn(max = HomeMaxWidth).fillMaxSize(),
+            contentPadding = PaddingValues(bottom = 16.dp)
+        ) {
             item {
-                UpdateNoticeBanner(
-                    onDismiss = { UpdateNotice.dismiss(context) },
-                    onOpenSettings = {
-                        UpdateNotice.dismiss(context)
-                        onOpenSettings()
-                    }
+                // Patch 45: the hero card is a dashboard (see BypassDashboard.kt); patch 52: its button sits below it.
+                BypassDashboard(
+                    tunnel = bypassState,
+                    jobs = jobs,
+                    onToggleTunnel = onToggleTunnel,
+                    onOpenApp = onOpenApp,
+                    requestNotifications = requestNotifications
                 )
                 Spacer(modifier = Modifier.height(12.dp))
             }
-        }
-        if (networkFailure && !networkBannerDismissed) {
-            item {
-                ErrorBanner(
-                    text = stringResource(R.string.banner_no_internet),
-                    onDismiss = { networkBannerDismissed = true }
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-            }
-        }
-        if (verificationFailure && !verificationBannerDismissed) {
-            item {
-                VerificationBanner(
-                    onDismiss = { verificationBannerDismissed = true },
-                    onSignIn = onSignIn
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-            }
-        }
-        if (instagramFailure && !instagramBannerDismissed) {
-            item {
-                VerificationBanner(
-                    onDismiss = { instagramBannerDismissed = true },
-                    onSignIn = onSignInInstagram,
-                    messageRes = R.string.banner_instagram_login,
-                    actionRes = R.string.instagram_sign_in_action
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-            }
-        }
-    }
-
-    val queueItems: LazyListScope.() -> Unit = {
-        item {
-            Text(text = stringResource(R.string.queue_title), style = MaterialTheme.typography.titleMedium)
-            Spacer(modifier = Modifier.height(2.dp))
-        }
-
-        if (jobs.isEmpty()) {
-            item { EmptyQueueState() }
-        } else {
-            val collapsible = !spec.twoPane && jobs.size > QUEUE_COLLAPSED_ROWS
-            val visible = if (collapsible && !showAllQueue) jobs.take(QUEUE_COLLAPSED_ROWS) else jobs
-            items(visible, key = { it.id }) { job ->
-                QueueRow(job, onPause, onResume, onStop)
-            }
-            if (collapsible) {
+            if (updateNotice) {
                 item {
-                    FocusRing {
-                        TextButton(onClick = { showAllQueue = !showAllQueue }) {
-                            Text(
-                                if (showAllQueue) {
-                                    stringResource(R.string.queue_show_fewer)
-                                } else {
-                                    stringResource(R.string.queue_show_all, jobs.size)
-                                }
-                            )
+                    UpdateNoticeBanner(
+                        onDismiss = { UpdateNotice.dismiss(context) },
+                        onOpenSettings = {
+                            UpdateNotice.dismiss(context)
+                            onOpenSettings()
                         }
-                    }
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
+            }
+            if (networkFailure && !networkBannerDismissed) {
+                item {
+                    ErrorBanner(
+                        text = stringResource(R.string.banner_no_internet),
+                        onDismiss = { networkBannerDismissed = true }
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
+            }
+            if (verificationFailure && !verificationBannerDismissed) {
+                item {
+                    VerificationBanner(
+                        onDismiss = { verificationBannerDismissed = true },
+                        onSignIn = onSignIn
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
+            }
+            if (instagramFailure && !instagramBannerDismissed) {
+                item {
+                    VerificationBanner(
+                        onDismiss = { instagramBannerDismissed = true },
+                        onSignIn = onSignInInstagram,
+                        messageRes = R.string.banner_instagram_login,
+                        actionRes = R.string.instagram_sign_in_action
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
                 }
             }
         }
     }
-
-    if (spec.twoPane) {
-        Row(
-            modifier = Modifier.fillMaxSize(),
-            horizontalArrangement = Arrangement.spacedBy(spec.paneGapDp.dp)
-        ) {
-            LazyColumn(
-                modifier = Modifier.weight(1f).fillMaxHeight(),
-                contentPadding = PaddingValues(bottom = 16.dp)
-            ) {
-                topItems()
-            }
-            LazyColumn(
-                modifier = Modifier.weight(1f).fillMaxHeight(),
-                contentPadding = PaddingValues(bottom = 16.dp)
-            ) {
-                queueItems()
-            }
-        }
-    } else {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(bottom = 16.dp)
-        ) {
-            topItems()
-            queueItems()
-        }
-    }
-}
-
-/** One line, no picture: the empty queue used to take a whole screen section (patch 51). */
-@Composable
-private fun EmptyQueueState() {
-    val spec = LocalAdaptive.current
-    Text(
-        // The phone text points at "the center button below"; the rail layouts have no such button,
-        // and a TV has no share sheet to share a link from.
-        text = stringResource(
-            when {
-                spec.isTv -> R.string.empty_queue_tv
-                spec.useRail -> R.string.empty_queue_side
-                else -> R.string.empty_queue
-            }
-        ),
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(vertical = 6.dp)
-    )
 }
 
 @Composable

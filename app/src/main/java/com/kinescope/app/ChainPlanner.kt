@@ -10,6 +10,8 @@ package com.kinescope.app
  *
  * Patch 46: what a search stores and what a finished download promotes are ordered by what each strategy has done in
  * real use ([StrategyMemory]), not only by the last search's ranking; see [byScore], [merge] and [promote].
+ * Patch 53: the score is the [StrategyRating] of the connection class the chain is for (test and real use together),
+ * a failure moves a strategy down ([demote]), and `StrategyRouter` is the policy that uses these primitives.
  */
 internal object ChainPlanner {
     /** Patch 47: how many strategies the stored chain holds -- the primary and five fallbacks. The one definition of it. */
@@ -31,10 +33,11 @@ internal object ChainPlanner {
      * search tested it and it failed. [fill] (the previous chain, for a search that was stopped
      * early) follows the ranked strategies, minus the ones that were tested and failed.
      *
-     * Patch 46: [learned] are strategies that carried real traffic before; they join the chain even when this search
+     * Patch 46: [learned] are strategies the app has good evidence for; they join the chain even when this search
      * did not rank them (unless it tested them and they failed), and the whole pool -- ranked and learned -- is
      * ordered by [score], the search ranking breaking ties. With the default score every strategy is equal, so the
-     * pool keeps the search's order, which is what the callers without a memory get.
+     * pool keeps the search's order, which is what the callers without a memory get. Patch 53: [learned] is every
+     * strategy of the class rated at least [StrategyRating.ELIGIBLE] and [score] is that rating.
      */
     fun merge(
         ranked: List<String>,
@@ -71,6 +74,22 @@ internal object ChainPlanner {
     fun promote(chain: List<String>, winner: String, score: (String) -> Double, max: Int): List<String> {
         if (winner !in chain) return chain
         return (listOf(winner) + byScore(chain.filter { it != winner }, score)).take(max)
+    }
+
+    /**
+     * Patch 53: the chain after [loser] failed in real use and its [score] was lowered: it moves down to where its score
+     * puts it among the others (after every strategy rated at least as high, before the first one rated lower), and never
+     * up. The others keep their order, so the strategy that last carried traffic stays in front. Unchanged when [loser]
+     * is not in [chain].
+     */
+    fun demote(chain: List<String>, loser: String, score: (String) -> Double): List<String> {
+        val from = chain.indexOf(loser)
+        if (from < 0) return chain
+        val rest = chain.filter { it != loser }
+        val own = score(loser)
+        val firstLower = rest.indexOfFirst { score(it) < own }
+        val to = maxOf(from, if (firstLower < 0) rest.size else firstLower)
+        return rest.take(to) + loser + rest.drop(to)
     }
 }
 

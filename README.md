@@ -14,8 +14,10 @@ A personal Android app for downloading individual YouTube videos and Instagram R
 
 ## Product flow
 
-- **Home:** download queue + offline library.
-- **Add:** paste/share a single YouTube video URL or an Instagram Reel link, choose quality and enqueue quickly.
+- **Home:** the YouTube bypass dashboard (one switch, the strategy drop-down with an automatic choice, the "Unblock YouTube" button).
+- **Queue:** the downloads, with pause, resume and stop.
+- **+ (Add):** downloads the YouTube video or Instagram Reel link in the clipboard at once, at the default quality; with no link it opens a screen to paste or type one, choose the quality and enqueue.
+- **Library:** the finished downloads.
 - **Settings:** default quality, storage folder, yt-dlp updater and optional local YouTube and Instagram web sessions.
 - **Diagnostics:** five rapid taps on the Settings navbar icon opens the private log journal.
 - **Localization:** English is the default; Russian devices automatically use `values-ru`.
@@ -114,6 +116,7 @@ layouts and their audit) are not yet confirmed on a device; see `ROADMAP.md`.
 - **`CHANGELOG.md`** — cumulative patch history and rationale (the place for "how did this get here").
 - **`CJM.md`** — customer journey behind reliability priorities.
 - **`design.md`** — current visual tokens, typography, navigation and icon rules.
+- **`STRATEGY_ROUTER.md`** — how strategies are rated per connection (Wi-Fi / mobile data), chosen and replaced; read before changing anything in `DpiStrategyStore.kt`, `StrategyRouter.kt` or the tunnel's switching.
 - **`RELEASE.md`** — release signing and CI publishing.
 - **`THIRD_PARTY_NOTICES.md`** — dependency/licensing inventory for release review.
 

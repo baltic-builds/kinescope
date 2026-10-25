@@ -34,7 +34,7 @@ class StrategyMemoryRobustnessTest {
         val memory = StrategyMemory.record(emptyMap(), "a", StrategyOutcome.REAL_OK, t0)
         val far = t0 + 36_500L * day
         assertEquals(StrategyMemory.NEUTRAL, StrategyMemory.score(memory["a"], far), 1e-9)
-        assertTrue(StrategyMemory.good(memory, far).isEmpty())
+        assertEquals(StrategyRating.NEUTRAL, StrategyRating.rate(null, memory["a"], far))
         val next = StrategyMemory.record(memory, "b", StrategyOutcome.REAL_OK, far)
         assertFalse("a" in next)
         assertTrue("b" in next)

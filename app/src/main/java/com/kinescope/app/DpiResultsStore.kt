@@ -2,7 +2,10 @@ package com.kinescope.app
 
 import android.content.Context
 
-/** Patch 35: what the last tests found about one strategy, shown in Settings and in the report. */
+/**
+ * Patch 35: what the last tests found about one strategy, shown in Settings and in the report. Patch 53: the test half of
+ * [StrategyRating]; one set of results per [NetClass].
+ */
 internal data class StoredResult(
     val line: String,
     /** 0-100, see [StrategyResult.score]; 0 for a strategy that did not pass. */
@@ -61,14 +64,15 @@ internal object DpiResultsStore {
         return merged
     }
 
-    fun load(context: Context): Map<String, StoredResult> =
-        parse(prefs(context).getString(KEY, null))
+    /** Patch 53: the results of [cls]; the Wi-Fi class keeps the original key, so older results are its results. */
+    fun load(context: Context, cls: NetClass): Map<String, StoredResult> =
+        parse(prefs(context).getString(KEY + cls.suffix, null))
 
-    fun save(context: Context, results: List<StrategyResult>, at: Long = System.currentTimeMillis()) {
+    fun save(context: Context, cls: NetClass, results: List<StrategyResult>, at: Long = System.currentTimeMillis()) {
         val fresh = results.filter { it.started || it.total > 0 }.map { it.toStored(at) }
         if (fresh.isEmpty()) return
-        val merged = merge(load(context), fresh)
-        prefs(context).edit().putString(KEY, serialize(merged.values)).apply()
+        val merged = merge(load(context, cls), fresh)
+        prefs(context).edit().putString(KEY + cls.suffix, serialize(merged.values)).apply()
     }
 
     private fun StrategyResult.toStored(at: Long) = StoredResult(
