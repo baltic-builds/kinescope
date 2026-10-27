@@ -1,12 +1,3 @@
-## October 2026 — adaptive router and dashboard hardening
-
-- The Wi-Fi/mobile classifier, rating records, per-class pins, live checks and learned chains remain separate. The active tunnel evaluates verified strategies in class-specific order. A SOCKS engine that starts but fails the YouTube health probe is **not** accepted as a working route; if all routes fail, the app reports failure rather than an unusable active VPN.
-- Unexpected engine/bridge termination now enters the same rate-limited strategy recovery path as failed probes and one-way traffic. Exhaustion shuts down this app's VPN instead of presenting a stuck active switch. Switching networks retains the stable-handover filter.
-- Toggling bypass off closes the Android TUN descriptor immediately and starts separate cleanup, instead of placing cleanup behind the long-running monitor in the single-thread queue. Only Kinescope's own VPN and engine can be stopped; Android prohibits an app from forcibly closing other apps' VPNs.
-- Home now shows a single clear tunnel toggle, automatic strategy toggle (default on per class), connection label, status/traffic, and **Watch YouTube**. Manual strategy selection resides at the very bottom of Settings and appears only when automatic selection is disabled for the connected class.
-- The visuals use M3 semantics with defined orange-on/gray-off switch colors, card hierarchy and more expressive rounded surfaces; window-aware rail/two-pane and TV focus affordances are retained.
-- Verification required on real devices: Wi-Fi/mobile transitions, blocked networks, VPN permission revocation, stop during a slow probe, light/dark themes, narrow and expanded windows, TV remote, English and Russian. Repository tests cannot demonstrate real-world circumvention or prove vendor-specific Android VPN behavior.
-
 # Kinescope
 
 [![Build and Publish Signed Release](https://github.com/baltic-builds/kinescope/actions/workflows/build-release.yml/badge.svg)](https://github.com/baltic-builds/kinescope/actions/workflows/build-release.yml)
@@ -23,7 +14,7 @@ A personal Android app for downloading individual YouTube videos and Instagram R
 
 ## Product flow
 
-- **Home:** the YouTube bypass dashboard (one switch, the strategy drop-down with an automatic choice, the "Unblock YouTube" button).
+- **Home:** the YouTube bypass dashboard (one switch with a heartbeat line under it: a green pulse while the bypass carries traffic, a red flat line when the connection is lost; an automatic-strategy switch; the "Watch YouTube" button) and, below it, a panel of hints about how the strategies work. Choosing a strategy by hand is the last section of Settings.
 - **Queue:** the downloads, with pause, resume and stop.
 - **+ (Add):** downloads the YouTube video or Instagram Reel link in the clipboard at once, at the default quality; with no link it opens a screen to paste or type one, choose the quality and enqueue.
 - **Library:** the finished downloads.
@@ -72,7 +63,7 @@ Third-party dependency/licensing inventory: `THIRD_PARTY_NOTICES.md`.
 
 ## Network bypass
 
-Kinescope bundles the MIT `hufrea/byedpi` engine. In Settings -> ByeDPI, run **Test strategies** first; only a strategy that passes every probe can be enabled. The regular download switch routes yt-dlp through the local SOCKS5 engine.
+Kinescope bundles the MIT `hufrea/byedpi` engine. The app checks the strategies by itself: after an install or an update each connection class (Wi-Fi, mobile data) is checked once, until 5 strategies work and at least 3 of them work perfectly; twice a day, when you first switch the bypass on, two random strategies are re-checked, and a failing one sinks to the bottom of its list (`STRATEGY_ROUTER.md`). In Settings -> ByeDPI, **Test strategies** runs the same check by hand; only a strategy that passes every probe can be enabled. The regular download switch routes yt-dlp through the local SOCKS5 engine.
 
 The Home **ByeDPI** action adds a second, deliberately narrow path for the official YouTube app: Android `VpnService` captures only `com.google.android.youtube`, `hev-socks5-tunnel` converts that TUN traffic to SOCKS5, and the existing ByeDPI engine opens the network connections. No remote VPN server is used, other apps are not captured, and the public IP is not hidden. Once active, open YouTube, choose a video, **Share -> Kinescope**, and download. Kinescope automatically starts its separate short-lived `:dpi` engine with the same verified strategy while the YouTube `:dpi_vpn` session stays active.
 

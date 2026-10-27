@@ -25,8 +25,8 @@ class YtOfflineApp : Application() {
         installCrashLogger()
         // Patch 53: follow the connection (Wi-Fi or mobile data): Home shows the strategies of the one the phone is on.
         NetClassWatcher.start(this)
-        // Patch 51: a fresh install, an update or the same build (see AppUpdate). An update refreshes yt-dlp and the
-        // community strategy list below and raises a notice on Home; a fresh install is handled by MainActivity.
+        // Patch 51: a fresh install, an update or the same build (see AppUpdate). Patch 55: an install and an update both refresh
+        // yt-dlp below; the strategies are checked by MainActivity (the community list is refreshed just before that check).
         val launch = AppUpdate.onProcessStart(this)
 
         appScope.launch {
@@ -42,13 +42,11 @@ class YtOfflineApp : Application() {
                 // force an immediate nightly refresh after a YouTube block, and
                 // Settings has a manual Update.
                 val lastUpdate = Settings.getLastUpdateTimestamp(this@YtOfflineApp)
-                // Patch 51: an app update refreshes yt-dlp at once, whatever the calendar says.
-                if (launch == LaunchKind.UPDATED || MaintenanceSchedule.isStale(lastUpdate, System.currentTimeMillis())) {
+                // Patch 51: an app update refreshes yt-dlp at once, whatever the calendar says. Patch 55: so does the first launch.
+                if (launch != LaunchKind.SAME || MaintenanceSchedule.isStale(lastUpdate, System.currentTimeMillis())) {
                     YtDlpUpdater.updateBlocking(this@YtOfflineApp)
                 }
             }
-            // ... and the strategy list from the repository; then Home recommends re-checking the strategies.
-            if (launch == LaunchKind.UPDATED) AppUpdate.refreshStrategyListAfterUpdate(this@YtOfflineApp)
         }
     }
 

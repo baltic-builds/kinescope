@@ -22,10 +22,9 @@ object DpiPrefs {
     private const val KEY_INITIAL_SEARCH_DONE = "initial_search_done"
     private const val KEY_SEARCH_VERSION = "search_version"
     private const val KEY_SEARCH_AT = "search_at"
-    private const val KEY_MAINTENANCE_TRY_AT = "maintenance_try_at"
     private const val KEY_NAMES = "strategy_names"
     private const val KEY_SEEN_VERSION = "seen_version"
-    private const val KEY_UPDATE_NOTICE = "update_notice"
+    private const val KEY_LIST_VERSION = "list_version"
 
     // Class-scoped (see NetClass.suffix).
     private const val KEY_STRATEGY = "strategy"
@@ -38,6 +37,10 @@ object DpiPrefs {
     private const val KEY_QUARANTINE = "quarantine"
     private const val KEY_LEARNED = "learned"
     private const val KEY_SEEDED = "seeded"
+    private const val KEY_IPV4_ONLY = "ipv4_only"
+    private const val KEY_CHECKED_VERSION = "checked_version"
+    private const val KEY_CHECK_TRY_AT = "check_try_at"
+    private const val KEY_RANDOM_AT = "random_check_at"
     private const val PROVEN_MAX_AGE_MS = 14L * MaintenanceSchedule.DAY_MS
     private const val QUARANTINE_MS = 10L * 60L * 1000L
 
@@ -128,6 +131,94 @@ object DpiPrefs {
             .apply()
     }
 
+    /**
+     * Patch 54: the engine runs IPv4-only (`-X`) on [cls]. Learned, never assumed: set by `DpiBypass.reach` when a strategy
+     * could not reach the host with the engine's default name lookup and reached it with IPv4 only.
+     */
+    internal fun ipv4Only(context: Context, cls: NetClass): Boolean = prefs(context).getBoolean(key(KEY_IPV4_ONLY, cls), false)
+
+    internal fun setIpv4Only(context: Context, cls: NetClass, value: Boolean) {
+        prefs(context).edit().putBoolean(key(KEY_IPV4_ONLY, cls), value).apply()
+    }
+
+    /**
+     * Patch 55: the app version code under which the strategies of [cls] were last checked (0 = never). A fresh install or an
+     * update makes the stored value differ from the running version, which is what asks for one check per class
+     * ([ClassCheckPolicy]); a check that reaches its goal, or runs the list out, records the version. The Wi-Fi class is stamped
+     * when the install happens on Wi-Fi, the mobile class the first time the phone is on mobile data with the app open.
+     */
+    internal fun checkedVersion(context: Context, cls: NetClass): Long = prefs(context).getLong(key(KEY_CHECKED_VERSION, cls), 0L)
+
+    internal fun setCheckedVersion(context: Context, cls: NetClass, version: Long) {
+        prefs(context).edit().putLong(key(KEY_CHECKED_VERSION, cls), version).apply()
+    }
+
+    /** Patch 55: when a check of [cls] last started (0 = never), so one that is stopped or fails is not restarted at once. */
+    internal fun checkTriedAt(context: Context, cls: NetClass): Long = prefs(context).getLong(key(KEY_CHECK_TRY_AT, cls), 0L)
+
+    internal fun markCheckTried(context: Context, cls: NetClass, at: Long = System.currentTimeMillis()) {
+        prefs(context).edit().putLong(key(KEY_CHECK_TRY_AT, cls), at).apply()
+    }
+
+    /** Patch 55: when the last two-a-day random check of [cls] started (0 = never). Each class keeps its own calendar. */
+    internal fun randomCheckAt(context: Context, cls: NetClass): Long = prefs(context).getLong(key(KEY_RANDOM_AT, cls), 0L)
+
+    internal fun setRandomCheckAt(context: Context, cls: NetClass, at: Long) {
+        prefs(context).edit().putLong(key(KEY_RANDOM_AT, cls), at).apply()
+    }
+
+    /** Patch 55: the app version code under which the community strategy list was last refreshed at a launch (0 = never). */
+    fun listRefreshedVersion(context: Context): Long = prefs(context).getLong(KEY_LIST_VERSION, 0L)
+
+    fun setListRefreshedVersion(context: Context, version: Long) {
+        prefs(context).edit().putLong(KEY_LIST_VERSION, version).apply()
+    }
+
+    /**
+     * Patch 55: takes [lines] out of the chain of [cls], the rest keeping their order (the next one becomes the primary). Used when
+     * a random check found that a strategy of the chain no longer works: its failed test is now the newest on record, which puts it
+     * at the very bottom of the ranking ([StrategyRank]). A chain left empty is cleared, so the class borrows the other one's
+     * until it is checked ([DpiStrategyStore.ensureSeeded]). A pinned strategy stays: that is the user's choice.
+     */
+    internal fun removeFromChain(context: Context, cls: NetClass, lines: Collection<String>) {
+        if (lines.isEmpty()) return
+        synchronized(writeLock) {
+            val primary = prefs(context).getString(key(KEY_VERIFIED_STRATEGY, cls), null) ?: return
+            val chain = (listOf(primary) + verifiedFallbacks(context, cls)).distinct()
+            val pin = pinned(context, cls)
+            val remaining = chain.filter { it !in lines || it == pin }
+            if (remaining == chain) return
+            if (remaining.isEmpty()) {
+                prefs(context).edit()
+                    .remove(key(KEY_STRATEGY, cls))
+                    .remove(key(KEY_VERIFIED_STRATEGY, cls))
+                    .remove(key(KEY_VERIFIED_FALLBACKS, cls))
+                    .remove(key(KEY_VERIFIED_AT, cls))
+                    .remove(key(KEY_SEEDED, cls))
+                    .apply()
+            } else {
+                writeChain(context, cls, remaining)
+            }
+        }
+    }
+
+    /**
+     * Patch 54: puts the chain of [cls] in the order of its current ratings, after a check changed them. A pinned strategy keeps
+     * the lead: that is the user's choice, not the ratings'. Only the order changes: nothing joins or leaves the chain (a check
+     * that found something that works goes through `DpiBypass.applySearchResults`, one that found something broken through
+     * [removeFromChain]), and the chain's time and seeded mark stay as they are.
+     */
+    internal fun reorderByRating(context: Context, cls: NetClass, now: Long = System.currentTimeMillis()) {
+        synchronized(writeLock) {
+            val primary = prefs(context).getString(key(KEY_VERIFIED_STRATEGY, cls), null) ?: return
+            val chain = (listOf(primary) + verifiedFallbacks(context, cls)).distinct()
+            val ordered = ChainPlanner.byScore(chain, StrategyRouter.scorer(ratings(context, cls, now)))
+            val pin = pinned(context, cls)
+            val result = if (pin != null && pin in ordered) listOf(pin) + ordered.filter { it != pin } else ordered
+            if (result != chain) writeChain(context, cls, result)
+        }
+    }
+
     /** True once the one-time automatic first-run strategy search has been attempted. */
     fun hasRunInitialSearch(context: Context): Boolean =
         prefs(context).getBoolean(KEY_INITIAL_SEARCH_DONE, false)
@@ -182,13 +273,6 @@ object DpiPrefs {
         prefs(context).edit().putLong(KEY_SEEN_VERSION, version).apply()
     }
 
-    /** Patch 51: the "app updated, re-check the strategies" notice on Home has been raised and not dismissed yet. */
-    fun updateNoticePending(context: Context): Boolean = prefs(context).getBoolean(KEY_UPDATE_NOTICE, false)
-
-    fun setUpdateNoticePending(context: Context, pending: Boolean) {
-        prefs(context).edit().putBoolean(KEY_UPDATE_NOTICE, pending).apply()
-    }
-
     /** The strategy that last carried a real download on [cls], if that was within two weeks. */
     internal fun provenLine(context: Context, cls: NetClass, now: Long = System.currentTimeMillis()): String? {
         val store = prefs(context)
@@ -240,33 +324,11 @@ object DpiPrefs {
         prefs(context).edit().putLong(KEY_SEARCH_VERSION, version).apply()
     }
 
-    /** Patch 46: when the last strategy search finished (0 = never). The 25-day upkeep counts from here. */
+    /** Patch 46: when the last strategy search finished (0 = never). Patch 55: diagnostics only (`search_age`). */
     fun lastSearchAt(context: Context): Long = prefs(context).getLong(KEY_SEARCH_AT, 0L)
 
     fun setLastSearchAt(context: Context, at: Long) {
         prefs(context).edit().putLong(KEY_SEARCH_AT, at).apply()
-    }
-
-    /** Patch 46: notes that a quiet re-check was started now, so one that fails or is stopped is not retried at once. */
-    fun markMaintenanceTried(context: Context, at: Long = System.currentTimeMillis()) {
-        prefs(context).edit().putLong(KEY_MAINTENANCE_TRY_AT, at).apply()
-    }
-
-    /**
-     * Patch 46: whether the quiet strategy re-check is due: 25 days since the last finished search and no attempt in
-     * the last day (see [MaintenanceSchedule]). Never before the first search has finished. A build from before this
-     * patch has no search time yet; its calendar starts the first time it is asked, so installing this patch does not
-     * itself start a re-check. Patch 53: the calendar is shared; the re-check only runs on an unmetered network, so in
-     * practice it keeps the Wi-Fi record fresh, and the mobile one is tested by hand (Settings -> Test).
-     */
-    fun isMaintenanceDue(context: Context, now: Long = System.currentTimeMillis()): Boolean {
-        if (!hasRunInitialSearch(context)) return false
-        var doneAt = lastSearchAt(context)
-        if (doneAt <= 0L) {
-            doneAt = now
-            setLastSearchAt(context, now)
-        }
-        return MaintenanceSchedule.isDue(doneAt, prefs(context).getLong(KEY_MAINTENANCE_TRY_AT, 0L), now)
     }
 
     /**

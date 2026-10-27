@@ -1,6 +1,5 @@
 package com.kinescope.app
 
-import java.util.Locale
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -16,7 +15,7 @@ class BypassDashboardTest {
         background: Boolean = false,
         mandatory: Boolean = false,
         downloads: Int = 0,
-        kbps: Int = 0
+        error: Boolean = false
     ) = BypassDashInputs(
         waysReady = ways,
         tunnel = tunnel,
@@ -25,7 +24,7 @@ class BypassDashboardTest {
         searchBackground = background,
         searchMandatory = mandatory,
         activeDownloads = downloads,
-        downloadKbps = kbps
+        tunnelError = error
     )
 
     @Test
@@ -92,8 +91,6 @@ class BypassDashboardTest {
         assertTrue(model.tunnelSwitchEnabled)
         assertTrue(model.openEnabled)
         assertTrue(model.strategiesEnabled)
-        assertEquals(DashStrategyNote.NONE, model.strategyNote)
-        assertFalse(model.showSpeed)
     }
 
     @Test
@@ -102,7 +99,6 @@ class BypassDashboardTest {
         assertEquals(DashHeadline.ON, model.headline)
         assertTrue(model.tunnelSwitchOn)
         assertTrue(model.tunnelSwitchEnabled)
-        assertEquals(DashStrategyNote.APPLIES_NEXT, model.strategyNote)
     }
 
     @Test
@@ -115,21 +111,9 @@ class BypassDashboardTest {
     }
 
     @Test
-    fun aRunningDownloadShowsTheSpeedAndSaysWhenAStrategyChangeApplies() {
-        val model = bypassDashboardModel(inputs(downloads = 1, kbps = 2_048))
-        assertTrue(model.showSpeed)
-        assertEquals(2_048, model.downloadKbps)
-        assertEquals(DashStrategyNote.APPLIES_NEXT, model.strategyNote)
+    fun aRunningDownloadDoesNotLockTheStrategyControls() {
         // The pick itself is still allowed: it only writes a preference, the running download keeps its route.
-        assertTrue(model.strategiesEnabled)
-    }
-
-    @Test
-    fun theSpeedLineWaitsForAFirstReading() {
-        val model = bypassDashboardModel(inputs(downloads = 1, kbps = 0))
-        assertTrue(model.showSpeed)
-        assertEquals(0, model.downloadKbps)
-        assertEquals(0, bypassDashboardModel(inputs(downloads = 1, kbps = -5)).downloadKbps)
+        assertTrue(bypassDashboardModel(inputs(downloads = 1)).strategiesEnabled)
     }
 
     @Test
@@ -153,117 +137,26 @@ class BypassDashboardTest {
     }
 
     @Test
-    fun starsFollowTheThresholdsOfTheBrief() {
-        assertEquals(5, strategyStars(100))
-        assertEquals(4, strategyStars(99))
-        assertEquals(4, strategyStars(85))
-        assertEquals(3, strategyStars(84))
-        assertEquals(3, strategyStars(75))
-        assertEquals(2, strategyStars(74))
-        assertEquals(2, strategyStars(60))
-        assertEquals(1, strategyStars(59))
-        assertEquals(1, strategyStars(0))
-        assertEquals(1, strategyStars(-3))
-    }
-
-    @Test
-    fun theTopListHoldsOnlyRatedStrategiesThatAreStillInTheList() {
-        val candidates = listOf("a", "b", "c", "d")
-        // "c" is rated below the line (it failed), "gone" is no longer in the list.
-        val ratings = mapOf("a" to 70, "b" to 90, "c" to 30, "gone" to 99)
-        val top = topStrategies(ratings, candidates)
-        assertEquals(listOf("b", "a"), top.map { it.line })
-        assertEquals(listOf(4, 2), top.map { it.stars })
-        assertEquals(listOf(90, 70), top.map { it.percent })
-    }
-
-    @Test
-    fun theTopListIsOrderedByRatingThenListPosition() {
-        val candidates = listOf("a", "b", "c", "d")
-        val ratings = mapOf("a" to 80, "b" to 80, "c" to 80, "d" to 95)
-        assertEquals(listOf("d", "a", "b", "c"), topStrategies(ratings, candidates).map { it.line })
-    }
-
-    @Test
-    fun theTopListHoldsAtMostFifteen() {
-        val candidates = (1..40).map { "s$it" }
-        val ratings = candidates.mapIndexed { index, line -> line to 50 + index }.toMap()
-        val top = topStrategies(ratings, candidates)
-        assertEquals(DASH_STRATEGY_LIMIT, top.size)
-        assertEquals(15, DASH_STRATEGY_LIMIT)
-        assertEquals("s40", top.first().line)
-        assertEquals(topStrategies(ratings, candidates, limit = 3).size, 3)
-    }
-
-    @Test
-    fun theDropDownOffersTheTopListWhenTheStrategyInUseIsInIt() {
-        val candidates = listOf("a", "b", "c")
-        val ratings = mapOf("a" to 70, "b" to 90)
-        assertEquals(listOf("b", "a"), strategyChoices(ratings, candidates, chain = listOf("a", "b"), selected = "a").map { it.line })
-        assertEquals(listOf("b", "a"), strategyChoices(ratings, candidates, chain = emptyList(), selected = null).map { it.line })
-    }
-
-    @Test
-    fun aChainBorrowedFromTheOtherConnectionIsOfferedWithoutStars() {
-        // On mobile data nothing has been tested or used yet: the chain came from Wi-Fi and has no ratings here.
-        val candidates = listOf("a", "b", "c")
-        val choices = strategyChoices(emptyMap(), candidates, chain = listOf("b", "a", "c"), selected = "b")
-        assertEquals(listOf("b", "a", "c"), choices.map { it.line })
-        assertEquals(listOf(0, 0, 0), choices.map { it.stars })
-    }
-
-    @Test
-    fun aStrategyThatFailedForRealStaysListedWithItsLowRating() {
-        val candidates = listOf("a", "f")
-        val ratings = mapOf("a" to 70, "f" to 20)
-        val choices = strategyChoices(ratings, candidates, chain = listOf("a", "f"), selected = "a")
-        assertEquals(listOf("a", "f"), choices.map { it.line })
-        assertEquals(listOf(2, 1), choices.map { it.stars })
-    }
-
-    @Test
-    fun aStrategyInUseOutsideBothListsIsOfferedFirst() {
-        // "z" was pinned from Settings, has left the list and the chain, and has a rating from an old test.
-        val candidates = listOf("a")
-        val ratings = mapOf("a" to 70, "z" to 90)
-        val choices = strategyChoices(ratings, candidates, chain = listOf("a"), selected = "z")
-        assertEquals(listOf("z", "a"), choices.map { it.line })
-        assertEquals(listOf(4, 2), choices.map { it.stars })
-        assertEquals(0, strategyChoices(ratings, candidates, chain = listOf("a"), selected = "never-seen").first().stars)
-    }
-
-    @Test
-    fun theDropDownHoldsTheFifteenBestThenTheChainRemainder() {
-        val candidates = (1..40).map { "s$it" }
-        val ratings = candidates.mapIndexed { index, line -> line to 50 + index }.toMap()
-        val choices = strategyChoices(ratings, candidates, chain = listOf("s1", "s40"), selected = "s1")
-        assertEquals(DASH_STRATEGY_LIMIT + 1, choices.size)
-        assertEquals("s40", choices.first().line)
-        assertEquals("s1", choices.last().line)
-    }
-
-    @Test
-    fun speedsAreRoundedAndNeverReachAThousandKilobytes() {
-        val us = Locale.US
-        assertEquals("0 KB/s", formatTransferRate(0, us))
-        assertEquals("0 KB/s", formatTransferRate(-5, us))
-        assertEquals("<1 KB/s", formatTransferRate(640, us))
-        assertEquals("1 KB/s", formatTransferRate(1_000, us))
-        assertEquals("2 KB/s", formatTransferRate(1_500, us))
-        assertEquals("123 KB/s", formatTransferRate(123_456, us))
-        assertEquals("999 KB/s", formatTransferRate(999_499, us))
-        assertEquals("1.0 MB/s", formatTransferRate(999_500, us))
-        assertEquals("1.2 MB/s", formatTransferRate(1_234_567, us))
-        assertEquals("12.3 MB/s", formatTransferRate(12_345_678, us))
-    }
-
-    @Test
-    fun theDecimalSeparatorFollowsTheLocale() {
-        assertEquals("1,2 MB/s", formatTransferRate(1_234_567, Locale.forLanguageTag("ru")))
-    }
-
-    @Test
     fun theDashboardLogsUnderTheUiTag() {
         assertEquals("ui", LogFormat.shortTag("BypassDashboard"))
+    }
+
+    @Test
+    fun theHeartbeatPulsesGreenOnlyWhileTrafficIsMeasuredToFlow() {
+        fun pulse(tunnel: TunnelPhase, flow: FlowVerdict, error: Boolean = false) =
+            bypassDashboardModel(inputs(tunnel = tunnel, flow = flow, error = error)).pulse
+        assertEquals(DashPulse.ALIVE, pulse(TunnelPhase.ACTIVE, FlowVerdict.FLOWING))
+        // A tunnel that is up and has seen no traffic yet is still the bypass working.
+        assertEquals(DashPulse.ALIVE, pulse(TunnelPhase.ACTIVE, FlowVerdict.IDLE))
+        // Sending with nothing coming back is a lost connection.
+        assertEquals(DashPulse.LOST, pulse(TunnelPhase.ACTIVE, FlowVerdict.ONE_WAY))
+    }
+
+    @Test
+    fun theHeartbeatIsFlatRedWhenTheBypassStoppedOnAnErrorAndMutedWhenItIsSimplyOff() {
+        fun pulse(tunnel: TunnelPhase, error: Boolean) = bypassDashboardModel(inputs(tunnel = tunnel, error = error)).pulse
+        assertEquals(DashPulse.LOST, pulse(TunnelPhase.OFF, error = true))
+        assertEquals(DashPulse.IDLE, pulse(TunnelPhase.OFF, error = false))
+        assertEquals(DashPulse.IDLE, pulse(TunnelPhase.STARTING, error = false))
     }
 }

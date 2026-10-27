@@ -26,12 +26,30 @@ internal data class StrategyResult(
     val loadTotal: Int = 0,
     /** Patch 35: median time in ms to finish the TLS handshake under that load (0 = not measured). */
     val handshakeMs: Int = 0,
-    val loadKbps: Int = 0
+    val loadKbps: Int = 0,
+    /** Patch 54: how many of this strategy's failed probes ended at the CONNECT stage with a SOCKS "unreachable" reply. */
+    val connectFaults: Int = 0
 ) {
     val fullPass: Boolean get() = started && total > 0 && requiredPassed
 
+    /**
+     * Patch 54: every probe that failed did so because the engine could not reach the host, before the strategy took any part.
+     * Such a result is no evidence for or against the strategy and is not stored as a failure.
+     */
+    val connectFault: Boolean get() = started && !fullPass && connectFaults > 0 && connectFaults >= total - passed
+
     /** Patch 35: at least four in five simultaneous connections completed. */
     val loadOk: Boolean get() = loadTotal > 0 && loadPassed * 5 >= loadTotal * 4
+
+    /** Patch 55: carries real traffic: every required host answered and a real transfer through it completed. */
+    val works: Boolean get() = fullPass && deepOk
+
+    /**
+     * Patch 55: "works at 100%": every probed host answered, the real transfer completed and every simultaneous connection
+     * completed. The 100 of [score] also asks for fast handshakes, which a slow mobile network may never give; what a check
+     * looks for is a strategy that is complete, not one that is quick.
+     */
+    val perfect: Boolean get() = works && passed == total && loadTotal > 0 && loadPassed == loadTotal
 
     /**
      * Patch 35: 0-100 quality score for display and tie-breaking: hosts through (25), a real
@@ -60,7 +78,28 @@ internal data class SearchProgress(
     val total: Int,
     val current: String,
     val results: List<StrategyResult>
-)
+) {
+    /** Patch 55: how many of the strategies tried so far carry real traffic. */
+    val working: Int get() = results.count { it.works }
+}
+
+/**
+ * Patch 55: when a strategy search has found enough. A check no longer scans the whole list: it stops once [working]
+ * strategies carry real traffic and at least [perfect] of those do so at 100% (see [StrategyResult.perfect]); a list that runs
+ * out first ends it with what it found. Pure, unit-tested in `SearchGoalTest`.
+ */
+internal data class SearchGoal(val working: Int, val perfect: Int) {
+    fun reached(results: List<StrategyResult>): Boolean =
+        results.count { it.works } >= working && results.count { it.perfect } >= perfect
+
+    companion object {
+        /** The goal of the first-run check, of the check of a connection after an install or an update, and of Settings -> Test. */
+        val STANDARD = SearchGoal(working = 5, perfect = 3)
+
+        /** What a tunnel that is starting and has nothing that works waits for: just enough to start. */
+        val QUICK = SearchGoal(working = 2, perfect = 0)
+    }
+}
 
 /**
  * Tries strategies one after another: start the engine with a strategy, check that every probe
@@ -93,7 +132,12 @@ internal class DpiStrategySearch(
      * worked. The YouTube app opens many connections at once and pays a strategy's per-connection
      * cost every time; one connection at a time cannot show that.
      */
-    private val loadProbe: ((port: Int) -> LoadResult?)? = null
+    private val loadProbe: ((port: Int) -> LoadResult?)? = null,
+    /**
+     * Patch 54: how many probes of the engine on [port] failed because it could not reach the host (see
+     * `StageResult.isReachFault`), read once after the probes of one strategy. The default counts none.
+     */
+    private val faults: (port: Int) -> Int = { 0 }
 ) {
     /**
      * [stopAfterFullPasses] bounds how many fully-passing strategies to collect before
@@ -107,7 +151,9 @@ internal class DpiStrategySearch(
         onProgress: (SearchProgress) -> Unit,
         stopAfterFullPasses: Int = 1,
         /** Patch 35: called before each strategy; blocks while a download needs the engine. */
-        waitIfPaused: () -> Unit = {}
+        waitIfPaused: () -> Unit = {},
+        /** Patch 55: when given, the search ends when this goal is reached and [stopAfterFullPasses] is not looked at. */
+        goal: SearchGoal? = null
     ): List<StrategyResult> {
         val results = mutableListOf<StrategyResult>()
         var fullPasses = 0
@@ -124,7 +170,9 @@ internal class DpiStrategySearch(
             }
             results += result
             onProgress(SearchProgress(index + 1, candidates.size, line, results.toList()))
-            if (result.fullPass) {
+            if (goal != null) {
+                if (goal.reached(results)) break
+            } else if (result.fullPass) {
                 fullPasses++
                 if (fullPasses >= stopAfterFullPasses) break
             }
@@ -150,6 +198,7 @@ internal class DpiStrategySearch(
                 }
             }
             val passed = outcomes.count { it.second }
+            val faultCount = faults(session.port)
             val requiredPassed = outcomes.filter { it.first in requiredHosts }.all { it.second }
             var deepOk = false
             var throughputKbps = 0
@@ -188,7 +237,8 @@ internal class DpiStrategySearch(
                 loadPassed = load?.passed ?: 0,
                 loadTotal = load?.total ?: 0,
                 handshakeMs = load?.medianHandshakeMs ?: 0,
-                loadKbps = load?.kbps ?: 0
+                loadKbps = load?.kbps ?: 0,
+                connectFaults = faultCount
             )
         } finally {
             pool.shutdownNow()

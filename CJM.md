@@ -21,7 +21,7 @@ watched entirely offline once in-region.
 Use this when YouTube itself is hard to open on the current network:
 
 1. Open Kinescope and tap **ByeDPI** on Home.
-2. If no strategy has been verified yet, Kinescope opens Settings. Run **Test strategies**; only a full three-host pass becomes eligible. On the first YouTube session Android also asks for standard VPN permission.
+2. The first launch checks the strategies by itself (Home says to wait; it ends at 5 working strategies, at least 3 of them perfect). If none works yet, Kinescope opens Settings: run **Test strategies**; only a full three-host pass becomes eligible. On the first YouTube session Android also asks for standard VPN permission. (Patch 55: Wi-Fi and mobile data are checked separately, once per app version; the hints panel at the bottom of Home explains this in a few lines, and says that `+` downloads the clipboard link at once.)
 3. Kinescope starts the local ByeDPI engine plus a YouTube-only TUN -> SOCKS bridge and opens the official YouTube app. No remote VPN server is involved and other applications are not routed through Kinescope.
 4. Pick the video in YouTube and use **Share -> Kinescope**. The existing single-task share intent opens Quick Add with the canonical link.
 5. Start the download. While the YouTube bypass session is active, Kinescope automatically starts the separate short-lived `:dpi` engine with the same verified strategy; the long-lived YouTube engine stays isolated in `:dpi_vpn`.

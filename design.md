@@ -10,15 +10,17 @@ Sources (checked October 25, 2026):
 
 ## Rules in this patch
 
-1. **Hierarchy:** one meaningful home hero (VPN status, one tunnel switch), one automated-selection control, then the primary Watch YouTube action. No strategy picker on Home; expert controls last in Settings.
+1. **Hierarchy:** one meaningful home hero (VPN status, one tunnel switch, the heartbeat line), one automated-selection control, then the primary Watch YouTube action, then the hints panel. No strategy picker on Home; expert controls last in Settings.
 2. **Color:** bright but grounded Kinescope orange is reserved for checked switches, the action button and positive focus. The off track/thumb are neutral grays with clear outlines in both light and dark themes. Never encode status by color alone: show readable text.
 3. **Shape and space:** larger 28dp hero corners, raised surface, 20dp horizontal / 22dp vertical interior spacing, comfortable touch target (>=48dp) and clear typography scale.
 4. **Type:** Inter for readable UI and headlines; avoid faux branded serif/gemini fonts and keep the system fallback. Headlines have one dominant scale, supporting text uses title/body/label M3 roles.
 5. **Adaptive:** window width, not device name, determines bottom navigation vs rail and single vs two-pane Settings. Preserve existing compact/medium/expanded breakpoints, fold/multitasking and TV D-pad focus rings; avoid fixed-height labels and allow larger fonts.
-6. **Motion:** express state changes with intrinsic M3 control state changes, but avoid continuous distracting animations on network controls. Respect device animation preferences; no decorative light-show implying the VPN is healthy.
+6. **Motion:** express state changes with intrinsic M3 control state changes, but avoid continuous distracting animations on network controls. Respect device animation preferences; no decorative light-show implying the VPN is healthy. **One exception (patch 55): the heartbeat line** under the tunnel switch is a continuous animation, allowed because it is tied to a MEASURED state, not to decoration: a green pulse travels along it only while the tunnel's traffic verdict says the bypass carries traffic (`DashPulse.ALIVE`), it turns red and flat when the connection is lost (`LOST`) and muted and flat when the bypass is off or starting (`IDLE`); it never starts because an engine merely started. With the system's animations off (animator duration scale 0) it holds still (one beat, drawn once). It has a text alternative for screen readers.
 7. **Accessibility:** explicit switch semantics, labels and descriptive live status, contrast-aware on/off tokens, minimum targets, and actual RTL/large-font/device verification as a release gate.
 8. **Bilingual:** UI strings in English and Russian; all newly modified labels exist in both resources. Manual selection is connection-class-specific.
 9. **Safety:** turning the VPN off frees Kinescope's TUN immediately, followed by engine and bridge cleanup. Never imply control over another app's VPN, and never claim success from engine startup alone.
+10. **Hints (patch 55):** one panel below the dashboard and the banners, semi-transparent (panel 55% opaque, text 82%, kept above 4.5:1 in both themes), no close button, a few words per line, each line about one thing the router does; the last says what `+` does. It is part of the screen, not a banner: it is not focusable on TV.
+11. **Surfaces (patch 55):** the tonal layers (`surfaceContainerLowest` .. `Highest`, `surfaceDim`, `surfaceBright`, `outlineVariant`) are set explicitly so no Material3 baseline lavender shows in dialogs, menus, text fields or indicators; the third accent (`tertiary`, Google's blue) is the "glow" tone of the ON card's soft wash and the hints' bullets and is never an action colour (orange stays the only action colour).
 
 ## Design tokens (source of truth: `Theme.kt`)
 
@@ -34,8 +36,13 @@ Sources (checked October 25, 2026):
 | Foreground | `#1E2329` | `#F3F5F8` |
 | Secondary text | `#565D65` | `#C3C9D2` |
 | Outline | `#B9C0C9` | `#67717E` |
+| Outline variant (patch 55) | `#D5DAE0` | `#3E4650` |
+| Surface container lowest / low / mid / high / highest (patch 55) | `#FFFFFF` / `#F2F4F7` / `#ECEFF3` / `#E6E9EE` / `#E0E4E9` | `#0B0E11` / `#161B20` / `#1B2026` / `#232930` / `#2A3038` |
+| Secondary container (a warm neutral) / on it | `#FBEBE2` / `#3D2A20` | `#4B3B33` / `#F2DFD3` |
+| Tertiary (Google blue) / container | `#0B57D0` / `#D3E3FD` | `#A8C7FA` / `#0842A0` |
+| Heartbeat alive / lost (`YtOfflineExtras`) | `#1E8E3E` / `#D93025` | `#81C995` / `#F28B82` |
 
-Custom success/warning colors remain in `YtOfflineExtras`. Use the correct `on*` tokens for text; checked switch colors are explicit in `KinescopeSwitch.kt`, not inferred from default M3 tokens. Contrast target: WCAG AA 4.5:1 for normal text; light orange `#C74B12` with white is approximately 4.73:1.
+Custom success/warning colors and the heartbeat colors remain in `YtOfflineExtras`. Use the correct `on*` tokens for text; checked switch colors are explicit in `KinescopeSwitch.kt`, not inferred from default M3 tokens. Contrast target: WCAG AA 4.5:1 for normal text; light orange `#C74B12` with white is approximately 4.73:1.
 
 ## Responsive specifications
 
@@ -52,6 +59,7 @@ Custom success/warning colors remain in `YtOfflineExtras`. Use the correct `on*`
 - Verify screens at 320, 360, 600, 840, 1280dp, with 200% font scale, landscape, split-screen, screen reader, TV D-pad, English/Russian.
 - Verify real-device Wi-Fi and cellular transitions and no-stuck-TUN behavior on STOP and revoke; integration cannot be certified by unit tests.
 - No Gemini/Google branding, no proprietary visual assets, and no claim of reproducing confidential Google design specs.
+- Patch 55 checks: the heartbeat in all three states and with animations off; the hints panel at 200% font, in Russian and in dark; no lavender in dialogs, menus, text fields; the ON card's wash does not lower the contrast of its text below 4.5:1.
 
 ## Window background consistency (v.3)
 

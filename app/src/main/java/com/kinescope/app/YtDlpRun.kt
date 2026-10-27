@@ -171,8 +171,7 @@ internal class YtDlpRun(base: Context, private val notifier: DownloadNotifier) :
                             it.copy(
                                 state = JobState.PROCESSING,
                                 progressText = getString(R.string.status_processing),
-                                progressFraction = null,
-                                speedKbps = 0
+                                progressFraction = null
                             )
                         }
                         notifier.update(getString(R.string.status_processing), job.id)
@@ -193,8 +192,7 @@ internal class YtDlpRun(base: Context, private val notifier: DownloadNotifier) :
                             it.copy(
                                 state = JobState.RUNNING,
                                 progressText = text,
-                                progressFraction = (percent / 100f).coerceIn(0f, 1f),
-                                speedKbps = if (finishing) 0 else snapshot.kbps
+                                progressFraction = (percent / 100f).coerceIn(0f, 1f)
                             )
                         }
                         if (finishing) {
@@ -212,8 +210,7 @@ internal class YtDlpRun(base: Context, private val notifier: DownloadNotifier) :
                         it.copy(
                             state = JobState.RUNNING,
                             progressText = getString(R.string.status_preparing_download),
-                            progressFraction = null,
-                            speedKbps = 0
+                            progressFraction = null
                         )
                     }
                     lastUiAt = now

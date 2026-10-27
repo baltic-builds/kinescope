@@ -227,18 +227,25 @@ private fun KinescopeApp(
         }
     }
 
-    // Patch 46: the re-check no longer follows an app update (every sideloaded update used to start a long full scan
-    // and a "keep the app open" popup). It is due 25 days after the last finished search, runs quietly with no popup,
-    // and a download that starts meanwhile uses the stored and learned strategies (DpiPrefs.isMaintenanceDue).
-    // Patch 47: it also waits for an unmetered network (the scan moves tens of megabytes); no attempt is noted then,
-    // so the next launch on Wi-Fi starts it.
-    LaunchedEffect(Unit) {
+    // Patch 55: the strategies of each connection class are checked once for every version of the app (a fresh install or an
+    // update), quietly, with no popup: the class the phone is on at the first launch, the other one the first time the phone
+    // is on it with the app open (`ClassCheckPolicy`). The check stops at five working strategies, three of them perfect, so on
+    // mobile data it costs a few megabytes at most. Patch 46's 25-day full re-check is gone. A download that starts meanwhile
+    // uses the stored and learned strategies.
+    val connectionClass by NetClassWatcher.state.collectAsState()
+    LaunchedEffect(connectionClass) {
+        val cls = connectionClass ?: return@LaunchedEffect
         if (
-            DpiPrefs.isMaintenanceDue(context) &&
+            DpiPrefs.hasRunInitialSearch(context) &&
             !DpiSearchController.state.value.running &&
-            !NetworkState.isMetered(context)
+            ClassCheckPolicy.needed(
+                checkedVersion = DpiPrefs.checkedVersion(context, cls),
+                currentVersion = DpiSearchService.appVersionCode(context),
+                tryAt = DpiPrefs.checkTriedAt(context, cls),
+                now = System.currentTimeMillis()
+            )
         ) {
-            DpiSearchService.startBackground(context)
+            DpiSearchService.startCheck(context)
         }
     }
 
@@ -407,8 +414,7 @@ private fun KinescopeApp(
                     onOpenApp = { startBypass(openApp = true) },
                     requestNotifications = requestNotifications,
                     onSignIn = { section = AppSection.YOUTUBE_AUTH },
-                    onSignInInstagram = { section = AppSection.INSTAGRAM_AUTH },
-                    onOpenSettings = { section = AppSection.SETTINGS }
+                    onSignInInstagram = { section = AppSection.INSTAGRAM_AUTH }
                 )
                 AppSection.QUEUE -> QueueScreen(
                     jobs = jobs,

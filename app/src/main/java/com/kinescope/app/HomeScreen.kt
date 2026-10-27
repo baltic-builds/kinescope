@@ -20,14 +20,12 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 
@@ -39,6 +37,8 @@ import androidx.compose.ui.unit.dp
 // Patch 52: the queue left Home too (it is the second destination of the navigation, `QueueScreen.kt`). Home is now
 // the dashboard, its "Unblock YouTube" button and the banners in ONE column on every window: the right-hand pane that
 // held the queue is gone, and a card of one-line rows would only be stretched by a second, empty pane.
+// Patch 55: the "app updated" notice is gone (an update now checks the strategies by itself) and the hints panel closes the
+// column (`HintsPanel.kt`).
 
 /** The widest Home column; on a tablet or TV the column is centred instead of stretching the dashboard across. */
 private val HomeMaxWidth = 640.dp
@@ -51,11 +51,8 @@ internal fun HomeScreen(
     onOpenApp: () -> Unit,
     requestNotifications: () -> Unit,
     onSignIn: () -> Unit,
-    onSignInInstagram: () -> Unit,
-    onOpenSettings: () -> Unit
+    onSignInInstagram: () -> Unit
 ) {
-    val context = LocalContext.current
-    val updateNotice by UpdateNotice.pending.collectAsState()
     val networkFailure = jobs.any {
         it.failureKind == FailureKind.NO_INTERNET && it.state in setOf(JobState.INTERRUPTED, JobState.FAILED)
     }
@@ -88,18 +85,6 @@ internal fun HomeScreen(
                 )
                 Spacer(modifier = Modifier.height(12.dp))
             }
-            if (updateNotice) {
-                item {
-                    UpdateNoticeBanner(
-                        onDismiss = { UpdateNotice.dismiss(context) },
-                        onOpenSettings = {
-                            UpdateNotice.dismiss(context)
-                            onOpenSettings()
-                        }
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                }
-            }
             if (networkFailure && !networkBannerDismissed) {
                 item {
                     ErrorBanner(
@@ -128,6 +113,10 @@ internal fun HomeScreen(
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                 }
+            }
+            item {
+                // Patch 55: the hints, below everything else, in a panel that stays.
+                HintsPanel()
             }
         }
     }
@@ -190,31 +179,6 @@ private fun VerificationBanner(
             }
             FocusRing {
                 TextButton(onClick = onSignIn) { Text(stringResource(actionRes)) }
-            }
-        }
-    }
-}
-
-/** Patch 51: after an app update yt-dlp and the strategy list refresh themselves; this recommends the re-check. */
-@Composable
-private fun UpdateNoticeBanner(onDismiss: () -> Unit, onOpenSettings: () -> Unit) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.primaryContainer
-    ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = stringResource(R.string.banner_updated),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                    modifier = Modifier.weight(1f)
-                )
-                DismissButton(onDismiss)
-            }
-            FocusRing {
-                TextButton(onClick = onOpenSettings) { Text(stringResource(R.string.banner_updated_action)) }
             }
         }
     }

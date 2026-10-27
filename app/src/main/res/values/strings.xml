@@ -170,6 +170,8 @@
 <string name="bypass_vpn_no_verified_strategy">Test the bypass before opening YouTube.</string>
 <string name="bypass_vpn_youtube_missing">The chosen app is not installed. Pick another one in Settings.</string>
 <string name="bypass_vpn_engine_failed">The bypass could not start.</string>
+<string name="bypass_vpn_no_route">This connection does not reach YouTube at all, so no strategy can help. Check that mobile data or Wi-Fi has internet and try again.</string>
+<string name="bypass_search_no_route">The strategies could not be tested: this connection does not reach YouTube at all, which is not a bypass problem. Check the internet and try again.</string>
 <string name="bypass_vpn_tunnel_failed">The local YouTube tunnel could not start.</string>
 <string name="bypass_notification_channel">YouTube bypass</string>
 <string name="bypass_notification_title">Kinescope · Bypass</string>
@@ -249,13 +251,22 @@
     <string name="dash_just_now">just now</string>
     <string name="dash_youtube_label">Bypass restrictions</string>
     <string name="dash_youtube_on">Tunnel is on</string>
-    <string name="dash_youtube_idle">No traffic yet</string>
     <string name="dash_youtube_no_answer">The app is sending, but nothing is coming back</string>
-    <string name="dash_rate">↓ %1$s · ↑ %2$s</string>
     <string name="dash_way">Way %1$d of %2$d</string>
+    <string name="dash_pulse_alive">Connection is working</string>
+    <string name="dash_pulse_lost">No connection</string>
+    <string name="dash_pulse_idle">The bypass is not connected</string>
+    <string name="hints_title">How it works</string>
+    <string name="hint_groups">Wi-Fi and mobile data each have their own list of ways to get around the block, tested and ranked separately.</string>
+    <string name="hint_first_check">After an install or an update each network is checked once, until 5 ways work and at least 3 of them work perfectly.</string>
+    <string name="hint_random_check">Twice a day, when you first switch the bypass on, 2 random ways are re-checked. A way that fails drops to the bottom of its list, and the 15 lowest ways wait 75 days before the next look.</string>
+    <string name="hint_auto">Automatic mode uses the best way and switches by itself when one stops working. Turn it off to pick a way at the bottom of Settings.</string>
+    <string name="hint_no_route">If a network does not reach YouTube at all, the app says so instead of trying every way. Check the connection first.</string>
+    <string name="hint_blocked">If every known way is blocked, the app looks for new ones while the bypass starts.</string>
+    <string name="hint_plus">Copy a link and tap +: it downloads right away with the default quality and folder from Settings. Repeat to queue more.</string>
     <string name="dash_check_ways">Check the ways</string>
-    <string name="dash_check_progress">Checked %1$d of %2$d</string>
-    <string name="dash_recheck">Re-checking in the background · %1$d of %2$d</string>
+    <string name="dash_check_progress">Checked %1$d ways · %2$d of %3$d good ones found</string>
+    <string name="dash_recheck">Checking in the background · tried %1$d · %2$d of %3$d good ones found</string>
     <string name="dash_wait_download_check">Finish the current download before checking the ways.</string>
     <!-- Patch 48: adaptive UI audit -->
     <string name="logs_jump_top">Top</string>
@@ -374,21 +385,12 @@
     </string-array>
     <string name="dash_headline_first_run">Please wait while we update the strategies.</string>
     <string name="dash_sub_first_run">This runs once after installation and cannot be skipped. It can take a few minutes.</string>
-    <string name="dash_speed">Download speed: %1$s</string>
-    <string name="dash_speed_waiting">Download speed: measuring…</string>
-    <string name="dash_strategy_title_net">Strategy · %1$s</string>
     <!-- Patch 53: strategies are rated per connection (Wi-Fi, mobile data). -->
     <string name="net_wifi">Wi-Fi</string>
     <string name="net_mobile">mobile data</string>
-    <string name="dash_strategy_untested_here">This connection (%1$s) has not been tested yet. These ways come from your other connection; the app switches by itself if one fails.</string>
     <string name="strategy_rating">Rating %1$d</string>
     <string name="bypass_search_network_changed">The connection changed during the check, so the results were not saved.</string>
-    <string name="dash_strategies_empty">Run “Test strategies” in Settings to see how they compare.</string>
-    <string name="dash_strategy_cd">%1$s, %2$d of 5 stars</string>
-    <string name="dash_strategy_applies_next">A running download or tunnel keeps its current strategy; the new one applies from the next start.</string>
     <string name="bypass_first_run_note">This first check cannot be stopped.</string>
-    <string name="banner_updated">Kinescope was updated. yt-dlp and the strategy list are up to date. For the best results, run “Test strategies” in Settings.</string>
-    <string name="banner_updated_action">Open Settings</string>
     <string name="nav_library">Library</string>
     <string name="cd_library">Library</string>
     <!-- Patch 52: the Queue destination, the + button that downloads the clipboard link, the automatic strategy switch. -->

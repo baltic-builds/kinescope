@@ -1,15 +1,6 @@
-## October 2026 — adaptive router and dashboard hardening
-
-- The Wi-Fi/mobile classifier, rating records, per-class pins, live checks and learned chains remain separate. The active tunnel evaluates verified strategies in class-specific order. A SOCKS engine that starts but fails the YouTube health probe is **not** accepted as a working route; if all routes fail, the app reports failure rather than an unusable active VPN.
-- Unexpected engine/bridge termination now enters the same rate-limited strategy recovery path as failed probes and one-way traffic. Exhaustion shuts down this app's VPN instead of presenting a stuck active switch. Switching networks retains the stable-handover filter.
-- Toggling bypass off closes the Android TUN descriptor immediately and starts separate cleanup, instead of placing cleanup behind the long-running monitor in the single-thread queue. Only Kinescope's own VPN and engine can be stopped; Android prohibits an app from forcibly closing other apps' VPNs.
-- Home now shows a single clear tunnel toggle, automatic strategy toggle (default on per class), connection label, status/traffic, and **Watch YouTube**. Manual strategy selection resides at the very bottom of Settings and appears only when automatic selection is disabled for the connected class.
-- The visuals use M3 semantics with defined orange-on/gray-off switch colors, card hierarchy and more expressive rounded surfaces; window-aware rail/two-pane and TV focus affordances are retained.
-- Verification required on real devices: Wi-Fi/mobile transitions, blocked networks, VPN permission revocation, stop during a slow probe, light/dark themes, narrow and expanded windows, TV remote, English and Russian. Repository tests cannot demonstrate real-world circumvention or prove vendor-specific Android VPN behavior.
-
 # Roadmap
 
-State after patch 53 (2026-10-25). This file tracks only what is still open: device verification gates,
+State after patch 55 (2026-10-26). This file tracks only what is still open: device verification gates,
 technical debt and what is out of scope. How each item was closed lives in `CHANGELOG.md`; the state a new
 session needs is in `HANDOFF.md`.
 
@@ -26,7 +17,7 @@ session needs is in `HANDOFF.md`.
 - **The release workflow was red at patch 42** (a unit test that no longer compiled); patch 43 fixes that and
   restructures the workflow. Nothing behind the failing task had run, so it is green only once the user reports a
   run (see "Release pipeline").
-- **Patch 46 (2026-10-17) changes when the bypass upkeep runs.** The strategy re-check no longer follows an app
+- **Patch 46 (2026-10-17) changes when the bypass upkeep runs (the strategy re-check part was replaced by patch 55).** The strategy re-check no longer follows an app
   update; the app remembers which strategies really carried traffic and keeps them in the fallback chain, ordered by
   how well they worked; the yt-dlp update and the strategy re-check now run every 25 days. None of it is confirmed on a
   device yet (see "Learned strategies and the 25-day upkeep" below).
@@ -61,6 +52,18 @@ session needs is in `HANDOFF.md`.
 - **Everything below needs the user's phone or a real GitHub Actions run.** Do not tick a box from code review, a
   local compile or a green build alone (`AGENTS.md`, "What done means").
 
+- **Out-of-band October changes (recorded in `CHANGELOG.md`).** Home has one tunnel toggle, an automatic toggle and "Watch YouTube"; the strategy
+  drop-down, colour names and stars left Home; manual choice is the last section of Settings; a route that fails its health probe is never
+  accepted; the TUN is closed at once on stop. Older entries below that name the drop-down, the stars or "Unblock YouTube" describe what existed before.
+- **Patch 54 (2026-10-26) tells an unreachable route from a blocked strategy.** On mobile data every strategy failed at CONNECT "unreach": the engine
+  could not reach the host, which says nothing about the strategy. The app now retries with the engine's IPv4-only option, remembers it per class,
+  or says there is no route; such failures are no longer stored as failed tests. Cause on the reporting phone not confirmed (a hypothesis: IPv6).
+- **Patch 55 (2026-10-26) makes checks small and per connection.** A check stops at 5 working strategies, 3 of them perfect; Wi-Fi and mobile data
+  are checked on their own, once per app version (first launch and updates; the other class when the phone is on it); the first time the bypass is
+  switched on in each half day two random strategies are tested, a failure sinks to the bottom of the class's ranking and the 15 lowest wait 75
+  days; the 25-day full re-check and the update notice are gone; Home has a heartbeat line instead of a speed, a hints panel and tonal theme tokens.
+  Patch 54's background job was replaced by the random check. Nothing of patches 54-55 is confirmed on a device.
+
 ## Decisions that remain unchanged
 
 - `applicationId` / namespace: `com.kinescope.app`.
@@ -74,6 +77,37 @@ session needs is in `HANDOFF.md`.
   "no authentication / no embedded browser" assumption stays superseded.
 
 ## Verification gates (open)
+
+Patches 54 and 55 are applied together and share the first gate. Gates below that name things patch 54/55 or the October out-of-band change
+removed (the Home drop-down, stars, the speed line, the update notice, the 25-day upkeep, "Unblock YouTube") are superseded by the first two
+sections; tick or delete them against the new behaviour, not the old.
+
+### Checks, heartbeat and hints (patch 55)
+Needs a phone that can switch between Wi-Fi and mobile data. `Copy report` shows `chk=`, `rand=`, `v4only=` and the `srch` / `byp` lines (`HANDOFF.md`, "How to read the next report").
+- [ ] `./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug` is green for patches 54 and 55 together. (The Compose files were not compiled in the sandbox:
+  expect to fix an import or a signature here.)
+- [ ] Fresh install on Wi-Fi: the mandatory check ends by itself well before the whole list (`srch done n=` far below 72), Home's strip said "checked N · M of 5
+  good ones found", the report says `chk=ok` for Wi-Fi. Then open the app on mobile data: a quiet check runs (notification, no popup) and `chk=ok` for mobile follows.
+- [ ] Install over the previous version: `upd launch kind=updated`, yt-dlp updates, `AppUpdate list ...` is logged once, the current class is checked quietly,
+  and there is no "app updated" banner.
+- [ ] Settings -> Test strategies stops when 5 work and 3 of them are perfect (`srch done`), on Wi-Fi and on mobile data.
+- [ ] Switch the bypass on, off and on again within an hour: ONE random check runs (`srch rand ... n=2`), `rand=` in the report counts hours; twelve hours later
+  the next switch-on runs another. A chain strategy that failed it is gone from the chain (`chain=` smaller) and rated low in `#rate`; one that passed joined it.
+- [ ] The random check does not delay switching the bypass on, never tests the strategy in use, and gives way when the bypass is switched off meanwhile.
+- [ ] Heartbeat: green pulse travelling along the line while the bypass is on; the line turns red and flat when the traffic verdict is one-way (airplane mode while
+  YouTube plays) or the tunnel stopped on an error; muted flat when it is off or starting. With "Animator duration scale" off in developer options the pulse holds still.
+- [ ] No speed anywhere on Home, with a download running and with the tunnel on.
+- [ ] The hints panel sits below the dashboard and the banners, is semi-transparent, readable in light and dark, has no way to close it, fits Russian at the largest
+  font, and is skipped by the TV D-pad. The sentence about `+` is true: with a link in the clipboard `+` starts the download at the default quality.
+- [ ] Theme: dialogs, menus, text fields and the navigation indicator no longer show the lavender of the Material3 baseline (light and dark); the ON card has its soft wash.
+
+### Reachability and mobile data (patch 54)
+- [ ] On the phone that failed (mobile data, Wi-Fi off), switch the bypass on. Record which of three happened: it came up and the report says `v4only=1` (the IPv6
+  hypothesis holds); the message says there is no route and the log holds `reach net=mobile none ... dns= a4= a6= tcp4= tcp6=` (send it: the next fix follows it); or
+  it came up after "start search" found strategies (the borrowed ones were blocked).
+- [ ] After a no-route result the ratings are unchanged (`#rate` before and after) and nothing is quarantined.
+- [ ] Wi-Fi is unaffected: the bypass comes up as before, `v4only=0`.
+- [ ] With `v4only=1`, a download on mobile data starts through the bypass.
 
 ### Strategy router: Wi-Fi and mobile data (patch 53)
 Needs a phone with a mobile data connection; the Wi-Fi checks can be done on the corporate network. `Copy report` (Settings) shows what
@@ -357,10 +391,9 @@ those are replaced by the patch 51 list above. The tunnel rows, the search strip
 - **Patch 51 open points.** (a) The manifest `<queries>` for "apps that open YouTube links" is the documented browser query plus a
   youtube.com one; whether Android matches host-restricted clients (NewPipe, ReVanced) the same way on every version is unverified,
   see the gate above. (b) The first-run check blocks nothing else: a download waits for it only when it needs the bypass; if a
-  fully blocking first run is wanted, add a scrim over `AppFrame` while `DpiSearchUiState.mandatory`. (c) The update notice is
-  in-app only (no system notification, which needs the notification permission). (d) The 25-day quiet re-check of patch 46 was
-  kept; the brief says forced updates are for the first install only, so drop `MaintenanceSchedule` if the quiet re-check is
-  not wanted either. (e) Chosen-browser tunnel: ALL of that browser's traffic goes through the bypass, not only YouTube.
+  fully blocking first run is wanted, add a scrim over `AppFrame` while `DpiSearchUiState.mandatory`. (c) The update notice of this
+  patch no longer exists (patch 55: an update checks the strategies by itself). (d) The 25-day quiet re-check of patch 46 is gone too
+  (patch 55); `MaintenanceSchedule` keeps only the yt-dlp calendar. (e) Chosen-browser tunnel: ALL of that browser's traffic goes through the bypass, not only YouTube.
 - **The outside UI audit's larger items are open on purpose (patch 48).** (1) A TV-native Home (top tabs, a hero, horizontal
   rows) instead of the patch 41 two-pane lists: wait for the TV checklist above to be reported on a real TV, then redraw
   from what it shows. (2) `material3-adaptive` / `window-core`: the same breakpoints, unverifiable offline here, no foldable
@@ -370,15 +403,17 @@ those are replaced by the patch 51 list above. The tunnel rows, the search strip
 - **The Settings screen is one long scrolling column on a TV.** The D-pad crosses it control by control (the strategy list is
   paged since patch 48, the rest is about forty controls). Collapsible sections would shorten the walk; add them only if the
   TV check calls it a problem.
-- **The quiet re-check never runs on a metered network.** A phone that is only ever on mobile data (or a hotspot) never
-  re-checks by itself; the manual search in Settings is the way, and the stored and learned strategies keep working.
+- **The check of a class runs on mobile data without asking (patch 55).** The brief asks for it; a check that stops at the goal costs a few megabytes
+  (a pass is about 0.8 MB, a failure a few kilobytes), the random check at most two strategies. If that is too much for a metered plan, gate
+  `MainActivity`'s class-check effect and `RandomCheck.runIfDue` on `NetClass.WIFI` (the removed `NetworkState.isMetered` did it).
 - **The learned record is global, not per network.** It does not know on which network a success or a failure
   happened; the weekly halving of old evidence is the only protection against a record made at home steering a
   strategy choice on a hotel network. A per-network key (the Wi-Fi name needs a location permission; the network type
   and the provider would not) is a design of its own; build it only if a device report shows the record misleading.
-- **The upkeep runs when the app is opened, not on a timer.** There is no WorkManager dependency, and Android 12+ does
-  not let a background job start the strategy search, which is a foreground service. If the app is not opened for 25
-  days, the upkeep waits for the next launch. A truly unattended re-check needs a different design, not a timer.
+- **Checks run when the app is opened or the bypass is switched on, not on a timer (patch 55).** The class check starts from `MainActivity` when the
+  connection class has an unchecked app version; the random check starts after the tunnel is up. Patch 54's JobScheduler job (the app minimised) was
+  removed because patch 55 gives the random check a different trigger; Android 12+ does not let a background job start the search service, so a truly
+  unattended check needs its own design (a job that runs the goal-bound search itself, no foreground service).
 - **A tunnel rotation during a network outage counts against the strategy in use.** `DpiPrefs.quarantine` records the
   failure for both of its callers, and the tunnel cannot tell a dead strategy from a dead network (the download ladder
   can: it blames a route only when a later one finished). The damage is bounded (a failure is one weighted entry that
@@ -387,10 +422,14 @@ those are replaced by the patch 51 list above. The tunnel rows, the search strip
 - **The yt-dlp startup update is every 25 days now (it was every 12 hours).** A YouTube change inside that window is
   healed by the recovery chain's nightly refresh on the first download that fails. If reports show a failed first try
   after each YouTube change, give yt-dlp its own, shorter interval in `YtOfflineApp` (the constant is shared today).
-- **The quiet re-check is still a full scan.** Only its trigger and its visibility changed (every 25 days, no popup,
-  downloads are not held back). If it proves too long or too heavy on battery, bound it with `stopAfterFullPasses`
-  in `DpiBypass.search` (the candidates already start with the stored chain); the cost is that a new strategy from
-  the refreshed list may then not be reached.
+- **"Perfect" is defined here, not given (patch 55).** `StrategyResult.perfect`: every probed host, the transfer and every simultaneous connection completed;
+  not "score 100" (which also needs handshakes under 500 ms). If a network never yields three of them, the check ends by running the list out; tune
+  `SearchGoal.STANDARD` or the definition then.
+- **The bottom-15 rule is read literally (patch 55).** The 15 lowest-ranked that did badly and were tested less than 75 days ago are frozen; with more
+  than 15 failures the older ones are free to be tested again and a failure moves a strategy to the very bottom by being the newest test. If the intent
+  was "every failure waits 75 days", freeze all failures instead (`StrategyRank.frozen`).
+- **The IPv4-only mark is sticky (patch 54).** Once learned for a class (`DpiPrefs.ipv4Only`) it stays until the preferences are cleared; a network that
+  later gets working IPv6 loses nothing (YouTube works over IPv4), but nothing re-tests it. The `-X` retry is one strategy, one probe.
 - **The chain holds six strategies now (it held four).** In the worst case, when the network is down and every route
   fails, the route ladder tries up to six routes before giving up. Lower `MAX_VERIFIED_STRATEGIES` and `MAX_FALLBACKS`
   together if that wait is noticeable.
@@ -401,9 +440,10 @@ those are replaced by the patch 51 list above. The tunnel rows, the search strip
 - **Settings and Home disagree on one rule.** Settings still locks the "Use the bypass for downloads" switch while a
   download runs (and says so); Home does not, because the switch only writes a preference and a running download keeps
   its route. Align Settings (and its hint text) after a device report on the Home behavior.
-- **The tunnel's speed is sampled every 2 s from the bridge's counters** and shown in fixed English units (`KB/s`,
-  `MB/s`, as yt-dlp prints them in the queue rows). Nothing here was read against a real tunnel yet; the first report
-  with the card on shows whether 2 s is a readable rate.
+- **The hints are static text (patch 55).** Seven lines in `strings.xml`; they must be kept in step with the router by hand (`HintsPanel.kt` lists the ids).
+  Anything the router does that a user should know goes there; anything removed must come out of it.
+- **The heartbeat is the app's only continuous animation (patch 55).** It draws a polyline every frame while the bypass is on; if a device report shows
+  battery or jank cost, lower the frame rate or draw once per beat. Its colours (`pulseAlive`, `pulseLost`) are a design choice, not measured contrast on every card state.
 - **No in-app player.** Playback hands the file to another app (`ACTION_VIEW`). A TV box without a video player
   cannot play a download. A `VideoView`/`MediaPlayer` screen would need no new dependency; build it only after a
   device report says the target box has no player.
@@ -444,9 +484,8 @@ those are replaced by the patch 51 list above. The tunnel rows, the search strip
   v4) are Node 20-era majors. GitHub forces Node 24 onto them since 2026-06-02 and they still run. Newer majors exist
   (checkout 6-7, setup-java 5, upload-artifact 7 appear in dependency-update PRs; not verified against this
   workflow). Bump them in one deliberate patch, reading each release note, with a workflow run as the check.
-- **Leftovers kept on purpose:** `StageResult.replyCode` (SOCKS reply code of a failed check) is recorded but no
-  longer read after the unused `Verdict` classifier was removed; the watchdog's internal log text still says
-  "YouTube".
+- **Leftovers kept on purpose:** the watchdog's internal log text still says "YouTube". (`StageResult.replyCode` is read again since patch 54:
+  `isReachFault`.)
 
 ## Deliberately out of scope
 

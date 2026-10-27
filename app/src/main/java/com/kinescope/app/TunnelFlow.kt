@@ -83,31 +83,8 @@ internal object TunnelFlow {
         judge(previous, current) == FlowVerdict.FLOWING && current.rxBytes - previous.rxBytes >= PROOF_RX_BYTES
 }
 
-/**
- * Patch 45: how fast the tunnel carries the YouTube app's traffic, for the Home dashboard. [downBytesPerSec] is what
- * came back to the app (the bridge's `rx`), [upBytesPerSec] what the app sent (`tx`).
- */
-internal data class TunnelRate(val downBytesPerSec: Long, val upBytesPerSec: Long) {
-    companion object {
-        val ZERO = TunnelRate(0L, 0L)
-
-        /**
-         * The average speed between two readings taken [elapsedMs] apart. A reading lower than the previous one means
-         * the bridge was restarted (its counters start from zero again), which counts as no traffic.
-         */
-        fun between(previous: TunnelCounters, current: TunnelCounters, elapsedMs: Long): TunnelRate {
-            if (elapsedMs <= 0L) return ZERO
-            val down = current.rxBytes - previous.rxBytes
-            val up = current.txBytes - previous.txBytes
-            if (down < 0L || up < 0L) return ZERO
-            return TunnelRate(down * 1_000L / elapsedMs, up * 1_000L / elapsedMs)
-        }
-    }
-}
-
 /** Patch 45: what the Home dashboard shows about the running tunnel (published by `BypassVpnService`). */
 internal data class TunnelTraffic(
-    val rate: TunnelRate = TunnelRate.ZERO,
     /** The verdict of the last 10 s window (see [TunnelFlow.judge]). */
     val verdict: FlowVerdict = FlowVerdict.IDLE,
     /** The 1-based place of the strategy in use within the chain, or 0 when it is not known. */

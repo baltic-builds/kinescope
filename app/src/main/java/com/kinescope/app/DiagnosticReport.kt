@@ -46,6 +46,15 @@ internal object DiagnosticReport {
             append(" pin=").append(DpiPrefs.pinned(context, cls)?.let { pinned -> chain.indexOf(pinned).let { if (it >= 0) "s${it + 1}" else "gone" } } ?: "none")
             append(" proven=").append(DpiPrefs.provenLine(context, cls)?.let { proven -> chain.indexOf(proven).let { if (it >= 0) "s${it + 1}" else "other" } } ?: "none")
             append(" quar=").append(DpiPrefs.quarantined(context, cls).size)
+            // Patch 54: whether the engine runs IPv4-only on this class (learned). Patch 55: whether this class has been checked for
+            // the running version of the app, and the hours since its last two-a-day random check.
+            append(" v4only=").append(if (DpiPrefs.ipv4Only(context, cls)) 1 else 0)
+            append(" chk=").append(if (DpiPrefs.checkedVersion(context, cls) == DpiSearchService.appVersionCode(context)) "ok" else "due")
+            append(" rand=").append(
+                DpiPrefs.randomCheckAt(context, cls).let { at ->
+                    if (at <= 0L) "none" else "${(now - at).coerceAtLeast(0L) / 3_600_000L}h"
+                }
+            )
             append(" search_ver=").append(DpiPrefs.lastSearchVersion(context))
             // Patch 46: the age of the last finished search (the 25-day calendar). Patch 53: and how many strategies the
             // current connection rates as worth using (rating at least StrategyRating.ELIGIBLE), and the other class's chain.
@@ -91,7 +100,9 @@ internal object DiagnosticReport {
                     "cls=connection class(wifi|mobile) all strategy data below is for it seeded=chain borrowed from the other class, untested here " +
                     "rated=strategies rated >=50 #rate=best rated(pos in chain, rt rating 0-100, test=last test score, ok/bad=real use) " +
                     "#other=the other class(chain size, seeded, pinned) " +
-                    "search_age=days since the last finished search\n"
+                    "search_age=days since the last finished search v4only=engine runs IPv4-only on this class (learned, -X) " +
+                    "chk=ok|due this class was (not yet) checked for the running app version rand=hours since the last two-a-day random check " +
+                    "(log lines: srch rand, byp reach) rc=SOCKS reply of a failed CONNECT\n"
             )
         }
         return header + AppLog.readLines(maxLines).joinToString("\n")

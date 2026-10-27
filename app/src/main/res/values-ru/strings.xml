@@ -170,6 +170,8 @@
 <string name="bypass_vpn_no_verified_strategy">Перед запуском YouTube проверьте обход.</string>
 <string name="bypass_vpn_youtube_missing">Выбранное приложение не установлено. Выберите другое в настройках.</string>
 <string name="bypass_vpn_engine_failed">Не удалось запустить обход.</string>
+<string name="bypass_vpn_no_route">Это подключение вообще не соединяется с YouTube, поэтому ни одна стратегия не поможет. Проверьте, что мобильный интернет или Wi-Fi работает, и повторите.</string>
+<string name="bypass_search_no_route">Проверить стратегии не удалось: это подключение вообще не соединяется с YouTube, дело не в обходе. Проверьте интернет и повторите.</string>
 <string name="bypass_vpn_tunnel_failed">Не удалось запустить локальный туннель YouTube.</string>
 <string name="bypass_notification_channel">Обход YouTube</string>
 <string name="bypass_notification_title">Kinescope · Обход</string>
@@ -249,13 +251,22 @@
     <string name="dash_just_now">только что</string>
     <string name="dash_youtube_label">Обход ограничений</string>
     <string name="dash_youtube_on">Туннель включён</string>
-    <string name="dash_youtube_idle">Трафика пока нет</string>
     <string name="dash_youtube_no_answer">Приложение отправляет данные, но ответа нет</string>
-    <string name="dash_rate">↓ %1$s · ↑ %2$s</string>
     <string name="dash_way">Способ %1$d из %2$d</string>
+    <string name="dash_pulse_alive">Соединение работает</string>
+    <string name="dash_pulse_lost">Нет соединения</string>
+    <string name="dash_pulse_idle">Обход не подключён</string>
+    <string name="hints_title">Как это устроено</string>
+    <string name="hint_groups">У Wi-Fi и мобильной сети свои списки способов обхода блокировки: они проверяются и ранжируются отдельно.</string>
+    <string name="hint_first_check">После установки или обновления каждая сеть проверяется один раз, пока не найдётся 5 рабочих способов, из них не меньше 3 безупречных.</string>
+    <string name="hint_random_check">Дважды в день, при первом включении обхода, заново проверяются 2 случайных способа. Не сработавший падает в конец своего списка, а 15 самых нижних ждут 75 дней до следующей проверки.</string>
+    <string name="hint_auto">Автоматический режим берёт лучший способ и сам переключается, когда он перестаёт работать. Отключите его, чтобы выбрать способ внизу настроек.</string>
+    <string name="hint_no_route">Если сеть вообще не соединяется с YouTube, приложение так и скажет, а не будет перебирать все способы. Сначала проверьте подключение.</string>
+    <string name="hint_blocked">Если все известные способы заблокированы, приложение ищет новые, пока запускается обход.</string>
+    <string name="hint_plus">Скопируйте ссылку и нажмите +: загрузка начнётся сразу с качеством и папкой по умолчанию из настроек. Повторите, чтобы добавить ещё.</string>
     <string name="dash_check_ways">Проверить способы</string>
-    <string name="dash_check_progress">Проверено %1$d из %2$d</string>
-    <string name="dash_recheck">Фоновая перепроверка · %1$d из %2$d</string>
+    <string name="dash_check_progress">Проверено способов: %1$d · найдено хороших: %2$d из %3$d</string>
+    <string name="dash_recheck">Фоновая проверка · проверено: %1$d · найдено хороших: %2$d из %3$d</string>
     <string name="dash_wait_download_check">Дождитесь окончания загрузки, чтобы проверить способы.</string>
     <!-- Patch 48: adaptive UI audit -->
     <string name="logs_jump_top">Вверх</string>
@@ -374,21 +385,12 @@
     </string-array>
     <string name="dash_headline_first_run">Подождите, пока мы обновляем стратегии.</string>
     <string name="dash_sub_first_run">Это делается один раз после установки, пропустить нельзя. Может занять несколько минут.</string>
-    <string name="dash_speed">Скорость загрузки: %1$s</string>
-    <string name="dash_speed_waiting">Скорость загрузки: измеряем…</string>
-    <string name="dash_strategy_title_net">Стратегия · %1$s</string>
     <!-- Patch 53: strategies are rated per connection (Wi-Fi, mobile data). -->
     <string name="net_wifi">Wi-Fi</string>
     <string name="net_mobile">мобильный интернет</string>
-    <string name="dash_strategy_untested_here">Это подключение (%1$s) ещё не проверялось. Способы взяты из другого подключения; если один не сработает, приложение переключится само.</string>
     <string name="strategy_rating">Рейтинг %1$d</string>
     <string name="bypass_search_network_changed">Подключение изменилось во время проверки, результаты не сохранены.</string>
-    <string name="dash_strategies_empty">Запустите проверку стратегий в настройках, чтобы их сравнить.</string>
-    <string name="dash_strategy_cd">%1$s, звёзд: %2$d из 5</string>
-    <string name="dash_strategy_applies_next">Идущая загрузка или туннель продолжают со старой стратегией; новая применится со следующего запуска.</string>
     <string name="bypass_first_run_note">Эту первую проверку остановить нельзя.</string>
-    <string name="banner_updated">Kinescope обновлён. yt-dlp и список стратегий уже свежие. Чтобы всё работало лучше, запустите проверку стратегий в настройках.</string>
-    <string name="banner_updated_action">Открыть настройки</string>
     <string name="nav_library">Библиотека</string>
     <string name="cd_library">Библиотека</string>
     <!-- Patch 52: the Queue destination, the + button that downloads the clipboard link, the automatic strategy switch. -->

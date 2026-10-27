@@ -27,6 +27,10 @@ internal object Socks5 {
     private const val ATYP_DOMAIN = 3
     private const val ATYP_IPV6 = 4
 
+    /** Patch 54: the reply codes that say the proxy could not reach the host at all (RFC 1928, section 6). */
+    const val REPLY_NET_UNREACHABLE = 0x03
+    const val REPLY_HOST_UNREACHABLE = 0x04
+
     /** Returns null when the peer accepts the no-auth greeting, otherwise a short technical reason. */
     fun greet(input: InputStream, output: OutputStream): String? {
         output.write(byteArrayOf(0x05, 0x01, 0x00))
@@ -162,7 +166,16 @@ internal data class StageResult(
     val ok: Boolean,
     val detail: String,
     val replyCode: Int? = null
-)
+) {
+    /**
+     * Patch 54: the engine could not reach the host at all: the SOCKS CONNECT came back "network unreachable" or "host
+     * unreachable". That happens before a strategy has touched a single byte, so it says nothing about the strategy: it is a
+     * fault of the route (an IPv6 address that does not work, a failed name lookup, no connection).
+     */
+    val isReachFault: Boolean
+        get() = !ok && stage == CheckStage.CONNECT &&
+            (replyCode == Socks5.REPLY_NET_UNREACHABLE || replyCode == Socks5.REPLY_HOST_UNREACHABLE)
+}
 
 internal data class PathResult(val viaBypass: Boolean, val stages: List<StageResult>) {
     val ok: Boolean get() = stages.isNotEmpty() && stages.all { it.ok }
@@ -171,6 +184,14 @@ internal data class PathResult(val viaBypass: Boolean, val stages: List<StageRes
 }
 
 internal data class NetworkCheckReport(val host: String, val direct: PathResult, val bypassed: PathResult?)
+
+/**
+ * Patch 54: how one host is reached directly (no engine) over each IP family: the evidence behind an engine that cannot connect.
+ * [dns] is "ok" or a short reason; [tcp4] and [tcp6] are "ok", a short reason, or "none" when the name has no address of that family.
+ */
+internal data class FamilyReport(val dns: String, val a4: Int, val a6: Int, val tcp4: String, val tcp6: String) {
+    fun format(): String = "dns=$dns a4=$a4 a6=$a6 tcp4=$tcp4 tcp6=$tcp6"
+}
 
 internal fun interface SecureProbe {
     /** TLS handshake with SNI [host] over the already-connected [base] socket, then one HTTP request. */
@@ -272,6 +293,42 @@ internal class NetworkCheck(
             closeQuietly(socket)
         }
         return PathResult(false, stages)
+    }
+
+    /**
+     * Patch 54: resolves [host] and tries one TCP connection to its first IPv4 and its first IPv6 address, without the engine.
+     * Never throws. The engine takes only the first address its resolver returns, so whether that family connects on this
+     * network is exactly what decides whether it can reach anything.
+     */
+    fun familyReport(host: String, port: Int = HTTPS_PORT): FamilyReport {
+        val addresses = try {
+            resolveBounded(host, stageTimeoutMs)
+        } catch (e: IOException) {
+            return FamilyReport(reasonOf(e), 0, 0, "-", "-")
+        }
+        val v4 = addresses.filterIsInstance<java.net.Inet4Address>()
+        val v6 = addresses.filterIsInstance<java.net.Inet6Address>()
+        return FamilyReport("ok", v4.size, v6.size, tryConnect(v4.firstOrNull(), port), tryConnect(v6.firstOrNull(), port))
+    }
+
+    private fun tryConnect(address: InetAddress?, port: Int): String {
+        if (address == null) return "none"
+        val socket = Socket()
+        return try {
+            socket.connect(InetSocketAddress(address, port), stageTimeoutMs)
+            "ok"
+        } catch (e: IOException) {
+            reasonOf(e)
+        } finally {
+            closeQuietly(socket)
+        }
+    }
+
+    /** A few characters for why a connection or a lookup failed; the full message is read, not the cut-off [describe]. */
+    private fun reasonOf(error: IOException): String = when (error) {
+        is java.net.SocketTimeoutException -> "timeout"
+        is java.net.UnknownHostException -> "nohost"
+        else -> LogFormat.shortReason(error.message ?: error.javaClass.simpleName)
     }
 
     fun checkViaBypass(engine: SocksEndpoint, host: String, port: Int = HTTPS_PORT): PathResult {

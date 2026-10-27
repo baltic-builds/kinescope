@@ -128,10 +128,30 @@ future sessions don't lose them.)
   switch for the YouTube bypass; "Unblock YouTube" is a button below the card. (4) Strategies are a drop-down (default: the one in use) with a
   switch for choosing automatically: picking from the menu or switching the automatic choice off pins (`DpiPrefs.pin`), switching it on lifts
   the pin. Do not bring back the chips, a second tunnel switch inside the card or the queue on Home without being asked.
+  **(3)-(4) were changed by the user's own October 2026 edit and confirmed in the patch 54 request: the Home drop-down is gone on purpose;
+  see the entry below.**
 - **Decision (patch 53): strategies are rated per connection, from the test and from real use.** (1) Everything the app learns about a
   strategy (the last test, real use, the chain, the pin, the quarantine, the route that carried the last download) is kept per
   connection class: Wi-Fi/Ethernet, or mobile data (and a metered Wi-Fi, i.e. a hotspot). The Wi-Fi record uses the pre-patch-53 keys. (2) One rating
   (0-100) is made of the last test and real use; stars, drop-downs and chain order come from it; a search's findings are not also recorded as
   real use. (3) `StrategyRouter` decides the chain after a search, a success, a failure and for a class with no chain (it borrows the other's);
-  a running tunnel follows a change of connection class after two seconds and a change of class is never counted as a failure. (4) No full
-  search on a metered connection without the user starting it. The mechanism is documented in `STRATEGY_ROUTER.md`; keep that file in step with the code.
+  a running tunnel follows a change of connection class after two seconds and a change of class is never counted as a failure. (4) ~~No full
+  search on a metered connection without the user starting it~~ (superseded by patch 55: nothing scans the whole list any more; checks stop at a goal).
+  The mechanism is documented in `STRATEGY_ROUTER.md`; keep that file in step with the code.
+- **Decision (October 2026, the user's own edit, confirmed 2026-10-25): Home has one tunnel toggle, an automatic toggle and "Watch YouTube"; the
+  strategy drop-down, colour names on Home and the stars are gone on purpose.** Manual choice is a two-step flow: switch automatic off on Home (this pins
+  the strategy in use), then pick one at the bottom of Settings (shown only while a pin exists for the connected class). Do not bring the drop-down
+  back without being asked. The docs were brought in step in patch 55; `kinescope_patch.py` (the external script that made the edit) was removed.
+- **Request (patch 54): the bypass did not start on mobile data (every strategy failed at CONNECT "unreach").** Decisions: a failure before the strategy
+  acts is the route's, not the strategy's (not stored, not quarantined); the engine's own `-X` (IPv4 only) is tried and remembered per class, and a
+  connection that reaches nothing says so; the tunnel runs a short search when its borrowed strategies are blocked. The IPv6 cause is a hypothesis
+  until a device report confirms it. Result: `CHANGELOG.md`, "Patch 54"; `STRATEGY_ROUTER.md` section 8.
+- **Request (patch 55): small, per-connection checks, a two-a-day random check, a heartbeat instead of a speed, hints, a Google-style GUI.** Decisions:
+  (1) a check stops at 5 working strategies, 3 of them perfect (`SearchGoal.STANDARD`), never scans the whole list; (2) Wi-Fi and mobile data are
+  two groups with their own ranking and checks, each checked once per app version (fresh install and update alike); yt-dlp and the community list refresh at
+  the same moments; (3) the first time the bypass is switched on in each twelve hours, two random strategies of the connection class are tested, a failure
+  sinks to the very bottom of the ranking and the 15 lowest wait 75 days; (4) the dashboard shows no speed, a heartbeat line instead (green pulse = the
+  bypass carries traffic, red flat = connection lost, muted = off or starting); (5) a semi-transparent hints panel that cannot be closed closes Home;
+  (6) the reference is Gemini's "Neural Expressive" redesign (May 2026; no October 2023 redesign exists), applied as tonal theme tokens and a soft
+  wash on the ON card, not as copied assets. Where the brief was loose, `CHANGELOG.md` ("Patch 55", "Reading of the brief") says how it was read.
+  Patch 54's background job was replaced by the random check. Result: `CHANGELOG.md`, "Patch 55".

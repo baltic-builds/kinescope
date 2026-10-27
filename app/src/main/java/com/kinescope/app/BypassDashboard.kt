@@ -21,7 +21,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -29,13 +28,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.dp
 /** The result messages of a finished search that still make sense on a card that says "not set up". */
 private val SETUP_MESSAGES = setOf(
     R.string.bypass_search_none,
+    R.string.bypass_search_no_route,
     R.string.bypass_search_stopped,
     R.string.bypass_operation_failed
 )
@@ -66,9 +67,7 @@ private class DashPrefs(
     /** The strategy the user pinned; null while the choice is automatic. */
     val pinned: String?,
     /** The strategy in use: the pinned one, else the first of the chain (the one that works best). */
-    val selected: String?,
-    /** The strategy selected for this connection class. */
-    val currentStrategy: String?
+    val selected: String?
 )
 
 private data class DashPalette(val container: Color, val primary: Color, val secondary: Color, val divider: Color)
@@ -93,7 +92,6 @@ internal fun BypassDashboard(
             it.state == JobState.PROCESSING || it.state == JobState.SAVING
     }
     val activeDownloads = running.size
-    val downloadKbps = jobs.firstOrNull { it.state == JobState.RUNNING && it.speedKbps > 0 }?.speedKbps ?: 0
 
     // Read again whenever something that can change them happens: a search starting or finishing, the tunnel coming
     // up or going down (an "Update" from its notification can change the chain), or a pick on this card.
@@ -109,8 +107,7 @@ internal fun BypassDashboard(
             waysReady = chain.size,
             verifiedAt = DpiPrefs.verifiedAt(context, cls),
             pinned = pinned,
-            selected = selected,
-            currentStrategy = selected
+            selected = selected
         )
     }
 
@@ -127,7 +124,7 @@ internal fun BypassDashboard(
             searchBackground = search.background,
             searchMandatory = search.mandatory,
             activeDownloads = activeDownloads,
-            downloadKbps = downloadKbps
+            tunnelError = tunnel.errorRes != null
         )
     )
 
@@ -171,6 +168,22 @@ internal fun BypassDashboard(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .then(
+                        // Patch 55: while the bypass is on, a soft wash from the card's orange towards Google's pale blue, the
+                        // glow of Gemini's "Neural Expressive" look; off, the card is a plain surface.
+                        if (isOn) {
+                            Modifier.background(
+                                Brush.verticalGradient(
+                                    listOf(
+                                        scheme.primaryContainer,
+                                        lerp(scheme.primaryContainer, scheme.tertiaryContainer, 0.45f)
+                                    )
+                                )
+                            )
+                        } else {
+                            Modifier
+                        }
+                    )
                     .padding(horizontal = 20.dp, vertical = 22.dp)
             ) {
                 val setupMessage = search.resultMessageRes?.takeIf { it in SETUP_MESSAGES }
@@ -222,19 +235,6 @@ internal fun BypassDashboard(
                     CheckHint(model.checkHint, palette)
                 }
 
-                if (model.showSpeed) {
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Text(
-                        text = if (model.downloadKbps > 0) {
-                            stringResource(R.string.dash_speed, speedText(model.downloadKbps))
-                        } else {
-                            stringResource(R.string.dash_speed_waiting)
-                        },
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = palette.primary
-                    )
-                }
-
                 if (model.showControls) {
                     Spacer(modifier = Modifier.height(10.dp))
                     HorizontalDivider(color = palette.divider)
@@ -274,10 +274,6 @@ internal fun BypassDashboard(
         }
     }
 }
-
-@Composable
-private fun speedText(kbps: Int): String =
-    if (kbps >= 1024) stringResource(R.string.speed_mb, kbps / 1024.0) else stringResource(R.string.speed_kb, kbps)
 
 @Composable
 private fun waysReadyText(prefs: DashPrefs): String {
@@ -333,12 +329,16 @@ private fun SearchStrip(
 ) {
     val total = progress?.total ?: 0
     val done = (progress?.index ?: 0).coerceIn(0, total)
+    // Patch 55: a check ends when it has found enough, not when it has tried everything, so it reports what it found.
+    val goal = SearchGoal.STANDARD.working
+    val working = (progress?.working ?: 0).coerceAtMost(goal)
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(
             text = stringResource(
                 if (background) R.string.dash_recheck else R.string.dash_check_progress,
                 done,
-                total
+                working,
+                goal
             ),
             style = MaterialTheme.typography.bodySmall,
             color = palette.secondary,
@@ -352,7 +352,7 @@ private fun SearchStrip(
     }
     if (progress != null && total > 0) {
         LinearProgressIndicator(
-            progress = { done.toFloat() / total },
+            progress = { maxOf(done.toFloat() / total, working.toFloat() / goal).coerceIn(0f, 1f) },
             modifier = Modifier.fillMaxWidth(),
             color = MaterialTheme.colorScheme.primary,
             trackColor = MaterialTheme.colorScheme.surface
@@ -399,56 +399,56 @@ private fun YouTubeChannel(
         DashTunnelState.NO_ANSWER -> stringResource(R.string.dash_youtube_no_answer)
     }
 
-    FocusRing(modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .toggleable(
-                    value = model.tunnelSwitchOn,
-                    enabled = model.tunnelSwitchEnabled,
-                    role = Role.Switch,
-                    onValueChange = onToggle
-                )
-                .padding(vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            StatusDot(dot)
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = stringResource(R.string.dash_youtube_label),
-                    style = MaterialTheme.typography.titleSmall,
-                    color = palette.primary
-                )
-                Text(text = statusText, style = MaterialTheme.typography.bodySmall, color = statusColor)
-                if (state == DashTunnelState.ON || state == DashTunnelState.NO_ANSWER) {
-                    val speed = if (traffic.rate == TunnelRate.ZERO) {
-                        stringResource(R.string.dash_youtube_idle)
-                    } else {
-                        stringResource(
-                            R.string.dash_rate,
-                            formatTransferRate(traffic.rate.downBytesPerSec),
-                            formatTransferRate(traffic.rate.upBytesPerSec)
+    Column {
+        FocusRing(modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .toggleable(
+                        value = model.tunnelSwitchOn,
+                        enabled = model.tunnelSwitchEnabled,
+                        role = Role.Switch,
+                        onValueChange = onToggle
+                    )
+                    .padding(vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                StatusDot(dot)
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = stringResource(R.string.dash_youtube_label),
+                        style = MaterialTheme.typography.titleSmall,
+                        color = palette.primary
+                    )
+                    Text(text = statusText, style = MaterialTheme.typography.bodySmall, color = statusColor)
+                    if ((state == DashTunnelState.ON || state == DashTunnelState.NO_ANSWER) && traffic.position > 0) {
+                        // Patch 55: the way in use (no speed any more; the heartbeat line below says whether traffic flows).
+                        Text(
+                            text = stringResource(R.string.dash_way, traffic.position, traffic.total),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = palette.secondary
                         )
                     }
-                    val way = if (traffic.position > 0) {
-                        stringResource(R.string.dash_way, traffic.position, traffic.total)
-                    } else {
-                        null
-                    }
-                    Text(
-                        text = listOfNotNull(speed, way).joinToString(" · "),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = palette.secondary
-                    )
                 }
+                KinescopeSwitch(
+                    checked = model.tunnelSwitchOn,
+                    onCheckedChange = null,
+                    enabled = model.tunnelSwitchEnabled
+                )
             }
-            KinescopeSwitch(
-                checked = model.tunnelSwitchOn,
-                onCheckedChange = null,
-                enabled = model.tunnelSwitchEnabled
-            )
         }
+        // Patch 55: the heartbeat line: a green pulse while the bypass carries traffic, a red flat line when the connection is lost.
+        HeartbeatLine(
+            pulse = model.pulse,
+            description = stringResource(
+                when (model.pulse) {
+                    DashPulse.ALIVE -> R.string.dash_pulse_alive
+                    DashPulse.LOST -> R.string.dash_pulse_lost
+                    DashPulse.IDLE -> R.string.dash_pulse_idle
+                }
+            )
+        )
     }
 }
 

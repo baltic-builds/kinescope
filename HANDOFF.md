@@ -1,12 +1,3 @@
-## October 2026 — adaptive router and dashboard hardening
-
-- The Wi-Fi/mobile classifier, rating records, per-class pins, live checks and learned chains remain separate. The active tunnel evaluates verified strategies in class-specific order. A SOCKS engine that starts but fails the YouTube health probe is **not** accepted as a working route; if all routes fail, the app reports failure rather than an unusable active VPN.
-- Unexpected engine/bridge termination now enters the same rate-limited strategy recovery path as failed probes and one-way traffic. Exhaustion shuts down this app's VPN instead of presenting a stuck active switch. Switching networks retains the stable-handover filter.
-- Toggling bypass off closes the Android TUN descriptor immediately and starts separate cleanup, instead of placing cleanup behind the long-running monitor in the single-thread queue. Only Kinescope's own VPN and engine can be stopped; Android prohibits an app from forcibly closing other apps' VPNs.
-- Home now shows a single clear tunnel toggle, automatic strategy toggle (default on per class), connection label, status/traffic, and **Watch YouTube**. Manual strategy selection resides at the very bottom of Settings and appears only when automatic selection is disabled for the connected class.
-- The visuals use M3 semantics with defined orange-on/gray-off switch colors, card hierarchy and more expressive rounded surfaces; window-aware rail/two-pane and TV focus affordances are retained.
-- Verification required on real devices: Wi-Fi/mobile transitions, blocked networks, VPN permission revocation, stop during a slow probe, light/dark themes, narrow and expanded windows, TV remote, English and Russian. Repository tests cannot demonstrate real-world circumvention or prove vendor-specific Android VPN behavior.
-
 # Handoff Snapshot
 
 The current state of Kinescope for anyone (human or AI agent) resuming work. It is rewritten in place, not
@@ -35,11 +26,15 @@ sign-in screen, the cleanup), the file split of patch 40, and the tablet and TV 
 hardened in patch 42), the build and packaging changes of patch 43, the tunnel traffic check of patch 44, the Home bypass dashboard of patch 45, the learned strategies with the
 25-day upkeep of patch 46, the first implementation of the outside tablet/TV UI audit (patch 48), and the overflow
 sweep with the TV-detection fix of patch 49, and the explicit app theme of patch 50 (no native action bar), and the Home dashboard sprint of patch 51 (named
-strategies, stars, the YouTube bypass switch, the app behind "Unblock YouTube", the power-saving prompt, the mandatory
-first check, the update notice), and the Home/Queue rework of patch 52 (one YouTube switch, the strategy drop-down with its
-automatic switch, the queue as a destination, the five-entry navigation whose `+` downloads the clipboard link), and the strategy router of patch 53 (separate Wi-Fi and
-mobile-data records, one rating from the test and real use, borrowing and switching with the connection; `STRATEGY_ROUTER.md`).
-The exact
+strategies, the YouTube bypass switch, the app behind "Unblock YouTube", the power-saving prompt, the mandatory
+first check), and the Home/Queue rework of patch 52 (one YouTube switch, the queue as a destination, the five-entry navigation whose `+`
+downloads the clipboard link), and the strategy router of patch 53 (separate Wi-Fi and
+mobile-data records, one rating from the test and real use, borrowing and switching with the connection; `STRATEGY_ROUTER.md`), and the
+out-of-band October changes (the recovery path that does not accept a route that fails its health probe, the TUN closed at once on stop,
+Home with one tunnel toggle, an automatic toggle and "Watch YouTube", manual choice at the bottom of Settings, the orange/gray
+`KinescopeSwitch`; `CHANGELOG.md`), and patch 54 (the reachability verdict, the IPv4-only fallback, the on-demand search at tunnel start), and
+patch 55 (checks that stop at 5 working / 3 perfect, one check per connection class and app version, the two-a-day random check, the
+ranking with its frozen bottom 15, the heartbeat line, the hints panel, the theme tokens). The exact
 checklist is `ROADMAP.md`; do not tick a box without the user's report.
 **CI:** the release workflow was red at patch 42 (`AdaptiveLayoutTest` still referenced the removed
 `WidthClass`). Patch 43 fixes it, pins the NDK/CMake, and restructures the workflow (validate, tests + lint,
@@ -89,7 +84,7 @@ not yet being 16 KB page-size compatible (upstream).
 - **Diagnostics.** `AppLog` is a rotating private journal: one line, `key=value` tokens, under 220 characters, no
   URLs, no cookies; `DiagnosticSanitizer` redacts URLs, YouTube and Instagram cookie values and private paths;
   `DiagnosticReport` adds the header for Settings -> Copy report. Backup is disabled.
-- **UI.** Home (bypass dashboard, its "Unblock YouTube" button, banners), Queue (its own screen since patch 52), Add (`+` opens it only when
+- **UI.** Home (bypass dashboard, its "Watch YouTube" button, banners, the hints panel), Queue (its own screen since patch 52), Add (`+` opens it only when
   the clipboard holds no link; a shared link lands there too), Library (its own screen since patch 51), Settings, Logs (Settings -> Diagnostics; five taps on the
   Settings icon still open it), sign-in screens. English default, Russian in `values-ru`; every string exists in both.
 - **Adaptive layout (patch 41).** One APK for phones, tablets and Android TV. `AdaptiveRoot` classifies the window
@@ -105,59 +100,74 @@ not yet being 16 KB page-size compatible (upstream).
   through `AdaptiveSpec`, not through ad-hoc `if (isTv)` checks. `AppFrame` is ONE structure for every layout
   (a Scaffold with empty bars in the rail layout, a Row, a Column, a single call of the screen content): a
   second branch around the content would rebuild every screen when a phone is rotated.
-- **Home dashboard (patch 45, redrawn in patches 51 and 52).** The hero card on Home (`BypassDashboard`) shows: the state of the YouTube
-  bypass with its on/off switch (the YouTube-only tunnel: start / stop, live speed, strategy position and traffic verdict,
-  `TunnelTraffic` from `BypassVpnController.traffic`); the speed of the running download
-  (`DownloadJobStatus.speedKbps`, only while one runs); and the strategies: a drop-down of the 15 most successful ones with a
-  colour name and 1-5 stars (`topStrategies`, plus the one in use through `strategyChoices`; `strategyStars`: 100% -> 5, 85-99 -> 4,
-  75-84 -> 3, 60-74 -> 2, below -> 1) that shows the strategy in use, and under it a switch for choosing automatically (on = no
-  pin; choosing from the menu or switching it off calls `DpiPrefs.pin`, switching it on `DpiPrefs.unpin`). Patch 52: the card has
-  ONE tunnel switch; the "Unblock YouTube" button is drawn BELOW the card (`onOpenApp`), and the queue is not on Home.
+- **Home dashboard (patch 45, redrawn in patches 51, 52, the out-of-band October change and patch 55).** The hero card on Home
+  (`BypassDashboard`) shows the state of the YouTube bypass with ONE on/off switch (the YouTube-only tunnel: start / stop, the strategy
+  position, `TunnelTraffic.verdict` from `BypassVpnController.traffic`) and, under it, a **heartbeat line** (`HeartbeatLine`, `DashPulse`):
+  a green pulse that travels along the line while the bypass carries traffic, a red flat line when the connection is lost (the tunnel is up
+  and nothing comes back, or it stopped on an error), a muted flat line when it is off or starting. There is NO speed on the dashboard
+  (patch 55 removed the download speed and the tunnel's rate and everything that measured them), no strategy picker and no stars (the
+  drop-down went with the October change; the manual choice is the last section of Settings, shown when the automatic switch is off for the
+  connected class). Under the tunnel row: the automatic switch (on = no pin; switching it off pins the strategy in use, `DpiPrefs.pin`; on =
+  `DpiPrefs.unpin`). Below the card: **Watch YouTube** (`onOpenApp`) and, after the banners, the **hints panel** (`HintsPanel`: seven short
+  semi-transparent lines about how the router works and what `+` does; it has no close button by design). The queue is not on Home.
   `+` in the navigation (`addFromClipboard` in `MainActivity.kt`) reads the clipboard on the tap and enqueues a valid link at the
   default quality; with no link it opens the Add screen. The DOWNLOADS switch (`DpiPrefs.enabled`, ON by default since patch 51) is in Settings only. Every
   rule lives in the pure `bypassDashboardModel`; the composable maps state in and draws. Preferences are read when a watched
-  state changes, not through a live observer.
+  state changes, not through a live observer. The heartbeat is the one continuous animation in the app and is tied to a MEASURED state; it holds still
+  when the system's animations are off (`design.md`, rule 6).
 - **Strategy names (patch 51) -- THE RULE.** Every strategy has a colour name from `R.array.strategy_colors` (EN and RU, 100
   colours, most common first). A strategy takes the FIRST palette colour no other known strategy has, in the order strategies
   are first met (built-ins, then the community list); the assignment is stored (`DpiPrefs.nameBook`, `StrategyNames`) and never
   changes while the strategy stays in the list; a strategy that leaves the list (and is not in the chain or pinned) frees its
   colour; the palette is append-only (never reorder or remove, add at the end in both languages with equal counts; the unit test
-  and lint check it); beyond the palette a number is added ("Red 2"). Names are shown in the picker, the dashboard and the pin toast.
+  and lint check it); beyond the palette a number is added ("Red 2"). Names are shown in the manual picker (Settings) and the pin toast.
 - **The strategy list mirrors its source (patch 51).** `DpiStrategyStore.candidates` = built-ins + (the downloaded community list
   if there is one, else the bundled snapshot), never both (`mergeStrategyLists`). Source today: 60 strategies; built-ins: 12.
-- **First install and updates (patch 51).** A fresh install runs the strategy check in `initial` mode: mandatory, no Stop anywhere,
-  Home says "Please wait while we update the strategies.". `AppUpdate.onProcessStart` (in `YtOfflineApp`) compares the version code with
-  the last seen one; an update refreshes yt-dlp and the community list in the background and raises `UpdateNotice` (a banner on Home,
-  persisted until dismissed) recommending the strategy check in Settings. The 25-day quiet re-check (patch 46) is a separate calendar.
+- **First install and updates (patches 51 and 55).** `AppUpdate.onProcessStart` (in `YtOfflineApp`) compares the version code with the last
+  seen one: a fresh install and an update are treated alike. yt-dlp is refreshed at once (`YtOfflineApp`); the community strategy list is
+  refreshed once per app version by `AppUpdate.refreshStrategyListOncePerVersion`, called by `DpiSearchService` just before a check; and the
+  strategies are checked ONE CONNECTION CLASS AT A TIME, each class once per app version (`ClassCheckPolicy`, `DpiPrefs.checkedVersion`): the
+  class the phone is on at the first launch, the other the first time the phone is on it with the app open (`MainActivity` watches
+  `NetClassWatcher.state`). A check ends at `SearchGoal.STANDARD` (5 working strategies, at least 3 perfect) or when the list runs out. Only the
+  very first check of a fresh install runs in `initial` mode: mandatory, no Stop anywhere, Home says "Please wait while we update the
+  strategies."; after an update it runs in `check` mode, quietly, and a download that starts meanwhile uses what is stored. The 25-day upkeep
+  of patch 46 and the "app updated" notice of patch 51 no longer exist; `MaintenanceSchedule` keeps only the yt-dlp calendar.
 - **The app behind "Unblock YouTube" (patch 51).** `Settings.getYoutubeApp` (default the official YouTube app) is opened by
   `YoutubeApps.open` and is the one app `BypassVpnService.buildAppTunnel` lets through; Settings lists the apps that open youtube.com
   links (manifest `<queries>`). A browser opens the YouTube site; its whole traffic goes through the tunnel while it runs.
 - **Power saving (patch 51).** `BatteryOptimization`: the system exemption dialog (`REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`, sideload-only), then
   the list of apps' settings, then the app's system page. A pop-up on the second launch (once) and a Settings section.
-- **Learned strategies and the 25-day upkeep (patch 46).** `StrategyMemory` (pure) keeps, per strategy, faded sums of
+- **Learned strategies (patch 46).** `StrategyMemory` (pure) keeps, per strategy, faded sums of
   good and bad evidence: a finished download or a `tun proven` window counts 1.0 good, a failure while another route finished the job 1.0 bad (it weighs double in the score), and all
   evidence halves every week (patch 53: only real use is recorded here; what a search found is the test half of the rating). `DpiPrefs.promoteVerified` (success) and `DpiPrefs.quarantine` (failure) feed it,
   `DpiBypass.applySearchResults` adds the search's own findings, and `ChainPlanner.merge` / `promote` put the
   learned-good strategies into the chain and order the pool by score, so the fallbacks are in order of how well they
-  have worked (the chain holds six). The record is one preference string per connection class (`DpiPrefs.learned`; patch 53). The re-check no longer follows the app version: `MaintenanceSchedule` (25 days, at most one attempt a
-  day) decides, `MainActivity` starts the quiet `MODE_BACKGROUND` search with no popup (`DpiSearchService` refreshes
-  the community list first), and `YtOfflineApp` applies the same interval to the yt-dlp update. The first-run
-  search and its popup are unchanged. The calendar is kept in `DpiPrefs` (`search_at`, `maintenance_try_at`); a
-  build from before patch 46 starts its 25 days the first time it is asked. Patch 47 (audit): the quiet re-check
-  also waits for an unmetered network (`NetworkState.isMetered`) and for a successful foreground start of the
-  search service; `DpiPrefs` makes the chain, quarantine and record changes take turns with one lock; the chain
-  size is `ChainPlanner.MAX_CHAIN`.
+  have worked (the chain holds six). The record is one preference string per connection class (`DpiPrefs.learned`; patch 53).
+  `DpiPrefs` makes the chain, quarantine and record changes take turns with one lock; the chain size is `ChainPlanner.MAX_CHAIN`.
+  Patch 55 retired the 25-day quiet re-check of this patch (`MaintenanceSchedule.isDue`, `MODE_BACKGROUND`, the metered-network wait).
 
 - **Strategy router (patch 53).** Full account: `STRATEGY_ROUTER.md`. Everything about a strategy is kept per connection class
   (`NetClass`: Wi-Fi/Ethernet, or mobile data and metered Wi-Fi): the verified chain, the pin, the proven strategy, the quarantine, the
   learned record and the last test results. The Wi-Fi class uses the pre-patch-53 preference keys (no migration); mobile has `_mobile`
-  keys. `StrategyRating` blends the last test (fading, 14-day half-life) with real use (`StrategyMemory`) into one 0-100 rating; stars,
-  the Home drop-down and the order of every chain come from it. `StrategyRouter` decides the chain after a search, a success
+  keys. `StrategyRating` blends the last test (fading, 14-day half-life) with real use (`StrategyMemory`) into one 0-100 rating; the
+  order of every chain and of the class's whole ranking come from it. `StrategyRouter` decides the chain after a search, a success
   (`afterSuccess`: the winner leads), a failure (`afterFailure`: the loser moves down at once) and for a class with no chain (`seed`:
   it borrows the other class's, marked `seeded`, time 0). `NetClassWatcher` follows the default network; `BypassVpnService`
   reconnects on the new class's chain after the class has differed for four 500 ms ticks (`NetSwitch`), without counting it as a
   failure; `RouteLadder` and `RouteScoreboard` work per class. A search whose connection changed class is dropped
-  (`DpiBypass.recordSearch`). No automatic full search on a metered network. Not confirmed on a device.
+  (`DpiBypass.recordSearch`). Not confirmed on a device.
+- **Strategy router, patches 54 and 55.** Full account: `STRATEGY_ROUTER.md`. (1) *Reach verdict* (`DpiBypass.reach`, `Reach`): a failure at the
+  CONNECT stage with SOCKS reply 0x03/0x04 (`StageResult.isReachFault`) means the engine could not reach the host, which says nothing about the
+  strategy; the same strategy is retried with the engine's `-X` (IPv4 only), a pass is remembered per class (`DpiPrefs.ipv4Only`, applied by
+  `DpiEngine`), a second failure is NO_ROUTE (a message, a direct DNS/TCP line per IP family in the log, nothing stored or blamed). Results made
+  only of such faults are not stored (`StrategyResult.connectFault`, `DpiBypass.withoutReachFaults`). (2) *Goal-bound searches*
+  (`SearchGoal`: `STANDARD` 5 working + 3 perfect for the first check, the check after an update and Settings -> Test; `QUICK` 2 working for a
+  tunnel that is starting and has nothing that works): `DpiBypass.search` walks `searchOrder`, the current chain and then `StrategyRank`
+  order. (3) *Ranking* (`StrategyRank`, derived from ratings and test times, not stored): good evidence, never tested, did badly with the
+  last failure at the very bottom; the last 15 of the ones that did badly and were tested less than 75 days ago are frozen and come last.
+  (4) *Per-class checks* (`ClassCheckPolicy`): once per app version and class. (5) *Two-a-day random check* (`RandomCheckPolicy`, `RandomCheck`,
+  started by `BypassVpnService` once the tunnel is up): two random strategies of the class, not the one in use, not frozen; a pass joins the
+  chain by rating, a failure leaves it (`DpiPrefs.removeFromChain`) and sinks to the bottom of the ranking. Not confirmed on a device.
 
 - **Recreation (patch 48).** `MainActivity` keeps `uiMode` out of `configChanges` on purpose (the system-bar icon colours
   are set once in `onCreate`), so a dark-mode or language change recreates the activity. The current screen, the typed
@@ -199,34 +209,36 @@ UI
 - `MainActivity.kt` -- the activity, `AppSection`, `KinescopeApp` (state, navigation, handlers).
 - `AdaptiveLayout.kt` -- window classification (`AdaptiveSpec`, `adaptiveSpecFor`), TV detection, `InterfaceMode`, `LocalAdaptive`, `AdaptiveRoot`, `FocusRing`.
 - `AppChrome.kt` -- `AppFrame` (top bar + bottom bar, or header + navigation rail; five destinations since patch 52: Home, Queue, `+`, Library, Settings), responsive column.
-- `HomeScreen.kt` -- Home: the bypass dashboard slot and the banners (errors, sign-in, "app updated"); one column since patch 52.
+- `HomeScreen.kt` -- Home: the bypass dashboard slot, the banners (errors, sign-in) and the hints panel; one column since patch 52.
 - `QueueScreen.kt` -- the download queue as its own screen (patch 52): the full list, Pause / Resume / Stop per row, the empty text.
 - `BypassDashboard.kt` -- the Home hero: bypass and automatic-selection switches, network class, tunnel health/traffic, and "Watch YouTube". Manual strategy selection is in Settings.
 - `LibraryScreen.kt` -- the library of finished downloads as its own screen (patch 51).
-- `BypassDashboardModel.kt` -- pure rules of that card (`bypassDashboardModel`, `formatTransferRate`).
+- `BypassDashboardModel.kt` -- pure rules of that card (`bypassDashboardModel`, `DashPulse`) and the shape of one heartbeat (`heartbeatSample`).
+- `HeartbeatLine.kt` -- the heartbeat line under the YouTube switch (patch 55): Canvas drawing, driven by `withFrameNanos`, still when the system's animations are off.
+- `HintsPanel.kt` -- the semi-transparent hints panel at the bottom of Home (patch 55).
 - `QueueAndLibrary.kt` -- the queue-job row (a Stop button on every device since patch 52), the library-file row and the library file actions.
 - `QuickAddScreen.kt`, `SettingsScreen.kt`, `LogsScreen.kt` -- the Add, Settings and Logs screens.
 - `BypassSettings.kt`, `StrategyPicker.kt` -- the bypass section of Settings and the manual strategy list.
 - `YoutubeApps.kt`, `YoutubeAppSettings.kt` -- the app behind "Watch YouTube": the candidates, the choice, opening it; its Settings section (patch 51).
 - `BatteryOptimization.kt` -- the power-saving exemption: intents, the pop-up rule, the dialog and the Settings section (patch 51).
 - `StrategyNames.kt` -- the colour names of the strategies (pure rule + the name book) (patch 51).
-- `AppUpdate.kt` -- fresh install / update classification, the post-update refresh and `UpdateNotice` (patch 51).
+- `AppUpdate.kt` -- fresh install / update classification (patch 51) and the once-per-version community-list refresh (patch 55).
 - `KinescopeSwitch.kt` -- shared Material 3 switch with explicit orange-on and gray-off tokens in both themes.
 - `Theme.kt` -- Material3 tokens, Inter/Lora via the Google Fonts provider, shapes (`design.md`).
 
 Network bypass
 - `DpiNative.kt`, `DpiEngineService.kt`, `DpiEngine.kt` -- JNI binding, the `:dpi` host service, the bind/start/close client.
 - `DpiStrategies.kt` -- allowlist parser and built-in strategies; `DpiStrategyStore.kt` -- bypass preferences (`DpiPrefs`: per connection class the verified chain, pin, quarantine and learned record; the shared upkeep calendar).
-- `DpiSearch.kt`, `DpiSearchService.kt` -- the strategy search and its foreground service/controller; `DpiResultsStore.kt` -- last test results.
-- `DpiBypass.kt` -- glue used by downloads and Settings (active chain, health check, applying results).
+- `DpiSearch.kt`, `DpiSearchService.kt` -- the strategy search (`SearchGoal`, `StrategyResult.works` / `perfect` / `connectFault`) and its foreground service/controller (modes manual, initial, check, test; `RandomCheck`, patch 55); `DpiResultsStore.kt` -- last test results.
+- `DpiBypass.kt` -- glue used by downloads and Settings (active chain, health check, `reach` verdict, `searchOrder`, applying results).
 - `ChainPlanner.kt`, `BypassRoutes.kt`, `RouteScoreboard.kt` -- pure ordering rules for strategies and routes.
 - `NetClass.kt`, `NetClassWatcher.kt` -- the connection class (Wi-Fi / mobile data), the rule for when the tunnel follows a change, and the flow that follows the default network (patch 53).
-- `StrategyRating.kt`, `StrategyRouter.kt` -- the pure rating (last test + real use) and the router policy; see `STRATEGY_ROUTER.md` (patch 53).
-- `StrategyMemory.kt` -- pure record of which strategies really carried traffic (real outcomes only since patch 53; fading score, text form); `MaintenanceSchedule.kt` -- pure 25-day calendar of the upkeep (strategy re-check, yt-dlp update).
+- `StrategyRating.kt`, `StrategyRouter.kt` -- the pure rating (last test + real use) and the router policy (the chain, `StrategyRank`, `RandomCheckPolicy`, `ClassCheckPolicy`); see `STRATEGY_ROUTER.md` (patches 53-55).
+- `StrategyMemory.kt` -- pure record of which strategies really carried traffic (real outcomes only since patch 53; fading score, text form); `MaintenanceSchedule.kt` -- pure calendar of the yt-dlp update (25 days) and the day length the other calendars count in.
 - `NetworkCheck.kt`, `NetworkState.kt` -- layered reachability probe through the engine; third-party VPN detection; the connection class (patch 53).
 - `TunnelStartupPolicy.kt` -- checks verified route health before activation and only learns failed candidates after a successful fallback.
 - `BypassVpnService.kt` -- `BypassVpnController` and the YouTube-only `VpnService` (`:dpi_vpn`).
-- `TunnelFlow.kt` -- pure judge of the YouTube app's traffic through the tunnel (idle / flowing / one-way, from the bridge counters), plus the tunnel's speed (`TunnelRate`) and the snapshot the dashboard reads (`TunnelTraffic`).
+- `TunnelFlow.kt` -- pure judge of the YouTube app's traffic through the tunnel (idle / flowing / one-way, from the bridge counters) and the snapshot the dashboard reads (`TunnelTraffic`: verdict and place in the chain; no speed since patch 55).
 - `app/src/main/java/hev/htproxy/TProxyService.java` -- JNI contract of the vendored `hev-socks5-tunnel`; `app/src/main/cpp/` -- ByeDPI sources, `dpi_jni.c`, `CMakeLists.txt`; `app/src/main/jniLibs/` -- the tunnel library with its license and provenance.
 
 Diagnostics
@@ -265,6 +277,15 @@ parser/search/ranking/store, the network probe, the privacy redaction, the windo
   `#learn` lines (place in the chain, ok/bad weights, score). Patch 53 replaces `learned=` and `#learn` with `cls=`, `seeded=`, `rated=`, `#rate`
   and `#other` (`STRATEGY_ROUTER.md` section 9) and adds `net=` to the route, tunnel and ladder lines.
 
+- Patch 54, read from the vendored ByeDPI source (`proxy.c`, `main.c`): `resolve()` calls `getaddrinfo` with `AF_UNSPEC` (or `AF_INET` when
+  IPv6 is off) and `AI_ADDRCONFIG`, and copies only the FIRST address it returns; a failed lookup is reply 0x04 (`S_ER_HOST`); a connect error maps
+  to 0x05 (refused), 0x04 (`EHOSTUNREACH`, `ETIMEDOUT`) or 0x03 (`ENETUNREACH`). `-X` / `--no-ipv6` sets `params.ipv6 = 0` (the option string is built
+  from the option table, so it is accepted). The tunnel's `hev-socks5-tunnel` sends IP literals, so only by-name connects (the health check,
+  yt-dlp's `socks5h`) go through that lookup.
+- Patch 55, read from the androidx source (main): `lightColorScheme` / `darkColorScheme` take `surfaceContainerLowest` .. `surfaceContainerHighest`,
+  `surfaceDim`, `surfaceBright`, `outlineVariant`, `inverseSurface`, `inverseOnSurface`, `inversePrimary` and the `secondary*` / `tertiary*` roles;
+  material3 exposes `animation` as an api dependency and `foundation` (`Canvas`) with it, but the heartbeat uses only `withFrameNanos` from the
+  runtime, so it does not depend on that.
 - Patch 48, read from the androidx source (main): `FlowRow` is still `@ExperimentalLayoutApi` (opt in with
   `@OptIn(ExperimentalLayoutApi::class)`); `widthIn` uses `enforceIncoming`, so it must come BEFORE `fillMaxWidth`
   (after it the cap changes nothing); `Modifier.selectable(selected, enabled, role, onClick)`, `animateScrollBy`,
@@ -283,6 +304,10 @@ parser/search/ranking/store, the network probe, the privacy redaction, the windo
    `fmt`. `ph=js` with a long idle means the QuickJS challenge, not the network. A `fmt` id of the form
    `dash-...vd+dash-...ad` means the VP9 route was taken.
 3. `vpn probe` / `vpn rotate`: is the tunnel's strategy holding under load? `#state vpn=1`: a third-party VPN was on.
+4. Patches 54-55: `#state ... v4only=1` means the engine runs IPv4-only on this class (learned); `chk=due` means this class has not been
+   checked for the running app version; `rand=Nh` is the hours since its last random check. `vpn chk ... rc=4` is the SOCKS reply of a failed
+   CONNECT; `byp reach net=... none ... dns=ok a4=N a6=N tcp4=... tcp6=...` is the no-route evidence (which IP family connects); `reach ... v4only=learned`
+   is the IPv6 fallback working; `srch rand net=... works= fault=` is a random check; `byp start search net= found=` is the start-up search.
 
 ## Key learnings
 
@@ -315,6 +340,12 @@ parser/search/ranking/store, the network probe, the privacy redaction, the windo
   from the androidx source (main), not from the pinned tag.
 - **Format selection is not neutral.** yt-dlp's default sort prefers a labelled codec; always state the codec you
   want when a site labels only some streams.
+- **A failure before the strategy acts is not the strategy's failure (patch 54).** Where a failure happens decides what it says: CONNECT
+  with "unreachable" is the route, TLS or HTTP is the strategy. Storing the first as the second rated every strategy 0 on one bad network.
+- **A check needs a goal, not a list (patch 55).** Scanning 72 strategies costs minutes and data to prove what five working ones already show;
+  most of the list fails fast and cheaply, so the cost is in the passes (about 0.8 MB each), which the goal caps.
+- **A gap in the brief goes in the changelog, not in a question (patch 55).** The patch states how each loose phrase was read ("working",
+  "100%", "the very bottom", "first toggle of a launch") so the user can correct one rule without redoing the work.
 - **A later patch can silently break an earlier patch's idempotency check** when it rewrites text the earlier one
   looked for; run patch chains several times from a clean copy (`AGENTS.md`).
 - **`assembleDebug` does not compile the unit tests.** Patch 42 shipped a test that no longer compiled and only

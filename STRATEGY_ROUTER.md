@@ -1,21 +1,14 @@
-## October 2026 — adaptive router and dashboard hardening
-
-- The Wi-Fi/mobile classifier, rating records, per-class pins, live checks and learned chains remain separate. The active tunnel evaluates verified strategies in class-specific order. A SOCKS engine that starts but fails the YouTube health probe is **not** accepted as a working route; if all routes fail, the app reports failure rather than an unusable active VPN.
-- Unexpected engine/bridge termination now enters the same rate-limited strategy recovery path as failed probes and one-way traffic. Exhaustion shuts down this app's VPN instead of presenting a stuck active switch. Switching networks retains the stable-handover filter.
-- Toggling bypass off closes the Android TUN descriptor immediately and starts separate cleanup, instead of placing cleanup behind the long-running monitor in the single-thread queue. Only Kinescope's own VPN and engine can be stopped; Android prohibits an app from forcibly closing other apps' VPNs.
-- Home now shows a single clear tunnel toggle, automatic strategy toggle (default on per class), connection label, status/traffic, and **Watch YouTube**. Manual strategy selection resides at the very bottom of Settings and appears only when automatic selection is disabled for the connected class.
-- The visuals use M3 semantics with defined orange-on/gray-off switch colors, card hierarchy and more expressive rounded surfaces; window-aware rail/two-pane and TV focus affordances are retained.
-- Verification required on real devices: Wi-Fi/mobile transitions, blocked networks, VPN permission revocation, stop during a slow probe, light/dark themes, narrow and expanded windows, TV remote, English and Russian. Repository tests cannot demonstrate real-world circumvention or prove vendor-specific Android VPN behavior.
-
-# Strategy router (patch 53)
+# Strategy router (patches 53-55)
 
 How Kinescope decides which bypass strategy to use, on which kind of connection, and when to change it. This is the one
 place that describes the mechanism end to end; `HANDOFF.md` has the short version and the file map, `CHANGELOG.md` the
-history. The code that decides is pure and unit-tested (`NetClass.kt`, `StrategyRating.kt`, `StrategyRouter.kt`,
-`ChainPlanner.kt`, `StrategyMemory.kt`); the code that stores and acts is `DpiStrategyStore.kt` (`DpiPrefs`),
-`DpiBypass.kt`, `RouteLadder.kt` and `BypassVpnService.kt`.
+history. The code that decides is pure and unit-tested (`NetClass.kt`, `StrategyRating.kt`, `StrategyRouter.kt` (which also holds
+`StrategyRank`, `RandomCheckPolicy` and `ClassCheckPolicy`), `ChainPlanner.kt`, `StrategyMemory.kt`, `DpiSearch.kt` (`SearchGoal`));
+the code that stores and acts is `DpiStrategyStore.kt` (`DpiPrefs`), `DpiBypass.kt`, `DpiSearchService.kt` (`RandomCheck`), `RouteLadder.kt`
+and `BypassVpnService.kt`.
 
-Status: implemented in patch 53, **not confirmed on a device**. The checklist is in `ROADMAP.md`.
+Status: per-class records and the rating (patch 53), the reachability verdict (patch 54) and the goal-bound, per-class and random checks
+(patch 55) are implemented, **none confirmed on a device**. The checklist is in `ROADMAP.md`.
 
 ## 1. Why it exists
 
@@ -38,6 +31,13 @@ The router keeps a separate record per **connection class** and chooses, orders 
 | Pin | A strategy the user chose; it leads its class's chain. Per class. |
 | Seeded chain | A chain borrowed from the other class because this one has never been tested. Marked, and its time stays 0. |
 | Quarantine | Ten minutes at the back of the chain after a real failure. Per class. |
+| Goal (`SearchGoal`) | When a check has found enough: `STANDARD` = 5 working strategies, at least 3 of them perfect; `QUICK` = 2 working. |
+| Working / perfect | Working (`StrategyResult.works`): every required host answered and a real transfer completed. Perfect (`perfect`, "100%"): every probed host, the transfer and every simultaneous connection completed. |
+| Ranking (`StrategyRank`) | ALL the strategies of a class in order: good evidence first, never tested next, did badly last with the newest failure at the very bottom. Derived, not stored. |
+| Frozen | Among the last 15 of the ranking, the ones that did badly and were tested less than 75 days ago: left alone until the 75 days pass. |
+| Class check (`ClassCheckPolicy`) | The check of one class for one app version (after an install or an update). |
+| Random check (`RandomCheckPolicy`, `RandomCheck`) | Two random strategies of the class, tested the first time the bypass is switched on in each twelve hours. |
+| Reach verdict (`DpiBypass.reach`) | Whether the engine can reach the hosts at all on this connection (section 7). |
 
 ## 3. Connection classes
 
@@ -93,12 +93,11 @@ Worked examples (all computed by the code, see `StrategyRatingTest`):
 So a strategy that tested well but keeps failing for real sinks below the line after four failures within about a week, and
 one that tested badly or never but keeps carrying traffic climbs. Old evidence of either kind fades by itself.
 
-Stars on Home are the rating through the user's thresholds: 100 -> 5, 85-99 -> 4, 75-84 -> 3, 60-74 -> 2, below -> 1 (a
-strategy with no rating at all is listed without stars). Settings shows the number ("Rating 74") in front of the last test.
+Settings shows the number ("Rating 74") in front of the last test. (Patch 51's stars on Home went with the Home drop-down.)
 
 ## 5. What changes a chain (`StrategyRouter`)
 
-The stored chain of a class is a cache of the router's decisions; it is rewritten by exactly four events:
+The stored chain of a class is a cache of the router's decisions; it is rewritten by exactly five events:
 
 1. **A search finished on the class** (`afterSearch`). The pool is what passed the search plus every strategy of the class
    rated at least 50, minus those that were tested in this search and failed. It is ordered by rating (the test just stored
@@ -118,6 +117,10 @@ The stored chain of a class is a cache of the router's decisions; it is rewritte
    class replaces it. Nothing is seeded when the other class has no chain either (a fresh install: the mandatory first-run
    check runs).
 
+5. **A random check finished** (patch 55, `RandomCheck`). A strategy that passed joins the chain by its rating (`applySearchResults`, partial);
+   one that did not is taken out (`DpiPrefs.removeFromChain`; a pin stays) and its failed test, the newest on record, puts it at the very bottom of
+   the ranking. A chain left empty is cleared and the class borrows the other one's again until it is checked.
+
 What the chain is used as (`DpiStrategyStore.chain`): the pin first, then the stored order, with the quarantined
 strategies last (`ChainPlanner.order`).
 
@@ -130,7 +133,10 @@ ratings.
 
 **The YouTube tunnel** (`BypassVpnService`, process `:dpi_vpn`):
 - Start: the chain of the current class is tried in order; each strategy is health-checked through the engine and the first
-  healthy one is used.
+  healthy one is used (patch 54: a check that fails at CONNECT with "unreachable" asks `DpiBypass.reach` once; no route stops the start with a
+  message, IPv4-only restarts the chain, and such a failure is never counted against a strategy; patch 54/55: when every strategy was blocked
+  at the TLS stage a short search of the class (`SearchGoal.QUICK`) runs and its chain is tried; the notification shows its progress).
+  Once the tunnel is up the random check starts on its own thread.
 - Monitoring: the engine is probed about every 30 s (the first probe 45 s after the start) and the YouTube app's traffic is
   judged every 10 s. Two failed probes in a row, or three one-way windows in a row (the app sends, nothing comes back), mean
   the strategy stopped working. It is quarantined (`REAL_BAD`, demoted) and the tunnel reconnects on the next strategy of the
@@ -146,28 +152,67 @@ class), then the chain, with a live check per route deciding the order. A route 
 one; if another route then finishes the job, the finisher is promoted and the ones that failed first are quarantined and
 demoted (all for the class the attempt ran on).
 
-**Searches** (`DpiSearchService`, the tunnel's "Update"): a search describes the class it started on. If the connection has
+**Searches** (`DpiSearchService`, the tunnel's "Update"): a search stops at its goal (section 7) and describes the class it started on. If the connection has
 changed class when it ends its results are dropped (`DpiBypass.recordSearch`, message "The connection changed during the
 check"), because they would describe neither network. Otherwise the results go to the class's results store and then the
 chain is rebuilt (event 1).
 
-**Home** (`BypassDashboard`): the card shows "Strategy · Wi-Fi" or "Strategy · mobile data", the strategies of that class by
-rating, the one in use selected, and the automatic switch. Switching it off, or picking another strategy, pins for that class
-only. For a seeded class a line says the connection has not been tested and the strategies come from the other one. It
-follows a change of connection by itself.
+**Home and Settings** (`BypassDashboard`, `BypassSettings`): since the October change the Home card has the tunnel switch (with the
+heartbeat line), the automatic switch and the connection label; switching the automatic switch off pins the strategy in use for that
+class only, and the choice of another one is the last section of Settings (`StrategyPicker`, the strategies of that class by rating). The
+card follows a change of connection by itself.
 
-## 7. What it costs on mobile data
+## 7. Checks (patch 55): when, how much, which strategies
 
-A full search moves tens of megabytes, so it is never started on its own on a metered connection: the quiet 25-day re-check
-(`MaintenanceSchedule`, `DpiPrefs.isMaintenanceDue`) waits for an unmetered network, which in practice keeps the Wi-Fi record
-fresh. The mobile record is built from real use, from the cheap live checks that every download and every tunnel start do
-(a few kilobytes per strategy), and from a test the user starts by hand in Settings while on mobile data. The first-run check
-is the only automatic full search, and it runs on whatever connection the phone is on.
+A check no longer scans the list. It walks `DpiBypass.searchOrder` (the class's current chain, then `StrategyRank` order with the frozen ones
+last) and stops when its goal is reached or the list runs out.
 
-If every strategy of a seeded class fails, nothing else is tried automatically (borrowing from the other class is done once,
-when the chain is created); Home still shows the "not tested" line and Settings -> Test strategies is the way forward.
+| Check | When | Goal | Mode |
+|---|---|---|---|
+| First check of a fresh install | the first launch; mandatory, no Stop | `STANDARD` (5 working, 3 perfect) | `initial` |
+| Check of a class after an install or an update | the first launch (the class the phone is on) and the first time the phone is on the other class with the app open; once per app version and class (`ClassCheckPolicy`, `DpiPrefs.checkedVersion`); a check that did not finish waits 6 hours | `STANDARD` | `check` (quiet) |
+| Settings -> Test strategies | by hand | `STANDARD` | `manual` |
+| Test of one strategy | by hand | that strategy | `test` |
+| Start-up search | the tunnel is starting and every strategy of its chain was blocked | `QUICK` (2 working) | in `BypassVpnService` |
+| Random check | the first time the bypass is switched on in each twelve hours, per class (`RandomCheckPolicy`); after the tunnel is up, on its own thread | two random strategies | `RandomCheck` |
 
-## 8. Constants
+The first-run and class checks also refresh the community strategy list once per app version (`AppUpdate.refreshStrategyListOncePerVersion`),
+and yt-dlp is updated on a fresh install and on an update (`YtOfflineApp`).
+
+**The ranking** (`StrategyRank.order`): 1. strategies rated at least 50, best first; 2. strategies with no evidence on this class, in the order of the
+list; 3. strategies rated below 50, the one tested longest ago first, so the one that failed last is at the very bottom. A failed check makes its
+strategy the newest failure and so "moves it to the very bottom". **Frozen** (`StrategyRank.frozen`): among the last 15 of the ranking, the ones
+in group 3 that were tested less than 75 days ago. The random check never picks a frozen strategy or the one carrying the tunnel; a check that
+needs more than the rest of the list can give still reaches the frozen ones, because they are last, not removed.
+
+**The random check** (`RandomCheck.runIfDue`): skipped before the first check is done, within twelve hours of the last one, or while a search, a
+download or another engine run is busy. It picks two strategies, runs `DpiBypass.reach` first (no route: nothing is stored), tests them with the full
+probe, drops results where the engine could not reach the host, stores the rest, lets what passed join the chain and takes what failed out of it.
+
+## 8. Reachability (patch 54)
+
+A strategy only changes what is done to the TLS ClientHello after the TCP connection exists. A failure at the CONNECT stage with SOCKS reply
+0x03 or 0x04 (`StageResult.isReachFault`) therefore says the engine could not reach the host (a failed name lookup, an unreachable address),
+not that the strategy is blocked. `DpiBypass.reach` probes one strategy: reached -> `OK`; failed at TLS or HTTP -> `BLOCKED` (the ordinary case a
+search is for); failed at CONNECT -> the same strategy with the engine's `-X` (IPv4 only). If that passes (or gets as far as TLS) the class is
+remembered as IPv4-only (`DpiPrefs.ipv4Only`, applied by `DpiEngine` to every engine start of that class) -> `IPV4_ONLY`; if not, `NO_ROUTE`: the
+search or the tunnel stops with a message, the log gets one line with the direct DNS and TCP picture per IP family (`NetworkCheck.familyReport`),
+and nothing is stored or blamed. The vendored engine resolves with `AF_UNSPEC` and keeps only the first address, which is why a half-working
+IPv6 can defeat it on a network where IPv4 would have worked. Results where every failed probe was such a fault (`StrategyResult.connectFault`)
+are dropped before they are stored (`DpiBypass.withoutReachFaults`).
+
+## 9. What it costs on mobile data
+
+Most of a check is cheap: a strategy that fails costs a few kilobytes (a light probe of three hosts); the cost is in the ones that pass
+(a real transfer and a load test, about 0.8 MB each), and the goal caps those at about five. So the check of the mobile class after an
+install or an update, the quiet check and the random check all run on mobile data without asking; the whole list is never scanned
+for its own sake (patch 55 removed the 25-day full re-check and its wait for an unmetered network). The mobile record is also built from real
+use and from the cheap live checks that every download and every tunnel start do.
+
+If every strategy of a seeded class is blocked, the tunnel runs a short search of its own at start-up (`SearchGoal.QUICK`); if the connection
+does not reach YouTube at all it says so (section 8).
+
+## 10. Constants
 
 | Constant | Value | Where |
 |---|---|---|
@@ -182,26 +227,31 @@ when the chain is created); Home still shows the "not tested" line and Settings 
 | Class change must hold | 4 ticks of 500 ms = 2 s | `NetSwitch.STABLE_TICKS` |
 | Tunnel probe / flow window / first probe | 30 s / 10 s / 45 s | `BypassVpnService` |
 | Tunnel strategy switches | 2 failed probes or 3 one-way windows; at most 3 per 10 min, 90 s apart | `BypassVpnService` |
-| Dropdown size | 15 | `DASH_STRATEGY_LIMIT` |
-| Quiet re-check | every 25 days, unmetered only | `MaintenanceSchedule` |
+| Check goal (first, class, manual) | 5 working, 3 perfect | `SearchGoal.STANDARD` |
+| Start-up search goal | 2 working | `SearchGoal.QUICK` |
+| Random check | 2 strategies, 12 h apart per class | `RandomCheckPolicy.PICKS`, `INTERVAL_MS` |
+| Frozen bottom | 15 strategies, 75 days | `StrategyRank.BOTTOM_COUNT`, `FREEZE_MS` |
+| Retry after an unfinished class check | 6 h | `ClassCheckPolicy.RETRY_GAP_MS` |
+| yt-dlp update | every 25 days, and on a fresh install / an update | `MaintenanceSchedule.INTERVAL_MS`, `YtOfflineApp` |
 
-## 9. Reading a report
+## 11. Reading a report
 
-`Copy report` (Settings) now describes the class the phone is on:
+`Copy report` (Settings) describes the class the phone is on (patches 54-55 add `v4only=0|1`, `chk=ok|due` and `rand=<hours>|none` to `#state`):
 - `#state ... cls=wifi|mobile seeded=0|1 ... chain=N pin= proven= quar= rated=N search_age=`: `seeded=1` means the chain is
   borrowed; `rated` is how many strategies are rated at least 50.
 - `#rate pos=s2 rt=74 test=90 ok=0.00 bad=1.00 s=...`: the four best rated strategies: place in the chain (`out` when not
   in it), the rating, the last test score (`-` never tested, `fail` failed), the real evidence.
 - `#other net=mobile chain=6 seeded=1 pin=0`: the other class, in one line.
-- In the log: `seed net=mobile from=wifi`, `tun up ... net=mobile`, `net change wifi->mobile`, `rotate net=wifi quarantined=1`,
+- In the log (patches 54-55: `reach net=... v4only=learned|none`, `srch rand net=... works= fault=`, `byp start search net= found=`, `vpn chk ... rc=`): `seed net=mobile from=wifi`, `tun up ... net=mobile`, `net change wifi->mobile`, `rotate net=wifi quarantined=1`,
   `tun proven net=`, `ladder ... net=`, `kept net=... rated=`, `search net-changed ...`.
 
-## 10. Rules for changing it
+## 12. Rules for changing it
 
 - Everything a strategy has done is per class. A new record, key or cache that is not keyed by `NetClass` reintroduces the
   problem this solves.
 - A test and real use are the two halves of the rating; do not record a search's findings as real use (patch 53 removed the
   probe outcomes for that reason) and do not rank by the test alone.
 - A change of connection is not a failure: it must not quarantine, demote or count towards the switch limit.
-- No full search on a metered connection without the user starting it.
+- A failure that happens before a strategy acts (CONNECT, "unreachable") is the route's, never the strategy's: it is not stored, not quarantined, not counted.
+- A check has a goal and ends when it is reached; nothing scans the whole list for its own sake. The frozen bottom of the ranking is last, not removed.
 - The pure files take no `Context`; keep policy there and storage in `DpiPrefs`, so it stays testable without a device.

@@ -33,8 +33,8 @@ object BypassVpnController {
     private val mutableState = MutableStateFlow(BypassVpnUiState())
     val state = mutableState.asStateFlow()
 
-    // Patch 45: what the Home dashboard shows about a running tunnel: its speed, the verdict of the last traffic
-    // window and the strategy in use. It belongs to one run of the tunnel, so every state change but "active"
+    // Patch 45: what the Home dashboard shows about a running tunnel: the verdict of the last traffic
+    // window and the strategy in use (patch 55: no speed any more). It belongs to one run of the tunnel, so every state change but "active"
     // (which the service follows with the strategy position) starts it again from nothing.
     private val mutableTraffic = MutableStateFlow(TunnelTraffic())
     internal val traffic = mutableTraffic.asStateFlow()
@@ -58,10 +58,6 @@ object BypassVpnController {
 
     internal fun publishPosition(position: Int, total: Int) {
         mutableTraffic.update { it.copy(position = position, total = total) }
-    }
-
-    internal fun publishRate(rate: TunnelRate) {
-        mutableTraffic.update { it.copy(rate = rate) }
     }
 
     internal fun publishVerdict(verdict: FlowVerdict) {
@@ -109,10 +105,6 @@ class BypassVpnService : VpnService() {
 
     // Patch 46: the strategy that already proved it carries real traffic in this tunnel run, so it is recorded once.
     @Volatile private var provedLine: String? = null
-
-    // Patch 45: the tunnel's speed for the Home dashboard, sampled from the same counters every few seconds.
-    @Volatile private var rateSample: TunnelCounters? = null
-    @Volatile private var rateSampleAt = 0L
 
     // Patch 53: the connection class (Wi-Fi, mobile data) the tunnel's strategies were chosen for, and for how many monitor
     // ticks in a row the system has reported another one (see followConnection).
@@ -201,7 +193,7 @@ class BypassVpnService : VpnService() {
         try {
             // Patch 53: the strategies of the connection the phone is on now (a class with none borrows the other's).
             val cls = NetClassWatcher.current(this)
-            val chain = DpiStrategyStore.chain(this, cls)
+            var chain = DpiStrategyStore.chain(this, cls)
             if (chain.isEmpty()) {
                 fail(R.string.bypass_vpn_no_verified_strategy)
                 return
@@ -217,29 +209,14 @@ class BypassVpnService : VpnService() {
             // SOCKS engine does NOT prove the restriction can be bypassed; never report an
             // active VPN using a strategy whose health check just failed.
             // A pinned manual choice leads, but failed choices are still skipped.
-            val failedLines = mutableListOf<String>()
-            var chosenLine: String? = null
-            for ((position, line) in chain.withIndex()) {
-                val parsed = DpiStrategyParser.parse(line) as? DpiStrategyParser.Parsed.Ok ?: continue
-                if (stopRequested.get()) return
-                val candidate = DpiEngine.startForVpn(this, parsed.args) ?: continue
-                val health = DpiBypass.checkHealth(candidate.port)
-                AppLog.i(
-                    "BypassVpnService",
-                    "chk s=${position + 1}/${chain.size} ok=${health.ok} st=${health.stage} why=${health.why} ms=${health.ms}"
-                )
-                if (TunnelStartupPolicy.accepts(health.ok, stopRequested.get())) {
-                    engine = candidate
-                    chosenLine = line
-                    break
-                }
-                candidate.close()
-                if (!stopRequested.get()) failedLines.add(line)
-            }
+            // Patch 54: see selectRoute -- a connection the engine cannot reach is told from a blocked strategy, and a class that
+            // was never tested gets a short search of its own when its borrowed strategies are blocked.
+            val route = selectRoute(cls, chain)
             if (stopRequested.get()) return
-            // A confirmed working fallback is evidence that these routes failed on THIS network.
-            TunnelStartupPolicy.failuresToLearn(failedLines, chosenLine).forEach { DpiPrefs.quarantine(this, cls, it) }
-            if (engine == null) throw BypassStartException(R.string.bypass_vpn_engine_failed)
+            if (route.noRoute) throw BypassStartException(R.string.bypass_vpn_no_route)
+            engine = route.engine ?: throw BypassStartException(R.string.bypass_vpn_engine_failed)
+            val chosenLine: String? = route.line
+            chain = route.chain
 
             tun = buildAppTunnel(appPackage)
                 ?: throw BypassStartException(R.string.bypass_vpn_tunnel_failed)
@@ -283,7 +260,6 @@ class BypassVpnService : VpnService() {
             tunnelStartedAt = startedNow
             nextFlowCheckAt = startedNow + FLOW_INTERVAL_MS
             flowPrevious = TunnelCounters.ZERO
-            rateSample = null
             oneWayStreak = 0
             flowWindows = 0
             provedLine = null
@@ -301,6 +277,7 @@ class BypassVpnService : VpnService() {
             )
             AppLog.i("BypassVpnService", "YouTube-only bypass active")
             if (monitorRunning.compareAndSet(false, true)) executor.execute { monitorTunnel() }
+            startRandomCheck(cls, chosenLine)
         } catch (e: BypassStartException) {
             fail(e.errorRes)
         } catch (e: InterruptedException) {
@@ -321,6 +298,130 @@ class BypassVpnService : VpnService() {
                 BypassVpnController.stopped()
                 stopSelf()
             }
+        }
+    }
+
+    /**
+     * Patch 55: the two-a-day random check ([RandomCheck]) for the connection this tunnel runs on, started once the tunnel is up so
+     * switching the bypass on is not delayed. It has its own thread (the monitor and the start/stop work take turns on [executor])
+     * and gives way as soon as the tunnel is stopped. The strategy in use is not among the ones it tests.
+     */
+    private fun startRandomCheck(cls: NetClass, active: String?) {
+        Thread({
+            try {
+                RandomCheck.runIfDue(applicationContext, cls, active) { stopRequested.get() || !tunnelRunning }
+            } catch (e: Exception) {
+                AppLog.e("BypassVpnService", "Random check failed", e)
+            }
+        }, "kinescope-random-check").apply { isDaemon = true }.start()
+    }
+
+    /** Patch 54: the outcome of choosing the strategy a tunnel starts on. */
+    private class RouteChoice(val engine: DpiEngineSession?, val line: String?, val chain: List<String>, val noRoute: Boolean)
+
+    /**
+     * Patch 54: the first strategy of [startChain] (or, failing that, of a chain found on demand) whose live check passes.
+     *
+     * A check that fails at CONNECT with "unreachable" never got to the strategy: the engine could not reach the host. The first
+     * time that happens, [DpiBypass.reach] decides whether the cause is IPv6 (the class is then remembered as IPv4-only and the
+     * chain is tried again from the start) or the connection itself (no route: the start stops at once, nothing is blamed). Such
+     * a failure is never counted against a strategy. Strategies that failed at the TLS or HTTP stage are blocked ones; when every
+     * one of them is, the class's chain is probably just not meant for this connection (a chain borrowed from the other class,
+     * patch 53), so one short search runs for the class and its result is tried.
+     */
+    private fun selectRoute(cls: NetClass, startChain: List<String>): RouteChoice {
+        var chain = startChain
+        var reachChecked = false
+        var searched = false
+        while (true) {
+            val failedLines = mutableListOf<String>()
+            var reachFaults = 0
+            var restart = false
+            for ((position, line) in chain.withIndex()) {
+                val parsed = DpiStrategyParser.parse(line) as? DpiStrategyParser.Parsed.Ok ?: continue
+                if (stopRequested.get()) return RouteChoice(null, null, chain, false)
+                val candidate = DpiEngine.startForVpn(this, parsed.args) ?: continue
+                val health = DpiBypass.checkHealth(candidate.port)
+                AppLog.i(
+                    "BypassVpnService",
+                    "chk s=${position + 1}/${chain.size} ok=${health.ok} st=${health.stage} why=${health.why} " +
+                        "rc=${health.replyCode ?: "-"} ms=${health.ms}"
+                )
+                if (TunnelStartupPolicy.accepts(health.ok, stopRequested.get())) {
+                    // A confirmed working fallback is evidence that these routes failed on THIS network.
+                    TunnelStartupPolicy.failuresToLearn(failedLines, line).forEach { DpiPrefs.quarantine(this, cls, it) }
+                    return RouteChoice(candidate, line, chain, false)
+                }
+                candidate.close()
+                if (stopRequested.get()) return RouteChoice(null, null, chain, false)
+                if (health.reachFault) {
+                    reachFaults++
+                    if (!reachChecked) {
+                        reachChecked = true
+                        when (DpiBypass.reach(this, cls, line) { stopRequested.get() }) {
+                            Reach.NO_ROUTE -> return RouteChoice(null, null, chain, true)
+                            Reach.IPV4_ONLY -> {
+                                restart = true
+                                break
+                            }
+                            else -> Unit
+                        }
+                    }
+                    continue
+                }
+                failedLines.add(line)
+            }
+            if (restart) continue
+            if (stopRequested.get()) return RouteChoice(null, null, chain, false)
+            // Every strategy failed before it could be judged: the connection, not the chain, is the problem.
+            if (failedLines.isEmpty() && reachFaults > 0) return RouteChoice(null, null, chain, true)
+            if (!searched && failedLines.isNotEmpty()) {
+                searched = true
+                val found = searchOnDemand(cls)
+                if (found.isNotEmpty() && found != chain) {
+                    chain = found
+                    continue
+                }
+            }
+            return RouteChoice(null, null, chain, false)
+        }
+    }
+
+    /**
+     * Patch 54: a short search for [cls] while the tunnel is starting: it stops at [SearchGoal.QUICK] (two working strategies), its
+     * results are stored for the class and the chain it produced is returned (empty when nothing was found, the search was stopped
+     * or another search is already running). The notification shows its progress like the "Update" action does.
+     */
+    private fun searchOnDemand(cls: NetClass): List<String> {
+        if (DpiSearchController.state.value.running) return emptyList()
+        updating = true
+        postNotification()
+        try {
+            val results = DpiBypass.search(
+                applicationContext,
+                cls,
+                isCancelled = { stopRequested.get() },
+                onProgress = { snapshot ->
+                    updateProgress = snapshot
+                    postNotification()
+                },
+                goal = SearchGoal.QUICK
+            )
+            if (stopRequested.get()) return emptyList()
+            if (!DpiBypass.recordSearch(applicationContext, cls, results)) return emptyList()
+            if (!DpiBypass.applySearchResults(applicationContext, cls, results)) {
+                AppLog.i("BypassVpnService", "start search net=${cls.key} found nothing")
+                return emptyList()
+            }
+            AppLog.i("BypassVpnService", "start search net=${cls.key} found=${results.count { it.fullPass }}")
+            return DpiStrategyStore.chain(applicationContext, cls)
+        } catch (e: Exception) {
+            AppLog.e("BypassVpnService", "Start search failed", e)
+            return emptyList()
+        } finally {
+            updating = false
+            updateProgress = null
+            postNotification()
         }
     }
 
@@ -350,7 +451,6 @@ class BypassVpnService : VpnService() {
                 }
                 if (++ticks % NOTIFICATION_CHECK_TICKS == 0) ensureNotificationVisible()
                 if (!updating && !restarting) followConnection()
-                if (ticks % TRAFFIC_TICKS == 0) publishTrafficRate()
                 if (!updating && !restarting && SystemClock.elapsedRealtime() >= nextFlowCheckAt) checkTunnelFlow()
                 if (!updating && !restarting && SystemClock.elapsedRealtime() >= nextProbeAt) probeTunnel()
             }
@@ -481,21 +581,6 @@ class BypassVpnService : VpnService() {
             oneWayStreak = 0
             rotateStrategy(line)
         }
-    }
-
-    /**
-     * Patch 45: the tunnel's speed for the Home dashboard, from the same bridge counters as [checkTunnelFlow] but read
-     * every [TRAFFIC_TICKS] ticks (2 s). The first reading after a (re)start only sets the baseline. No log line: the
-     * `tun win` lines already record the traffic.
-     */
-    private fun publishTrafficRate() {
-        val now = SystemClock.elapsedRealtime()
-        val current = TunnelCounters.fromStats(runCatching { TProxyService.TProxyGetStats() }.getOrNull()) ?: return
-        val previous = rateSample
-        val elapsed = now - rateSampleAt
-        rateSample = current
-        rateSampleAt = now
-        if (previous != null) BypassVpnController.publishRate(TunnelRate.between(previous, current, elapsed))
     }
 
     /** Patch 44: one line with the whole session's traffic, written when the tunnel is stopped. */
@@ -743,9 +828,6 @@ class BypassVpnService : VpnService() {
         // Patch 44: the traffic of the YouTube app through the tunnel (see checkTunnelFlow).
         private const val FLOW_INTERVAL_MS = 10_000L
         private const val BRIDGE_SETTLE_MS = 250L
-
-        // Patch 45: the dashboard's speed reading, every 4th tick of the 500 ms monitor (2 s).
-        private const val TRAFFIC_TICKS = 4
 
         fun start(context: Context): Boolean {
             val intent = Intent(context, BypassVpnService::class.java).apply { action = ACTION_START }

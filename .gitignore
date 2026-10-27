@@ -21,6 +21,7 @@ keystore.properties
 
 # Patch 42: tooling leftovers that must never be committed (patch scripts, repomix packs, merge debris).
 /patch_*.py
+/kinescope_patch*.py
 /repomix-output.*
 *.orig
 *.rej

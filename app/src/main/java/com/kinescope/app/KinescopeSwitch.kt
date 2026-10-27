@@ -4,7 +4,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.graphics.Color
 
 /** Brand orange when enabled, neutral gray when disabled, in light and dark themes. */
 @Composable

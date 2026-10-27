@@ -12,6 +12,14 @@ internal data class BypassDiagnosis(
     val reports: List<NetworkCheckReport>
 )
 
+/**
+ * Patch 54: whether the engine can reach the hosts at all on a connection, as found by [DpiBypass.reach].
+ * [OK] it can; [IPV4_ONLY] it can with the engine's IPv4-only option (now remembered for the class); [NO_ROUTE] it cannot, with or
+ * without it (the connection itself, not the strategy, is the problem); [BLOCKED] it reaches the host and the strategy is
+ * what fails (the ordinary case a strategy search is for).
+ */
+internal enum class Reach { OK, IPV4_ONLY, NO_ROUTE, BLOCKED }
+
 /** Glue between the settings, the engine and the download service. */
 object DpiBypass {
     /**
@@ -25,7 +33,6 @@ object DpiBypass {
      * Patch 33: after the first launch (which scans every candidate) a manual search stops once
      * this many strategies passed, so it does not always take minutes. Ranking still applies.
      */
-    private const val MAX_PASSES_TO_RANK = 12
 
     /** Patch 33: per-stage timeout of the quick live check made right before a strategy is used. */
     private const val HEALTH_STAGE_TIMEOUT_MS = 6_000
@@ -43,6 +50,9 @@ object DpiBypass {
      * NetworkCheck()'s own default budget; this only affects the multi-candidate search.
      */
     private const val SEARCH_STAGE_TIMEOUT_MS = 4_000
+
+    /** Patch 54: per-stage timeout of the direct DNS and TCP picture logged when the engine cannot reach anything. */
+    private const val FAMILY_STAGE_TIMEOUT_MS = 3_000
 
     /**
      * Patch 33: the strategies a download may use, best first -- empty when the bypass is off or
@@ -78,7 +88,16 @@ object DpiBypass {
     }
 
     /** Patch 34: outcome of one live connection check; [stage] and [why] are log-sized. */
-    internal data class HealthResult(val ok: Boolean, val stage: String, val why: String, val ms: Long)
+    internal data class HealthResult(
+        val ok: Boolean,
+        val stage: String,
+        val why: String,
+        val ms: Long,
+        /** Patch 54: the SOCKS reply code of a failed CONNECT, null when the failure was something else. */
+        val replyCode: Int? = null,
+        /** Patch 54: the engine could not reach the host at all (`StageResult.isReachFault`). */
+        val reachFault: Boolean = false
+    )
 
     /**
      * Patch 34: one real connection through a running engine, retried [tries] times. A strategy
@@ -97,7 +116,7 @@ object DpiBypass {
             val failed = check.checkViaBypass(endpoint, NetworkCheck.DEFAULT_HOST).failed
             val ms = (System.nanoTime() - startedAt) / 1_000_000L
             if (failed == null) return HealthResult(true, "ok", "-", ms)
-            last = HealthResult(false, failed.stage.name, LogFormat.shortReason(failed.detail), ms)
+            last = HealthResult(false, failed.stage.name, LogFormat.shortReason(failed.detail), ms, failed.replyCode, failed.isReachFault)
             if (attempt < attempts) Thread.sleep(HEALTH_RETRY_PAUSE_MS)
         }
         return last
@@ -114,8 +133,56 @@ object DpiBypass {
             AppLog.w("DpiBypass", "search net-changed from=${cls.key} to=${now.key}; results dropped")
             return false
         }
-        DpiResultsStore.save(context, cls, results)
+        // Patch 54: a strategy the engine could not even connect with says nothing about the strategy: it is not a failed test.
+        val usable = withoutReachFaults(results)
+        if (usable.size != results.size) {
+            AppLog.w("DpiBypass", "search net=${cls.key} dropped=${results.size - usable.size} (the engine could not reach the host)")
+        }
+        DpiResultsStore.save(context, cls, usable)
         return true
+    }
+
+    /** Patch 54: [results] without the ones whose every failed probe was a reach fault (see [StrategyResult.connectFault]). */
+    internal fun withoutReachFaults(results: List<StrategyResult>): List<StrategyResult> = results.filterNot { it.connectFault }
+
+    /**
+     * Patch 54: can the engine reach the hosts on [cls] at all? One engine start and one live check with [line] (any strategy: the
+     * CONNECT stage is reached before a strategy does anything). A failure at the TLS or HTTP stage means the host was reached
+     * and the strategy is what is blocked ([Reach.BLOCKED]). A failure at CONNECT with "unreachable" is the route: the same
+     * strategy is tried once more with the engine's IPv4-only option, and when that gets through the class is remembered as
+     * IPv4-only ([Reach.IPV4_ONLY]); when it does not either, nothing a strategy can do helps ([Reach.NO_ROUTE]) and the
+     * log gets the direct DNS and TCP picture per IP family. An engine that cannot be started (it is busy) is "unknown": [Reach.OK].
+     */
+    internal fun reach(context: Context, cls: NetClass, line: String, isCancelled: () -> Boolean = { false }): Reach {
+        val parsed = DpiStrategyParser.parse(line) as? DpiStrategyParser.Parsed.Ok ?: return Reach.OK
+        val already = DpiPrefs.ipv4Only(context, cls)
+        val first = reachProbe(context, parsed.args, already) ?: return Reach.OK
+        if (first.ok) return Reach.OK
+        if (!first.reachFault) return Reach.BLOCKED
+        if (isCancelled()) return Reach.OK
+        if (!already) {
+            val second = reachProbe(context, parsed.args, true) ?: return Reach.OK
+            if (second.ok || !second.reachFault) {
+                DpiPrefs.setIpv4Only(context, cls, true)
+                AppLog.i(
+                    "DpiBypass",
+                    "reach net=${cls.key} v4only=learned rc=${first.replyCode ?: "-"} then=${second.stage}/${second.why}"
+                )
+                return Reach.IPV4_ONLY
+            }
+        }
+        val family = NetworkCheck(stageTimeoutMs = FAMILY_STAGE_TIMEOUT_MS).familyReport(NetworkCheck.DEFAULT_HOST).format()
+        AppLog.w("DpiBypass", "reach net=${cls.key} none rc=${first.replyCode ?: "-"} v4only=${if (already) 1 else 0} $family")
+        return Reach.NO_ROUTE
+    }
+
+    private fun reachProbe(context: Context, args: List<String>, ipv4Only: Boolean): HealthResult? {
+        val session = DpiEngine.start(context, args, ipv4Only = ipv4Only) ?: return null
+        return try {
+            checkHealth(session.port, tries = 1)
+        } finally {
+            session.close()
+        }
     }
 
     /**
@@ -136,7 +203,8 @@ object DpiBypass {
     ): Boolean {
         val ranked = DpiStrategySearch.ranked(results)
         if (ranked.isEmpty()) return false
-        val failed = results.filter { !it.fullPass }.map { it.line }.toSet()
+        // Patch 54: a strategy the engine could not connect with is neither a pass nor a failure.
+        val failed = results.filter { !it.fullPass && !it.connectFault }.map { it.line }.toSet()
         val now = System.currentTimeMillis()
         val ratings = DpiPrefs.ratings(context, cls, now)
         val pinned = DpiPrefs.pinned(context, cls)
@@ -193,22 +261,29 @@ object DpiBypass {
         cls: NetClass,
         isCancelled: () -> Boolean,
         onProgress: (SearchProgress) -> Unit,
-        fullScan: Boolean = false,
-        /** Patch 35: test exactly these strategies (Settings "Test") instead of the whole list. */
+        /** Patch 35: test exactly these strategies (Settings "Test", the random check) instead of the whole list. */
         only: List<String>? = null,
         /** Patch 35: blocks while a download needs the engine. */
-        waitIfPaused: () -> Unit = {}
+        waitIfPaused: () -> Unit = {},
+        /**
+         * Patch 55: when the search has found enough and stops ([SearchGoal.STANDARD] for a check, [SearchGoal.QUICK] for a
+         * tunnel that is starting). Null tests every one of [only], or the whole list.
+         */
+        goal: SearchGoal? = null
     ): List<StrategyResult> {
         val startedAt = System.nanoTime()
         val check = NetworkCheck(stageTimeoutMs = SEARCH_STAGE_TIMEOUT_MS)
         // Patch 34: failures are counted by host, stage and reason instead of one log line per
         // probe (about 200 lines per full scan); logSearchSummary prints the totals once.
         val fails = ConcurrentHashMap<String, AtomicInteger>()
+        // Patch 54: probes per engine port that failed because the engine could not reach the host.
+        val reachFaults = ConcurrentHashMap<Int, AtomicInteger>()
         val search = DpiStrategySearch(
             startEngine = { args -> startWhenFree(context, args, isCancelled) },
             probeHost = { port, host ->
                 val result = check.checkViaBypass(SocksEndpoint(DpiEngine.HOST, port), host)
                 result.failed?.let { failed ->
+                    if (failed.isReachFault) reachFaults.computeIfAbsent(port) { AtomicInteger() }.incrementAndGet()
                     val key = "${hostTag(host)}:${failed.stage}:${LogFormat.shortReason(failed.detail)}"
                     fails.computeIfAbsent(key) { AtomicInteger() }.incrementAndGet()
                 }
@@ -221,19 +296,34 @@ object DpiBypass {
             // Patch 33: rank by a real transfer, not only by the light probe.
             deepProbe = { port -> check.throughputViaBypass(SocksEndpoint(DpiEngine.HOST, port)) },
             // Patch 35: and by how it behaves with several connections at once.
-            loadProbe = { port -> check.loadViaBypass(SocksEndpoint(DpiEngine.HOST, port)) }
+            loadProbe = { port -> check.loadViaBypass(SocksEndpoint(DpiEngine.HOST, port)) },
+            faults = { port -> reachFaults.remove(port)?.get() ?: 0 }
         )
-        // Patch 35: the current chain goes first, so a re-check confirms or replaces it early.
-        val candidates = only ?: (DpiStrategyStore.verifiedChain(context, cls) + DpiStrategyStore.candidates(context)).distinct()
+        val candidates = only ?: searchOrder(context, cls)
         val results = search.run(
             candidates,
             isCancelled,
             onProgress,
-            stopAfterFullPasses = if (fullScan || only != null) Int.MAX_VALUE else MAX_PASSES_TO_RANK,
-            waitIfPaused = waitIfPaused
+            stopAfterFullPasses = Int.MAX_VALUE,
+            waitIfPaused = waitIfPaused,
+            goal = goal
         )
         logSearchSummary(results, fails, startedAt)
         return results
+    }
+
+    /**
+     * Patch 55: the order a search of [cls] walks down. The current chain first (a check confirms or replaces it early, as since
+     * patch 35), then every strategy in the order of [StrategyRank]: the ones with good evidence, the ones never tested here, and
+     * last the ones that did badly, the frozen ones at the very end (they are tried only when the rest could not give enough).
+     */
+    internal fun searchOrder(context: Context, cls: NetClass, now: Long = System.currentTimeMillis()): List<String> {
+        val order = StrategyRank.order(
+            DpiStrategyStore.candidates(context),
+            DpiPrefs.ratings(context, cls, now),
+            DpiResultsStore.load(context, cls)
+        )
+        return (DpiStrategyStore.verifiedChain(context, cls) + order).distinct()
     }
 
     /**
@@ -248,7 +338,8 @@ object DpiBypass {
             .joinToString(",") { "${it.key}=${it.value.get()}" }
         AppLog.i(
             "DpiSearch",
-            "done n=${results.size} pass=${passes.size} nostart=${results.count { !it.started }} ms=$ms fails=[$failText]"
+            "done n=${results.size} pass=${passes.size} nostart=${results.count { !it.started }} " +
+                "fault=${results.count { it.connectFault }} ms=$ms fails=[$failText]"
         )
         for (pass in passes.take(MAX_PASS_LINES)) {
             val transfer = if (pass.deepOk) "${pass.throughputKbps}KB/s" else "no"

@@ -1,18 +1,3 @@
-## October 2026 — v.3: restore CI compatibility after dashboard refresh
-
-- Completed the `HANDOFF.md` source-file map for `KinescopeSwitch.kt` and `TunnelStartupPolicy.kt` (fixes `DocumentationTest`).
-- Matched the Android light/dark window backgrounds to `Theme.kt` (fixes `ThemeResourcesTest` and prevents startup color flashes).
-- Kept all pending v.2 router, VPN and UI changes; verify unit tests, lint and debug build before committing/pushing. Real-device network behavior is not verified by these checks.
-
-## October 2026 — adaptive router and dashboard hardening
-
-- The Wi-Fi/mobile classifier, rating records, per-class pins, live checks and learned chains remain separate. The active tunnel evaluates verified strategies in class-specific order. A SOCKS engine that starts but fails the YouTube health probe is **not** accepted as a working route; if all routes fail, the app reports failure rather than an unusable active VPN.
-- Unexpected engine/bridge termination now enters the same rate-limited strategy recovery path as failed probes and one-way traffic. Exhaustion shuts down this app's VPN instead of presenting a stuck active switch. Switching networks retains the stable-handover filter.
-- Toggling bypass off closes the Android TUN descriptor immediately and starts separate cleanup, instead of placing cleanup behind the long-running monitor in the single-thread queue. Only Kinescope's own VPN and engine can be stopped; Android prohibits an app from forcibly closing other apps' VPNs.
-- Home now shows a single clear tunnel toggle, automatic strategy toggle (default on per class), connection label, status/traffic, and **Watch YouTube**. Manual strategy selection resides at the very bottom of Settings and appears only when automatic selection is disabled for the connected class.
-- The visuals use M3 semantics with defined orange-on/gray-off switch colors, card hierarchy and more expressive rounded surfaces; window-aware rail/two-pane and TV focus affordances are retained.
-- Verification required on real devices: Wi-Fi/mobile transitions, blocked networks, VPN permission revocation, stop during a slow probe, light/dark themes, narrow and expanded windows, TV remote, English and Russian. Repository tests cannot demonstrate real-world circumvention or prove vendor-specific Android VPN behavior.
-
 # Changelog
 
 All notable changes to Kinescope are recorded here, one entry per
@@ -27,6 +12,120 @@ Patches are cumulative and applied in order (01, 02, 03, ...). See each
 patch's own `.py` script for the exact, idempotent, exact-match-guarded
 edits it makes.
 
+
+## Patch 55 — Checks that stop at a goal, groups per connection, a two-a-day random check, a heartbeat, hints
+
+Request (2026-10-26, applied on top of patch 54): improve the router. (1) The first launch no longer checks all 72 strategies: the
+aim is 5 working strategies, at least 3 of them at 100%; yt-dlp is updated on the first launch and on an update, and so is the strategy
+list. (2) Strategies are two groups, Wi-Fi and mobile carrier, each checked on its own; when the app is installed on Wi-Fi the Wi-Fi group
+is recorded as updated and the mobile group is checked when the phone is on mobile data. (3) Twice a day, the first time the bypass is
+switched on, two random strategies are tested and recorded; one that fails goes to the very bottom of its group's list, and the 15
+lowest-ranked are looked at again only after 75 days. (4) Settings -> Test strategies ends at the same goal. (5) The dashboard shows no
+connection speed: a pulsing green line while it works, a red flat line when there is no connection. (6) Hints under the dashboard in a
+semi-transparent panel that cannot be closed. (7) The design drifts towards modern Google design (Gemini's redesign is the reference): check
+the GUI and improve it. (8) Update the documents; deliver a script that applies on top of patch 54.
+
+**Reading of the brief (where it was loose; change here if it was meant otherwise).**
+- *Working* is `StrategyResult.works`: every required host answered and a real transfer through it completed. *At 100%* is
+  `StrategyResult.perfect`: every probed host, the transfer and every simultaneous connection completed. It is not "score 100": the score
+  also asks for handshakes under 500 ms, which a mobile network may never give. The goal is `SearchGoal.STANDARD` (5 working, 3 perfect); a
+  list that runs out first ends the search with what it found.
+- "On the first launch ... (and when installing updates)" is one rule for both: yt-dlp is updated, and the community strategy list is
+  refreshed (once per app version, just before the check), and then the strategies of the connection the phone is on are checked. The
+  other class is checked the first time the phone is on it with the app open (`ClassCheckPolicy`, `DpiPrefs.checkedVersion`). Only the
+  very first check of a fresh install is mandatory (no Stop, Home says to wait); after an update it is quiet.
+- "The first time you toggle the bypass during a launch, twice a day": the first switch-on of the YouTube bypass that comes at least twelve
+  hours after the last random check *of that connection class* (`RandomCheckPolicy`). It runs on its own thread after the tunnel is up, so
+  starting is not delayed, and it never tests the strategy that carries the tunnel.
+- "Moved to the very bottom of the list" is derived, not stored: the ranking (`StrategyRank`) puts strategies with good evidence first,
+  never-tested ones next and the ones that did badly last, the one that failed LAST at the very bottom. A failed test is the newest test, so
+  it lands there. "The 15 lowest" are the last 15 of that list among the ones that did badly and were tested less than 75 days ago; with
+  fewer than 15 failures all of them are frozen. A search still reaches them if the rest of the list cannot give enough.
+- The red flat line means a connection that is lost: the tunnel is up and nothing comes back, or it stopped on an error. A bypass that is
+  simply switched off, or still starting, shows a muted flat line, so a switch that was turned off on purpose does not look like an alarm.
+  The rule is one `when` in `bypassDashboardModel`.
+- The reference. No Gemini redesign dated October 2023 was found (Gemini launched in December 2023); `design.md` already follows the
+  "Neural Expressive" redesign (May 2026) and so does this patch.
+
+**Changed.**
+- *Checks.* `DpiBypass.search` takes a `SearchGoal` instead of "scan everything / twelve passes"; it walks `searchOrder` (the current chain,
+  then `StrategyRank` order, frozen strategies last). The first-run check, the quiet check after an update, Settings -> Test and the
+  tunnel's start-up search (`SearchGoal.QUICK`, two working) all use it. `DpiSearchService` has the modes manual / initial / check / test;
+  `MODE_BACKGROUND` (the 25-day upkeep) is gone, and with it `MaintenanceSchedule.isDue`, `DpiPrefs.isMaintenanceDue` and
+  `markMaintenanceTried`; what is left of `MaintenanceSchedule` is the 25-day yt-dlp calendar.
+- *Per-connection bookkeeping.* `DpiPrefs.checkedVersion` / `checkTriedAt` (per class), `randomCheckAt` (per class), `listRefreshedVersion`,
+  `removeFromChain`; `ClassCheckPolicy`, `RandomCheckPolicy`, `StrategyRank` in `StrategyRouter.kt`; `RandomCheck` in
+  `DpiSearchService.kt`; `AppUpdate.refreshStrategyListOncePerVersion`. `MainActivity` starts the quiet check when the connection class
+  changes and a version is unchecked.
+- *Launch.* yt-dlp is refreshed on a fresh install as well as on an update. The "app updated, re-check in Settings" banner and
+  `UpdateNotice` are gone (the check is automatic now).
+- *Home.* No speed: the download speed line, the tunnel's rate line, `TunnelRate`, the 2-second rate sampling in `BypassVpnService`,
+  `BypassVpnController.publishRate`, `DownloadJobStatus.speedKbps` and `formatTransferRate` are removed. A `HeartbeatLine` under the YouTube
+  switch (`DashPulse`: green pulse travelling along the line / red flat / muted flat) and a `HintsPanel` closing the column. The search strip
+  reports "checked N, M of 5 good ones found". The card gets a soft orange-to-blue wash while the bypass is on.
+- *Theme.* The tonal layers (`surfaceContainer*`, `surfaceDim/Bright`, `outlineVariant`, `inverse*`) and the second and third accents
+  (`secondary*` a warm neutral, `tertiary*` Google's blue) are set explicitly; Material3's baseline lavender no longer shows in dialogs, menus,
+  text fields and indicators. `pulseAlive` / `pulseLost` join `YtOfflineExtras`.
+- *Tests.* New: `SearchGoalTest`, `StrategyRankTest`, `RandomCheckPolicyTest` (also the class check), `HeartbeatShapeTest`,
+  `TunnelTrafficTest`; `BypassDashboardTest` and `MaintenanceScheduleTest` cut down; `SpotCheckPlannerTest` and `TunnelRateTest` removed.
+- *Removed with the patch-54 additions it replaces:* `SpotCheck`, `SpotCheckService` (the JobScheduler job), `AppVisibility`,
+  `SpotCheckPlanner`, `DpiPrefs.spotAt`, the manifest entry and the `onStart` / `onStop` overrides: patch 55 gives the random check a
+  different trigger (the bypass being switched on), so nothing else samples in the background. Re-adding it later is a small change.
+  `NetworkState.isMetered` had no caller left and is gone.
+
+**Verification done here.** Every non-UI source file type-checks against a real `android.jar` (API 35) with stubs for the libraries that
+could not be fetched; the unit tests (251, new ones included) were run on the JVM. **Not done here:** the Compose files (`BypassDashboard`,
+`HeartbeatLine`, `HintsPanel`, `HomeScreen`, `Theme`, `MainActivity`) were not compiled (no Compose artifacts in the sandbox) and nothing was
+run on a device; the Gradle build, lint and the device gates in `ROADMAP.md` are still to be done.
+
+## Patch 54 — Reachability verdict, IPv4-only fallback, on-demand search (mobile data bypass did not start)
+
+Request (2026-10-25): on mobile data every strategy failed at `st=CONNECT why=unreach`, the bypass did not start, `seeded=1 rated=0`.
+The suspicion: the earlier strategy test did not finish and the Wi-Fi strategies were applied on mobile.
+
+**Finding.** A strategy only changes what is done to the TLS ClientHello after the TCP connection exists. A failure at CONNECT, before any
+strategy-specific byte, is the engine not reaching the host: SOCKS reply 0x03/0x04 (the vendored ByeDPI answers 0x04 when its own name
+lookup fails and 0x03/0x04 for ENETUNREACH / EHOSTUNREACH). `resolve()` uses `AF_UNSPEC` and keeps ONLY the first address, so on a mobile
+network with half-working IPv6 it can pick an unreachable IPv6 address and never try the IPv4 one. The old code could not tell this from
+"the strategy is blocked": it tried all six borrowed strategies, stored "test failed" (rating 0) for every one it tried, and said nothing.
+Whether IPv6 is the cause on that phone is a hypothesis; the patch tests it on the device and logs the evidence either way.
+
+**Changed.** `DpiBypass.reach` (a one-strategy probe: reached -> go on; failed at TLS/HTTP -> the strategy is blocked; failed at CONNECT
+with "unreachable" -> retry the same strategy with the engine's own `-X` = IPv4 only, remember the class as IPv4-only
+(`DpiPrefs.ipv4Only`, applied to every engine start of that class by `DpiEngine`) when that passes, else NO_ROUTE with a direct DNS/TCP
+line per IP family, `NetworkCheck.familyReport`); results where every failed probe was such a fault (`StrategyResult.connectFault`) are not
+stored and not counted as failures; the tunnel on a class that was never tested runs a short on-demand search when its borrowed
+strategies are blocked, and stops at once with its own message when there is no route; report tokens `v4only=`, `rc=`; messages
+`bypass_vpn_no_route`, `bypass_search_no_route`. Also: `kinescope_patch.py` removed (and git-ignored) and the dead code the new Home card
+had left behind.
+
+**Not changed:** the docs (patch 55 updates them), the tunnel's DNS/IPv6/MTU (the engine, not the TUN, is what changed).
+
+## Out-of-band changes (October 2026, between patch 53 and patch 54)
+
+Made outside the patch workflow (an external script, `kinescope_patch.py`, since removed) and recorded here at the end of the sprint. They
+are in the code; the older entries and the device gates below that describe the Home drop-down, the stars or the "Unblock YouTube" button
+describe what existed before them.
+
+**v.2 — adaptive router and dashboard hardening.**
+- The Wi-Fi/mobile classifier, rating records, per-class pins, live checks and learned chains remain separate. The active tunnel evaluates
+  verified strategies in class-specific order. A SOCKS engine that starts but fails the YouTube health probe is **not** accepted as a working
+  route; if all routes fail, the app reports failure rather than an unusable active VPN (`TunnelStartupPolicy`).
+- Unexpected engine/bridge termination enters the same rate-limited strategy recovery path as failed probes and one-way traffic. Exhaustion
+  shuts down this app's VPN instead of presenting a stuck active switch. Switching networks keeps the stable-handover filter.
+- Toggling the bypass off closes the Android TUN descriptor immediately and starts separate cleanup, instead of placing cleanup behind the
+  long-running monitor in the single-thread queue. Only Kinescope's own VPN and engine can be stopped; Android forbids an app from closing
+  other apps' VPNs.
+- Home shows one tunnel toggle, an automatic-strategy toggle (default on per class), a connection label, status and **Watch YouTube** (the
+  button was "Unblock YouTube"). The strategy drop-down, colour names and stars left Home; manual selection is at the very bottom of Settings
+  and appears only when automatic selection is off for the connected class (`KinescopeSwitch`: orange on, gray off).
+- Verification required on real devices: Wi-Fi/mobile transitions, blocked networks, VPN permission revocation, stop during a slow probe,
+  light/dark themes, narrow and expanded windows, TV remote, English and Russian. Repository tests cannot show real-world circumvention or
+  vendor-specific Android VPN behaviour.
+
+**v.3 — CI compatibility after the dashboard refresh.**
+- `HANDOFF.md`'s source-file map completed for `KinescopeSwitch.kt` and `TunnelStartupPolicy.kt` (fixes `DocumentationTest`).
+- The Android light/dark window backgrounds matched to `Theme.kt` (fixes `ThemeResourcesTest` and startup colour flashes).
 
 ## Patch 53 — Strategy router: separate Wi-Fi and mobile-data records, one rating from the test and real use
 

@@ -59,30 +59,37 @@ object DpiEngine {
     private val regularGate = Semaphore(1, true)
     private val vpnGate = Semaphore(1, true)
 
-    /** Regular short-lived engine used by strategy tests and Kinescope downloads. */
+    /**
+     * Regular short-lived engine used by strategy tests and Kinescope downloads. Patch 54: [ipv4Only] null means "as the
+     * connection the phone is on has proven it needs" (`DpiPrefs.ipv4Only`); a caller that is finding that out passes it.
+     */
     fun start(
         context: Context,
         strategyArgs: List<String>,
-        readyTimeoutMs: Long = READY_TIMEOUT_MS
+        readyTimeoutMs: Long = READY_TIMEOUT_MS,
+        ipv4Only: Boolean? = null
     ): DpiEngineSession? = startIsolated(
         context,
         strategyArgs,
         readyTimeoutMs,
         DpiEngineService::class.java,
-        regularGate
+        regularGate,
+        ipv4Only
     )
 
     /** Long-lived engine reserved for the external YouTube split-tunnel session. */
     fun startForVpn(
         context: Context,
         strategyArgs: List<String>,
-        readyTimeoutMs: Long = READY_TIMEOUT_MS
+        readyTimeoutMs: Long = READY_TIMEOUT_MS,
+        ipv4Only: Boolean? = null
     ): DpiEngineSession? = startIsolated(
         context,
         strategyArgs,
         readyTimeoutMs,
         DpiVpnEngineService::class.java,
-        vpnGate
+        vpnGate,
+        ipv4Only
     )
 
     fun regularBusy(): Boolean = regularGate.availablePermits() == 0
@@ -92,12 +99,14 @@ object DpiEngine {
         strategyArgs: List<String>,
         readyTimeoutMs: Long,
         serviceClass: Class<out Service>,
-        gate: Semaphore
+        gate: Semaphore,
+        ipv4Only: Boolean?
     ): DpiEngineSession? {
         if (!gate.tryAcquire()) return null
         var handedOff = false
         try {
             val appContext = context.applicationContext
+            val v4Only = ipv4Only ?: DpiPrefs.ipv4Only(appContext, NetClassWatcher.current(appContext))
             repeat(START_ATTEMPTS) {
                 val port = freePort() ?: return null
                 val session = startOnce(
@@ -106,7 +115,8 @@ object DpiEngine {
                     strategyArgs,
                     readyTimeoutMs,
                     serviceClass,
-                    gate
+                    gate,
+                    v4Only
                 )
                 if (session != null) {
                     handedOff = true
@@ -125,10 +135,11 @@ object DpiEngine {
         strategyArgs: List<String>,
         readyTimeoutMs: Long,
         serviceClass: Class<out Service>,
-        gate: Semaphore
+        gate: Semaphore,
+        ipv4Only: Boolean
     ): DpiEngineSession? {
         val intent = Intent(context, serviceClass)
-            .putExtra(DpiEngineService.EXTRA_ARGS, dpiLaunchArguments(HOST, port, strategyArgs).toTypedArray())
+            .putExtra(DpiEngineService.EXTRA_ARGS, dpiLaunchArguments(HOST, port, strategyArgs, ipv4Only).toTypedArray())
         val connected = CountDownLatch(1)
         val lost = AtomicBoolean(false)
         val connection = object : ServiceConnection {

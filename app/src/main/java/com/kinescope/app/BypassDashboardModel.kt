@@ -1,6 +1,6 @@
 package com.kinescope.app
 
-import java.util.Locale
+import kotlin.math.exp
 
 // Patch 45, redrawn in patch 51: the rules behind the Home bypass dashboard, as plain data so they can be unit-tested
 // on the JVM (`BypassDashboardTest`). `BypassDashboard.kt` only maps the real states into [BypassDashInputs], draws the
@@ -8,6 +8,10 @@ import java.util.Locale
 //
 // Patch 52: the card has ONE switch for the YouTube bypass (the "Unblock YouTube" button moved below the card and the
 // two no longer repeat each other), and the strategies are a drop-down with an "automatic" switch under it.
+// Patch 54: the drop-down, its stars and the "applies next start" note left the card (the manual choice is at the bottom of
+// Settings); the code that only served them is gone.
+// Patch 55: no speed on the card any more (neither the download's nor the tunnel's); a heartbeat line says whether the bypass
+// carries traffic: a green pulse while it does, a red flat line when the connection is lost (`DashPulse`, `HeartbeatLine`).
 //
 // Two different things are called "bypass" in this app:
 // - DOWNLOADS: Kinescope's own downloads go through a verified ByeDPI strategy when `DpiPrefs.isEnabled` is on (the
@@ -24,13 +28,13 @@ internal data class BypassDashInputs(
     /** The verdict of the tunnel's last traffic window; only meaningful while the tunnel is active. */
     val flow: FlowVerdict,
     val searching: Boolean,
-    /** The quiet 25-day re-check: downloads keep using the stored ways and the controls stay usable. */
+    /** The quiet check after an install or an update: downloads keep using the stored ways and the controls stay usable. */
     val searchBackground: Boolean,
     /** The first-run check: it cannot be stopped and the screen says to wait for it. */
     val searchMandatory: Boolean,
     val activeDownloads: Int,
-    /** Speed of the download that is running, in KiB/s as yt-dlp prints it; 0 when none is known yet. */
-    val downloadKbps: Int
+    /** The tunnel stopped on an error (no route, engine failed, ...) and says so; only meaningful while it is off. */
+    val tunnelError: Boolean = false
 )
 
 internal enum class DashHeadline {
@@ -57,7 +61,12 @@ internal enum class DashTunnelState {
 
 internal enum class DashCheckHint { NONE, WAIT_DOWNLOAD }
 
-internal enum class DashStrategyNote { NONE, APPLIES_NEXT }
+/**
+ * Patch 55: what the heartbeat line shows. [ALIVE]: the bypass carries traffic (a green pulse). [LOST]: the connection is lost
+ * (a red flat line): the tunnel is up but nothing comes back, or it stopped on an error. [IDLE]: nothing to report, the bypass is
+ * off by choice or still starting (a muted flat line, so a switch that was turned off on purpose does not look like an alarm).
+ */
+internal enum class DashPulse { ALIVE, LOST, IDLE }
 
 internal data class BypassDashboardModel(
     val headline: DashHeadline,
@@ -71,7 +80,6 @@ internal data class BypassDashboardModel(
     val showControls: Boolean,
     /** Choosing a strategy: not while a search is changing the results. */
     val strategiesEnabled: Boolean,
-    val strategyNote: DashStrategyNote,
     /** The progress strip of a running search, and whether the user may stop it (the first-run check cannot be). */
     val showSearchStrip: Boolean,
     val searchStoppable: Boolean,
@@ -80,9 +88,8 @@ internal data class BypassDashboardModel(
     /** Whether a new check may start now (the same rule as the Test button in Settings). */
     val checkEnabled: Boolean,
     val checkHint: DashCheckHint,
-    /** The download speed line: shown while a download is active; [downloadKbps] is 0 until a speed is known. */
-    val showSpeed: Boolean,
-    val downloadKbps: Int
+    /** Patch 55: the heartbeat line under the YouTube switch. */
+    val pulse: DashPulse
 )
 
 internal fun bypassDashboardModel(inputs: BypassDashInputs): BypassDashboardModel {
@@ -107,108 +114,49 @@ internal fun bypassDashboardModel(inputs: BypassDashInputs): BypassDashboardMode
     val checkIdle = !inputs.searching && tunnelOff
     val checkEnabled = checkIdle && !downloadsBusy
 
+    val tunnelState = when (inputs.tunnel) {
+        TunnelPhase.OFF -> DashTunnelState.OFF
+        TunnelPhase.STARTING -> DashTunnelState.STARTING
+        TunnelPhase.ACTIVE ->
+            if (inputs.flow == FlowVerdict.ONE_WAY) DashTunnelState.NO_ANSWER else DashTunnelState.ON
+    }
+
     return BypassDashboardModel(
         headline = headline,
-        tunnel = when (inputs.tunnel) {
-            TunnelPhase.OFF -> DashTunnelState.OFF
-            TunnelPhase.STARTING -> DashTunnelState.STARTING
-            TunnelPhase.ACTIVE ->
-                if (inputs.flow == FlowVerdict.ONE_WAY) DashTunnelState.NO_ANSWER else DashTunnelState.ON
-        },
+        tunnel = tunnelState,
         tunnelSwitchOn = !tunnelOff,
         // Starting a tunnel needs a verified strategy; a tunnel that is still starting is not interrupted.
         tunnelSwitchEnabled = controls && !tunnelStarting,
         openEnabled = controls && !tunnelStarting,
         showControls = controls,
         strategiesEnabled = controls && !inputs.searching,
-        strategyNote = if (!tunnelOff || downloadsBusy) DashStrategyNote.APPLIES_NEXT else DashStrategyNote.NONE,
         showSearchStrip = inputs.searching,
         searchStoppable = !inputs.searchMandatory,
         showSetupAction = headline == DashHeadline.SETUP && !inputs.searching,
         checkEnabled = checkEnabled,
         checkHint = if (checkIdle && downloadsBusy) DashCheckHint.WAIT_DOWNLOAD else DashCheckHint.NONE,
-        showSpeed = downloadsBusy,
-        downloadKbps = inputs.downloadKbps.coerceAtLeast(0)
+        pulse = when (tunnelState) {
+            DashTunnelState.ON -> DashPulse.ALIVE
+            DashTunnelState.NO_ANSWER -> DashPulse.LOST
+            DashTunnelState.STARTING -> DashPulse.IDLE
+            DashTunnelState.OFF -> if (inputs.tunnelError) DashPulse.LOST else DashPulse.IDLE
+        }
     )
 }
 
 /**
- * Patch 51: the strategy's effectiveness as the 1-5 stars the dashboard draws. The app measures it as a percentage
- * (patch 53: the strategy's [StrategyRating], 0-100); the thresholds are the user's: 100 -> 5, 85-99 -> 4, 75-84 -> 3,
- * 60-74 -> 2, anything below -> 1.
+ * The shape of one heartbeat, as a height from -0.32 (the dip after the spike) to 1.0 (the spike) for a position [t] within the
+ * beat (0 to 1): a small rise (the P wave), a dip, the spike (the R wave), a dip and a broad low swell (the T wave), the rest
+ * lying on the baseline. Plain maths so the shape is unit-tested (`HeartbeatShapeTest`); it lives with the dashboard's model so the drawing code (`HeartbeatLine`) has nothing to test.
  */
-internal fun strategyStars(percent: Int): Int = when {
-    percent >= 100 -> 5
-    percent >= 85 -> 4
-    percent >= 75 -> 3
-    percent >= 60 -> 2
-    else -> 1
-}
-
-/** One row of the dashboard's strategy list. */
-internal data class DashStrategy(val line: String, val percent: Int, val stars: Int)
-
-/** How many strategies the dashboard lists. */
-internal const val DASH_STRATEGY_LIMIT = 15
-
-/**
- * Patch 51: the most successful strategies for the dashboard. Patch 53: by RATING ([StrategyRating]: the last test on
- * this connection and real use together) and not by the last test alone: the strategies rated at least
- * [StrategyRating.ELIGIBLE] that are still in the list ([candidates]; a line the list dropped, such as a flag-fixed variant,
- * is not offered), best first, then in list order. At most [limit]. The stars are the rating's.
- */
-internal fun topStrategies(
-    ratings: Map<String, Int>,
-    candidates: List<String>,
-    limit: Int = DASH_STRATEGY_LIMIT
-): List<DashStrategy> {
-    val order = candidates.withIndex().associate { it.value to it.index }
-    return ratings.entries
-        .filter { it.value >= StrategyRating.ELIGIBLE && it.key in order }
-        .sortedWith(
-            compareByDescending<Map.Entry<String, Int>> { it.value }
-                .thenBy { order.getValue(it.key) }
-        )
-        .take(limit)
-        .map { DashStrategy(it.key, it.value, strategyStars(it.value)) }
-}
-
-/**
- * Patch 52: what the strategy drop-down offers. Patch 53: the [topStrategies] by rating, then the strategies of the
- * connection's [chain] that are not among them (a chain borrowed from the other connection has no ratings here yet; a
- * strategy that failed in real use is rated low but is still in the chain), and the strategy in use ([selected]) first if it
- * is somehow in neither, so the field never shows something the menu cannot list. [DashStrategy.stars] is 0 for a strategy
- * with no rating at all: the menu then shows the name alone, because empty stars would claim a score nobody measured.
- */
-internal fun strategyChoices(
-    ratings: Map<String, Int>,
-    candidates: List<String>,
-    chain: List<String>,
-    selected: String?,
-    limit: Int = DASH_STRATEGY_LIMIT
-): List<DashStrategy> {
-    val top = topStrategies(ratings, candidates, limit)
-    val extra = chain.filter { line -> top.none { it.line == line } }.distinct().map { line ->
-        val rating = ratings[line]
-        DashStrategy(line, rating ?: 0, if (rating != null) strategyStars(rating) else 0)
+internal fun heartbeatSample(t: Float): Float {
+    fun bump(center: Float, width: Float, height: Float): Float {
+        val d = (t - center) / width
+        return height * exp(-0.5f * d * d)
     }
-    val all = top + extra
-    if (selected == null || all.any { it.line == selected }) return all
-    val rating = ratings[selected]
-    return listOf(DashStrategy(selected, rating ?: 0, if (rating != null) strategyStars(rating) else 0)) + all
-}
-
-/**
- * A transfer speed for the dashboard. Units stay in English abbreviations (`KB/s`, `MB/s`), like the speeds yt-dlp
- * prints in the queue rows; the decimal separator follows [locale].
- */
-internal fun formatTransferRate(bytesPerSecond: Long, locale: Locale = Locale.getDefault()): String {
-    val bytes = bytesPerSecond.coerceAtLeast(0L)
-    return when {
-        bytes == 0L -> "0 KB/s"
-        bytes < 1_000L -> "<1 KB/s"
-        // Just below one megabyte per second still rounds to a whole number of KB, never to "1000 KB/s".
-        bytes < 999_500L -> "${(bytes + 500L) / 1_000L} KB/s"
-        else -> String.format(locale, "%.1f MB/s", bytes / 1_000_000.0)
-    }
+    return bump(0.16f, 0.035f, 0.14f) +
+        bump(0.36f, 0.012f, -0.20f) +
+        bump(0.40f, 0.014f, 1.00f) +
+        bump(0.44f, 0.012f, -0.32f) +
+        bump(0.66f, 0.05f, 0.26f)
 }

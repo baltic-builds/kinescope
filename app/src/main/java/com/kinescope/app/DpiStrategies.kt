@@ -168,5 +168,7 @@ object DpiBuiltInStrategies {
  * a strategy. Attached forms (`-p1234`) because a bare `-p` is an ambiguous abbreviation of several
  * long options for getopt_long_only.
  */
-internal fun dpiLaunchArguments(host: String, port: Int, strategyArgs: List<String>): List<String> =
-    listOf("-i$host", "-p$port") + strategyArgs
+internal fun dpiLaunchArguments(host: String, port: Int, strategyArgs: List<String>, ipv4Only: Boolean = false): List<String> =
+    // Patch 54: `-X` is the engine's own `--no-ipv6`: it looks names up for IPv4 only and refuses IPv6 destinations at once.
+    // The app, not a strategy, decides it, for a connection class that proved it needs it (`DpiPrefs.ipv4Only`).
+    listOf("-i$host", "-p$port") + (if (ipv4Only) listOf("-X") else emptyList()) + strategyArgs
