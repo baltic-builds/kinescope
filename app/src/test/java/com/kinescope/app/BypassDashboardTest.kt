@@ -28,6 +28,42 @@ class BypassDashboardTest {
     )
 
     @Test
+    fun theRefreshButtonSitsWithTheControlsAndCanBePressedWhenNothingElseNeedsTheEngine() {
+        val idle = bypassDashboardModel(inputs())
+        assertTrue(idle.showRefresh)
+        assertTrue(idle.refreshEnabled)
+        // It runs beside the tunnel: the strategy in use is never tested.
+        val withTunnel = bypassDashboardModel(inputs(tunnel = TunnelPhase.ACTIVE, flow = FlowVerdict.FLOWING))
+        assertTrue(withTunnel.showRefresh)
+        assertTrue(withTunnel.refreshEnabled)
+    }
+
+    @Test
+    fun theRefreshButtonIsAbsentOnACardThatIsNotSetUpAndDuringTheFirstRunCheck() {
+        assertFalse(bypassDashboardModel(inputs(ways = 0)).showRefresh)
+        assertFalse(bypassDashboardModel(inputs(ways = 3, searching = true, mandatory = true)).showRefresh)
+        // A check the user started and can see replaces the card's controls, the refresh with them.
+        assertFalse(bypassDashboardModel(inputs(searching = true)).showRefresh)
+    }
+
+    @Test
+    fun aRandomCheckKeepsTheCardAndDisablesTheRefreshWhileItRuns() {
+        // The dashboard passes a random check as a quiet one (searchBackground): the controls stay, only the strip shows it.
+        val model = bypassDashboardModel(inputs(searching = true, background = true))
+        assertTrue(model.showRefresh)
+        assertFalse(model.refreshEnabled)
+        assertTrue(model.showControls)
+        assertTrue(model.showSearchStrip)
+    }
+
+    @Test
+    fun aRunningDownloadDisablesTheRefreshLikeItDoesTheTestButton() {
+        val model = bypassDashboardModel(inputs(downloads = 1))
+        assertTrue(model.showRefresh)
+        assertFalse(model.refreshEnabled)
+    }
+
+    @Test
     fun aFreshInstallWithNothingVerifiedOffersOnlyTheCheck() {
         val model = bypassDashboardModel(inputs(ways = 0))
         assertEquals(DashHeadline.SETUP, model.headline)

@@ -86,6 +86,23 @@ internal object DiagnosticReport {
             append(" seeded=").append(if (DpiPrefs.isSeeded(context, otherClass)) 1 else 0)
             append(" pin=").append(if (DpiPrefs.pinned(context, otherClass) != null) 1 else 0)
             append('\n')
+            // Patch 56: both strategy groups in one line each, as the Home card shows them: the connection the phone is on (cur=1),
+            // the ways in the router (chain), the ways rated as working (known), whether the list is borrowed (seeded), the hours
+            // since the group's chain was set (checked) and since its last random check (rand), and what that check found (last =
+            // working/tested).
+            val hours = { at: Long -> if (at <= 0L) "none" else "${(now - at).coerceAtLeast(0L) / 3_600_000L}h" }
+            for (group in groupOrder(cls)) {
+                val last = DpiPrefs.randomLast(context, group)
+                append("#group net=").append(group.key)
+                append(" cur=").append(if (group == cls) 1 else 0)
+                append(" chain=").append(DpiStrategyStore.verifiedChain(context, group).size)
+                append(" known=").append(StrategyRating.eligible(DpiPrefs.ratings(context, group, now)).size)
+                append(" seeded=").append(if (DpiPrefs.isSeeded(context, group)) 1 else 0)
+                append(" checked=").append(hours(DpiPrefs.verifiedAt(context, group)))
+                append(" rand=").append(hours(DpiPrefs.randomCheckAt(context, group)))
+                append(" last=").append(last?.let { "${it.works}/${it.tested}" } ?: "-")
+                append('\n')
+            }
             tests.values.filter { it.passed }.sortedByDescending { it.score }.take(3).forEach {
                 append("#top sc=").append(it.score).append(" kbps=").append(it.kbps)
                 append(" load=").append(it.loadPassed).append('/').append(it.loadTotal)
@@ -100,6 +117,9 @@ internal object DiagnosticReport {
                     "cls=connection class(wifi|mobile) all strategy data below is for it seeded=chain borrowed from the other class, untested here " +
                     "rated=strategies rated >=50 #rate=best rated(pos in chain, rt rating 0-100, test=last test score, ok/bad=real use) " +
                     "#other=the other class(chain size, seeded, pinned) " +
+                    "#group=one strategy group (cur=the phone is on it, chain=ways in the router, known=rated working, checked/rand=hours since, last=working/tested of the last random check) " +
+                    "transport stopped: engine/bridge=which side died, run=seconds it ran, deaths=early deaths of the strategy, fate=restart_same|rotate|stopped_by_user " +
+                    "rotate why=probe|one_way|transport|network|update " +
                     "search_age=days since the last finished search v4only=engine runs IPv4-only on this class (learned, -X) " +
                     "chk=ok|due this class was (not yet) checked for the running app version rand=hours since the last two-a-day random check " +
                     "(log lines: srch rand, byp reach) rc=SOCKS reply of a failed CONNECT\n"

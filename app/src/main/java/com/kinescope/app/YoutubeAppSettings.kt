@@ -24,7 +24,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 
 /**
- * Patch 51: Settings -> "Unblock YouTube opens": the official YouTube app (default), another app that opens YouTube
+ * Patch 51: Settings -> "App for Watch YouTube": the official YouTube app (default), another app that opens YouTube
  * links, or a browser. The choice is a package name in [Settings]; the tunnel and the Home button both read it.
  */
 @Composable

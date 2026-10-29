@@ -4,7 +4,7 @@ The current state of Kinescope for anyone (human or AI agent) resuming work. It 
 appended to: per-patch history lives in `CHANGELOG.md`, open work in `ROADMAP.md`, process rules in `AGENTS.md`,
 product constraints in `CLAUDE.md`. Where this file and the code disagree, the code wins; fix this file.
 
-State as of patch 53, with the October 2026 v.3 verification fixes (2026-10-25).
+State as of patch 56 (2026-10-29). Patches 53-55 and the October 2026 v.3 fixes are described below and in `CHANGELOG.md`.
 
 ## What Kinescope is
 
@@ -34,7 +34,9 @@ out-of-band October changes (the recovery path that does not accept a route that
 Home with one tunnel toggle, an automatic toggle and "Watch YouTube", manual choice at the bottom of Settings, the orange/gray
 `KinescopeSwitch`; `CHANGELOG.md`), and patch 54 (the reachability verdict, the IPv4-only fallback, the on-demand search at tunnel start), and
 patch 55 (checks that stop at 5 working / 3 perfect, one check per connection class and app version, the two-a-day random check, the
-ranking with its frozen bottom 15, the heartbeat line, the hints panel, the theme tokens). The exact
+ranking with its frozen bottom 15, the heartbeat line, the hints panel, the theme tokens), and patch 56 (a stop is not a failure and a first transport
+death is reconnected without blame, the random check also at app opening and while the tunnel stays up, the refresh button, the strategy groups card,
+the two-pane Home on wide windows, dead code removed). The exact
 checklist is `ROADMAP.md`; do not tick a box without the user's report.
 **CI:** the release workflow was red at patch 42 (`AdaptiveLayoutTest` still referenced the removed
 `WidthClass`). Patch 43 fixes it, pins the NDK/CMake, and restructures the workflow (validate, tests + lint,
@@ -209,13 +211,14 @@ UI
 - `MainActivity.kt` -- the activity, `AppSection`, `KinescopeApp` (state, navigation, handlers).
 - `AdaptiveLayout.kt` -- window classification (`AdaptiveSpec`, `adaptiveSpecFor`), TV detection, `InterfaceMode`, `LocalAdaptive`, `AdaptiveRoot`, `FocusRing`.
 - `AppChrome.kt` -- `AppFrame` (top bar + bottom bar, or header + navigation rail; five destinations since patch 52: Home, Queue, `+`, Library, Settings), responsive column.
-- `HomeScreen.kt` -- Home: the bypass dashboard slot, the banners (errors, sign-in) and the hints panel; one column since patch 52.
+- `HomeScreen.kt` -- Home: the bypass dashboard slot, the banners (errors, sign-in), the strategy groups card and the hints panel; one column, or two panes (dashboard + banners | groups + hints) on a wide window since patch 56.
 - `QueueScreen.kt` -- the download queue as its own screen (patch 52): the full list, Pause / Resume / Stop per row, the empty text.
-- `BypassDashboard.kt` -- the Home hero: bypass and automatic-selection switches, network class, tunnel health/traffic, and "Watch YouTube". Manual strategy selection is in Settings.
+- `BypassDashboard.kt` -- the Home hero: bypass and automatic-selection switches, network class, tunnel health/traffic, the router's last change, the refresh button (patch 56) and "Watch YouTube". Manual strategy selection is in Settings.
+- `StrategyGroups.kt`, `StrategyGroupsCard.kt` -- the pure model of the Wi-Fi / mobile group lines (`GroupState`, `RandomLast`) and the Home card that draws them (patch 56); `agoText` (relative time) lives in the card file.
 - `LibraryScreen.kt` -- the library of finished downloads as its own screen (patch 51).
 - `BypassDashboardModel.kt` -- pure rules of that card (`bypassDashboardModel`, `DashPulse`) and the shape of one heartbeat (`heartbeatSample`).
 - `HeartbeatLine.kt` -- the heartbeat line under the YouTube switch (patch 55): Canvas drawing, driven by `withFrameNanos`, still when the system's animations are off.
-- `HintsPanel.kt` -- the semi-transparent hints panel at the bottom of Home (patch 55).
+- `HintsPanel.kt` -- the hints panel (patch 55; 80% opaque with a border since patch 56), at the bottom of Home's column or in its right-hand pane.
 - `QueueAndLibrary.kt` -- the queue-job row (a Stop button on every device since patch 52), the library-file row and the library file actions.
 - `QuickAddScreen.kt`, `SettingsScreen.kt`, `LogsScreen.kt` -- the Add, Settings and Logs screens.
 - `BypassSettings.kt`, `StrategyPicker.kt` -- the bypass section of Settings and the manual strategy list.
@@ -229,7 +232,7 @@ UI
 Network bypass
 - `DpiNative.kt`, `DpiEngineService.kt`, `DpiEngine.kt` -- JNI binding, the `:dpi` host service, the bind/start/close client.
 - `DpiStrategies.kt` -- allowlist parser and built-in strategies; `DpiStrategyStore.kt` -- bypass preferences (`DpiPrefs`: per connection class the verified chain, pin, quarantine and learned record; the shared upkeep calendar).
-- `DpiSearch.kt`, `DpiSearchService.kt` -- the strategy search (`SearchGoal`, `StrategyResult.works` / `perfect` / `connectFault`) and its foreground service/controller (modes manual, initial, check, test; `RandomCheck`, patch 55); `DpiResultsStore.kt` -- last test results.
+- `DpiSearch.kt`, `DpiSearchService.kt` -- the strategy search (`SearchGoal`, `StrategyResult.works` / `perfect` / `connectFault`) and its foreground service/controller (modes manual, initial, check, test, random; `RandomCheck` and `RandomReport`, patches 55-56); `DpiResultsStore.kt` -- last test results.
 - `DpiBypass.kt` -- glue used by downloads and Settings (active chain, health check, `reach` verdict, `searchOrder`, applying results).
 - `ChainPlanner.kt`, `BypassRoutes.kt`, `RouteScoreboard.kt` -- pure ordering rules for strategies and routes.
 - `NetClass.kt`, `NetClassWatcher.kt` -- the connection class (Wi-Fi / mobile data), the rule for when the tunnel follows a change, and the flow that follows the default network (patch 53).
@@ -237,6 +240,7 @@ Network bypass
 - `StrategyMemory.kt` -- pure record of which strategies really carried traffic (real outcomes only since patch 53; fading score, text form); `MaintenanceSchedule.kt` -- pure calendar of the yt-dlp update (25 days) and the day length the other calendars count in.
 - `NetworkCheck.kt`, `NetworkState.kt` -- layered reachability probe through the engine; third-party VPN detection; the connection class (patch 53).
 - `TunnelStartupPolicy.kt` -- checks verified route health before activation and only learns failed candidates after a successful fallback.
+- `TunnelRecovery.kt` -- pure rule for a transport that stops by itself (`TransportRecovery`: stop / reconnect on the same way / rotate) and the router event Home shows (`RouterEvent`) (patch 56).
 - `BypassVpnService.kt` -- `BypassVpnController` and the YouTube-only `VpnService` (`:dpi_vpn`).
 - `TunnelFlow.kt` -- pure judge of the YouTube app's traffic through the tunnel (idle / flowing / one-way, from the bridge counters) and the snapshot the dashboard reads (`TunnelTraffic`: verdict and place in the chain; no speed since patch 55).
 - `app/src/main/java/hev/htproxy/TProxyService.java` -- JNI contract of the vendored `hev-socks5-tunnel`; `app/src/main/cpp/` -- ByeDPI sources, `dpi_jni.c`, `CMakeLists.txt`; `app/src/main/jniLibs/` -- the tunnel library with its license and provenance.
@@ -296,6 +300,9 @@ parser/search/ranking/store, the network probe, the privacy redaction, the windo
   (a dark native action bar with the activity label); `Theme.DeviceDefault.Light.NoActionBar` exists in the framework.
   The app's theme is `Theme.Kinescope` (`res/values/themes.xml`); its window colour must equal the Compose background
   (`ThemeResourcesTest`). A new activity needs no theme of its own: the application theme applies.
+- Patch 56, read from a device report and the code: a stop the user asks for leaves no `tun end` line (`logTunnelTotals` runs only when no stop was requested)
+  yet the monitor thread can still see the closed bridge (`requestStop` closes the TUN at once), so `monitorTunnel` must look at `stopRequested` before it calls
+  anything a failure. In `#rate`, `bad=1.00` together with `quar=1` is a failure recorded minutes ago. `versionCode` comes from the CI run number: a patch does not bump it.
 
 ## How to read the next report
 
@@ -304,7 +311,11 @@ parser/search/ranking/store, the network probe, the privacy redaction, the windo
    `fmt`. `ph=js` with a long idle means the QuickJS challenge, not the network. A `fmt` id of the form
    `dash-...vd+dash-...ad` means the VP9 route was taken.
 3. `vpn probe` / `vpn rotate`: is the tunnel's strategy holding under load? `#state vpn=1`: a third-party VPN was on.
-4. Patches 54-55: `#state ... v4only=1` means the engine runs IPv4-only on this class (learned); `chk=due` means this class has not been
+4. Patch 56: `transport stopped unexpectedly engine=down|up bridge=down|up run=Ns deaths=N fate=restart_same|rotate|stopped_by_user` says which side died and what was
+   decided (a stop the user asked for is no longer reported as a failure); `rotate ... why=probe|one_way|transport`; `#group net=wifi|mobile cur=1|0 chain= known= seeded=
+   checked=Nh rand=Nh last=works/tested` is one line per strategy group (`chain=0` on the group the phone has not been on is normal); `srch rand ... n=5` is a refresh button
+   run, `n=2` an automatic one.
+5. Patches 54-55: `#state ... v4only=1` means the engine runs IPv4-only on this class (learned); `chk=due` means this class has not been
    checked for the running app version; `rand=Nh` is the hours since its last random check. `vpn chk ... rc=4` is the SOCKS reply of a failed
    CONNECT; `byp reach net=... none ... dns=ok a4=N a6=N tcp4=... tcp6=...` is the no-route evidence (which IP family connects); `reach ... v4only=learned`
    is the IPv6 fallback working; `srch rand net=... works= fault=` is a random check; `byp start search net= found=` is the start-up search.

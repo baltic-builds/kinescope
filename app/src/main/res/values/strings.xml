@@ -257,9 +257,9 @@
     <string name="dash_pulse_lost">No connection</string>
     <string name="dash_pulse_idle">The bypass is not connected</string>
     <string name="hints_title">How it works</string>
-    <string name="hint_groups">Wi-Fi and mobile data each have their own list of ways to get around the block, tested and ranked separately.</string>
+    <string name="hint_groups">Wi-Fi and mobile data each have their own list of ways to get around the block, tested and ranked separately; both are shown on the card below the dashboard.</string>
     <string name="hint_first_check">After an install or an update each network is checked once, until 5 ways work and at least 3 of them work perfectly.</string>
-    <string name="hint_random_check">Twice a day, when you first switch the bypass on, 2 random ways are re-checked. A way that fails drops to the bottom of its list, and the 15 lowest ways wait 75 days before the next look.</string>
+    <string name="hint_random_check">Twice a day, when you open the app or switch the bypass on, 2 random ways are re-checked. A way that fails drops to the bottom of its list, and the 15 lowest ways wait 75 days before the next look.</string>
     <string name="hint_auto">Automatic mode uses the best way and switches by itself when one stops working. Turn it off to pick a way at the bottom of Settings.</string>
     <string name="hint_no_route">If a network does not reach YouTube at all, the app says so instead of trying every way. Check the connection first.</string>
     <string name="hint_blocked">If every known way is blocked, the app looks for new ones while the bypass starts.</string>
@@ -417,4 +417,29 @@
     <string name="battery_open">Turn off power saving</string>
     <string name="battery_app_info">App settings</string>
     <string name="battery_open_failed">Could not open the settings.</string>
+
+    <!-- Patch 56: the refresh button of the dashboard, the router's last change, the strategy groups card. -->
+    <string name="dash_refresh_cd">Check 5 random ways</string>
+    <string name="dash_refresh_progress">Refreshing · tried %1$d of %2$d · %3$d work</string>
+    <string name="dash_refresh_done">Refresh finished.</string>
+    <string name="dash_refresh_nothing">Nothing could be tested right now. Check the connection and try again.</string>
+    <string name="dash_refresh_result">Refresh: %2$d of %1$d ways work · %3$d added to the list · %4$d dropped</string>
+    <string name="dash_event_switched">Switched to another way %1$s: %2$s</string>
+    <string name="dash_event_reconnected">Reconnected %1$s: the connection dropped</string>
+    <string name="switch_reason_probe">it stopped answering</string>
+    <string name="switch_reason_oneway">nothing came back</string>
+    <string name="switch_reason_transport">the connection dropped twice</string>
+    <string name="switch_reason_network">the network changed</string>
+    <string name="switch_reason_update">a new list was found</string>
+    <string name="groups_title">Strategy groups</string>
+    <string name="group_now">Now</string>
+    <string name="group_wifi_title">Wi-Fi</string>
+    <string name="group_mobile_title">Mobile data or hotspot</string>
+    <string name="group_router">In the router: %1$d ways · %2$d known to work</string>
+    <string name="group_not_checked">Not checked yet. It is checked the first time the phone uses this connection with the app open.</string>
+    <string name="group_borrowed">Using the other group’s list until it is checked here.</string>
+    <string name="group_checked">Checked %1$s</string>
+    <string name="group_random_none">Random check: not yet</string>
+    <string name="group_random">Random check %1$s: %2$d of %3$d work</string>
+    <string name="hint_refresh">The refresh button on the card checks 5 random ways at once; the ones that work join the router’s list.</string>
 </resources>

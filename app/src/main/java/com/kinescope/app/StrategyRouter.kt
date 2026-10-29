@@ -120,8 +120,11 @@ internal object RandomCheckPolicy {
     /** Two checks a day: one at most every twelve hours. */
     const val INTERVAL_MS = 12L * 60L * 60L * 1000L
 
-    /** How many strategies one check tests. */
+    /** How many strategies one automatic check tests. */
     const val PICKS = 2
+
+    /** Patch 56: how many strategies the refresh button of Home tests. */
+    const val MANUAL_PICKS = 5
 
     /** True when [lastAt] (0 = never) is at least [INTERVAL_MS] ago. A time in the future (the clock moved back) counts as old. */
     fun isDue(lastAt: Long, now: Long): Boolean = lastAt <= 0L || (now - lastAt) !in 0L until INTERVAL_MS
@@ -134,6 +137,10 @@ internal object RandomCheckPolicy {
         candidates.distinct().filter { it !in frozen && it != active }
 
     fun pick(pool: List<String>, count: Int, random: kotlin.random.Random): List<String> = pool.shuffled(random).take(count)
+
+    /** Patch 56: how many of the [works] ways were not in the router's list [before] and are in it [after]: what a check added. */
+    fun added(before: List<String>, after: List<String>, works: Collection<String>): Int =
+        works.distinct().count { it in after && it !in before }
 }
 
 /**

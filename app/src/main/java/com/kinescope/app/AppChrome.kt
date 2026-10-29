@@ -61,7 +61,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 // The app shell pieces around the screens: the frame (top bar plus bottom bar, or header plus navigation rail),
-// the responsive content column, the navigation and the strategy-refresh notice. Patch 40: moved out of
+// the responsive content column and the navigation. Patch 40: moved out of
 // MainActivity.kt unchanged. Patch 41: the frame and the rail are new; the rest adapts to LocalAdaptive.
 // Patch 48: the bottom bar and the rail are one component (`NavEntry` + `NavButton` + `GlassStrip`) instead of two
 // copies, the rail carries labels on every device, the bottom bar's width cap works, the header height is a token.
@@ -197,9 +197,6 @@ private fun CompactTopBar(title: String, showBack: Boolean, onBack: () -> Unit) 
                 }
             }
         },
-        // Patch 31: the small top-bar bypass action was easy to miss (a plain
-        // TextButton tucked in the corner). It moved to a large, centered card at the
-        // top of HomeScreen (BypassHomeCard) instead -- see CHANGELOG.md.
         colors = TopAppBarDefaults.topAppBarColors(
             containerColor = MaterialTheme.colorScheme.background
         )
@@ -232,8 +229,6 @@ private fun ScreenHeader(title: String, showBack: Boolean, onBack: () -> Unit) {
         )
     }
 }
-
-// Patch 51: the first-run strategy-check dialog is gone; Home shows the message and the progress (BypassDashboard.kt).
 
 /** One destination of the navigation: how it looks, whether it is the current one and what a tap does. */
 private data class NavEntry(

@@ -1,4 +1,4 @@
-# Strategy router (patches 53-55)
+# Strategy router (patches 53-56)
 
 How Kinescope decides which bypass strategy to use, on which kind of connection, and when to change it. This is the one
 place that describes the mechanism end to end; `HANDOFF.md` has the short version and the file map, `CHANGELOG.md` the
@@ -174,7 +174,8 @@ last) and stops when its goal is reached or the list runs out.
 | Settings -> Test strategies | by hand | `STANDARD` | `manual` |
 | Test of one strategy | by hand | that strategy | `test` |
 | Start-up search | the tunnel is starting and every strategy of its chain was blocked | `QUICK` (2 working) | in `BypassVpnService` |
-| Random check | the first time the bypass is switched on in each twelve hours, per class (`RandomCheckPolicy`); after the tunnel is up, on its own thread | two random strategies | `RandomCheck` |
+| Random check | at most once in twelve hours, per class (`RandomCheckPolicy`): when the tunnel comes up (own thread), every ten minutes while the tunnel runs (it asks the calendar), and when the app is opened with no class check needed (`DpiSearchService.startRandom(force=false)`; patch 56) | two random strategies | `RandomCheck` |
+| Refresh button of Home (patch 56) | by hand, any time the engine is free of another search and of a download; also stamps the twelve-hour calendar | five random strategies | `random` (`DpiSearchService`) |
 
 The first-run and class checks also refresh the community strategy list once per app version (`AppUpdate.refreshStrategyListOncePerVersion`),
 and yt-dlp is updated on a fresh install and on an update (`YtOfflineApp`).
@@ -185,9 +186,14 @@ strategy the newest failure and so "moves it to the very bottom". **Frozen** (`S
 in group 3 that were tested less than 75 days ago. The random check never picks a frozen strategy or the one carrying the tunnel; a check that
 needs more than the rest of the list can give still reaches the frozen ones, because they are last, not removed.
 
-**The random check** (`RandomCheck.runIfDue`): skipped before the first check is done, within twelve hours of the last one, or while a search, a
+**The random check** (`RandomCheck.run`, patch 56; `runIfDue` is the tunnel thread's gate): skipped before the first check is done, within twelve hours of the last one, or while a search, a
 download or another engine run is busy. It picks two strategies, runs `DpiBypass.reach` first (no route: nothing is stored), tests them with the full
-probe, drops results where the engine could not reach the host, stores the rest, lets what passed join the chain and takes what failed out of it.
+probe, drops results where the engine could not reach the host, stores the rest, lets what passed join the chain and takes what failed out of it. Patch 56: it returns a `RandomReport` (tested, working, added to the chain, dropped), stores `RandomLast` for the class (the groups card and
+`#group ... last=` read it) and logs `srch rand net= kept works=W/T added= removed= chain=`. The refresh button runs it with five picks and no "busy" abort (it waits for a download).
+
+**A transport that stops by itself** (patch 56, `TransportRecovery`): a stop the user asked for is never a failure; the first early death of a strategy reconnects on the same one with
+nothing blamed; a second early death before it has carried traffic quarantines it and rotates; a transport that ran two minutes is reconnected and not counted. Rotations from a failed
+probe or from one-way windows are unchanged. The last change is shown on Home (`RouterEvent`).
 
 ## 8. Reachability (patch 54)
 
@@ -242,6 +248,7 @@ does not reach YouTube at all it says so (section 8).
 - `#rate pos=s2 rt=74 test=90 ok=0.00 bad=1.00 s=...`: the four best rated strategies: place in the chain (`out` when not
   in it), the rating, the last test score (`-` never tested, `fail` failed), the real evidence.
 - `#other net=mobile chain=6 seeded=1 pin=0`: the other class, in one line.
+- `#group net=wifi|mobile cur=1|0 chain=N known=N seeded=0|1 checked=Nh|none rand=Nh|none last=W/T|-` (patch 56): one line per group, as the Home card shows it.
 - In the log (patches 54-55: `reach net=... v4only=learned|none`, `srch rand net=... works= fault=`, `byp start search net= found=`, `vpn chk ... rc=`): `seed net=mobile from=wifi`, `tun up ... net=mobile`, `net change wifi->mobile`, `rotate net=wifi quarantined=1`,
   `tun proven net=`, `ladder ... net=`, `kept net=... rated=`, `search net-changed ...`.
 

@@ -20,6 +20,30 @@ class RandomCheckPolicyTest {
     }
 
     @Test
+    fun theRefreshButtonTestsFiveAndTheTwiceADayCheckTwo() {
+        assertEquals(5, RandomCheckPolicy.MANUAL_PICKS)
+        assertEquals(2, RandomCheckPolicy.PICKS)
+        val pool = (1..40).map { "-d$it" }
+        val picks = RandomCheckPolicy.pick(pool, RandomCheckPolicy.MANUAL_PICKS, Random(11))
+        assertEquals(5, picks.size)
+        assertEquals(5, picks.toSet().size)
+        // A pool smaller than the ask gives what there is.
+        assertEquals(3, RandomCheckPolicy.pick(listOf("-a", "-b", "-c"), RandomCheckPolicy.MANUAL_PICKS, Random(1)).size)
+    }
+
+    @Test
+    fun aCheckAddsOnlyTheWorkingWaysThatWereNotInTheListBeforeAndAreInItNow() {
+        val before = listOf("-a", "-b", "-c")
+        val after = listOf("-a", "-n1", "-b", "-n2", "-c")
+        // -a worked but was already there; -n1 and -n2 are new and in; -x worked but did not make the list.
+        assertEquals(2, RandomCheckPolicy.added(before, after, listOf("-a", "-n1", "-n2", "-x")))
+        assertEquals(0, RandomCheckPolicy.added(before, before, listOf("-a", "-x")))
+        assertEquals(0, RandomCheckPolicy.added(before, after, emptyList()))
+        // The same way reported twice counts once.
+        assertEquals(1, RandomCheckPolicy.added(before, after, listOf("-n1", "-n1")))
+    }
+
+    @Test
     fun aClockThatMovedBackCountsAsDue() {
         assertTrue(RandomCheckPolicy.isDue(now + hour, now))
     }

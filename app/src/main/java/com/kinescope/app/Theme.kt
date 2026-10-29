@@ -191,6 +191,11 @@ private val YtOfflineTypography = baseTypography.copy(
         fontFamily = InterFontFamily,
         fontWeight = FontWeight.SemiBold
     ),
+    // Patch 56: the dashboard headline is one size up (Gemini's large, calm headings); the same family and weight.
+    headlineMedium = baseTypography.headlineMedium.copy(
+        fontFamily = InterFontFamily,
+        fontWeight = FontWeight.SemiBold
+    ),
     headlineSmall = baseTypography.headlineSmall.copy(
         fontFamily = InterFontFamily,
         fontWeight = FontWeight.SemiBold

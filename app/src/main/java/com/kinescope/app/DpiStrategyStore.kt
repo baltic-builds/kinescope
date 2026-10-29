@@ -41,6 +41,7 @@ object DpiPrefs {
     private const val KEY_CHECKED_VERSION = "checked_version"
     private const val KEY_CHECK_TRY_AT = "check_try_at"
     private const val KEY_RANDOM_AT = "random_check_at"
+    private const val KEY_RANDOM_LAST = "random_check_last"
     private const val PROVEN_MAX_AGE_MS = 14L * MaintenanceSchedule.DAY_MS
     private const val QUARANTINE_MS = 10L * 60L * 1000L
 
@@ -165,6 +166,14 @@ object DpiPrefs {
 
     internal fun setRandomCheckAt(context: Context, cls: NetClass, at: Long) {
         prefs(context).edit().putLong(key(KEY_RANDOM_AT, cls), at).apply()
+    }
+
+    /** Patch 56: what the last random check of [cls] found (null = none yet), for the groups card on Home. */
+    internal fun randomLast(context: Context, cls: NetClass): RandomLast? =
+        RandomLast.parse(prefs(context).getString(key(KEY_RANDOM_LAST, cls), null))
+
+    internal fun setRandomLast(context: Context, cls: NetClass, last: RandomLast) {
+        prefs(context).edit().putString(key(KEY_RANDOM_LAST, cls), last.serialize()).apply()
     }
 
     /** Patch 55: the app version code under which the community strategy list was last refreshed at a launch (0 = never). */

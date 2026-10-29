@@ -1,6 +1,6 @@
 # Roadmap
 
-State after patch 55 (2026-10-26). This file tracks only what is still open: device verification gates,
+State after patch 56 (2026-10-29). This file tracks only what is still open: device verification gates,
 technical debt and what is out of scope. How each item was closed lives in `CHANGELOG.md`; the state a new
 session needs is in `HANDOFF.md`.
 
@@ -63,6 +63,10 @@ session needs is in `HANDOFF.md`.
   switched on in each half day two random strategies are tested, a failure sinks to the bottom of the class's ranking and the 15 lowest wait 75
   days; the 25-day full re-check and the update notice are gone; Home has a heartbeat line instead of a speed, a hints panel and tonal theme tokens.
   Patch 54's background job was replaced by the random check. Nothing of patches 54-55 is confirmed on a device.
+- **Patch 56 (2026-10-29) answers the first device report of patch 55** (a Redmi Pad, build 0.12.2 (10032)). The tunnel no longer blames a strategy for a
+  stop the user asked for or for a first transport death; the random check also runs when the app is opened and while the tunnel stays up, and its outcome
+  is shown; Home has a refresh button (five random ways), a strategy groups card, the router's last change, and on a wide window two panes so the hints are
+  not below the fold; dead code is removed. Nothing of it is confirmed on a device; the cause of the 3-second transport death in the report is not established.
 
 ## Decisions that remain unchanged
 
@@ -81,6 +85,22 @@ session needs is in `HANDOFF.md`.
 Patches 54 and 55 are applied together and share the first gate. Gates below that name things patch 54/55 or the October out-of-band change
 removed (the Home drop-down, stars, the speed line, the update notice, the 25-day upkeep, "Unblock YouTube") are superseded by the first two
 sections; tick or delete them against the new behaviour, not the old.
+
+### Router fixes, refresh button, groups card, tablet layout (patch 56)
+`Copy report` shows `transport stopped unexpectedly engine= bridge= run= deaths= fate=`, `rotate ... why=` and the `#group` lines (`HANDOFF.md`, "How to read the next report").
+- [ ] `./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug` is green. (The Compose files were not compiled in the sandbox: expect to fix an import or a signature.)
+- [ ] Switch the bypass on, then off. The report shows no `rotate` line and no `transport stopped unexpectedly` line for that stop, and `quar=` did not grow.
+- [ ] If the transport dies by itself: the line says `fate=restart_same`, the bypass comes back on the same way, Home says "Reconnected ... the connection dropped", and `#rate`
+  shows no new `bad=` for that way. A second early death of the same way says `fate=rotate` and Home names the reason.
+- [ ] Open the app with the bypass off, twelve hours after the last random check: a quiet check runs (strip "Refreshing · tried N of 2"), `srch rand ... n=2` follows and the
+  groups card shows "Random check ... N of 2 work". Keep the bypass on for more than twelve hours: the next check runs by itself (`rand=` resets).
+- [ ] The refresh button (top-right of the card): it tests five random ways (`srch rand ... n=5`), the strip counts them, the card says "Refresh: M of 5 ways work · A added to the
+  list · R dropped", and `chain=` / `#rate` agree. It is greyed while a download or another search runs, and works while the bypass is on without testing the way in use.
+- [ ] The groups card lists Wi-Fi and mobile data, the current one first with "Now"; the mobile group says "not checked yet" until the phone is on it (or on a hotspot that Android
+  marks as metered) with the app open, then shows its ways and `#group net=mobile chain=` is above 0.
+- [ ] Tablet in landscape: two panes, the dashboard and banners on the left, the groups and the hints on the right, both scroll on their own. Portrait and phone: one column, the hints
+  at the end. The hints panel is readable in light and dark, and its refresh line is true.
+- [ ] Home in both themes: the glow on the card (on and off), the larger headline, the pill "Watch YouTube", the round refresh button, nothing clipped at 200% font or in Russian.
 
 ### Checks, heartbeat and hints (patch 55)
 Needs a phone that can switch between Wi-Fi and mobile data. `Copy report` shows `chk=`, `rand=`, `v4only=` and the `srch` / `byp` lines (`HANDOFF.md`, "How to read the next report").
@@ -410,11 +430,13 @@ those are replaced by the patch 51 list above. The tunnel rows, the search strip
   happened; the weekly halving of old evidence is the only protection against a record made at home steering a
   strategy choice on a hotel network. A per-network key (the Wi-Fi name needs a location permission; the network type
   and the provider would not) is a design of its own; build it only if a device report shows the record misleading.
-- **Checks run when the app is opened or the bypass is switched on, not on a timer (patch 55).** The class check starts from `MainActivity` when the
-  connection class has an unchecked app version; the random check starts after the tunnel is up. Patch 54's JobScheduler job (the app minimised) was
+- **Checks run when the app is opened or the bypass is on, not on a timer (patch 55, widened in patch 56).** The class check starts from `MainActivity` when the
+  connection class has an unchecked app version; the random check starts after the tunnel is up, when the app is opened and no class check is needed, and every ten
+  minutes while the tunnel runs (it asks the calendar, which allows one run in twelve hours). Patch 54's JobScheduler job (the app minimised) was
   removed because patch 55 gives the random check a different trigger; Android 12+ does not let a background job start the search service, so a truly
   unattended check needs its own design (a job that runs the goal-bound search itself, no foreground service).
-- **A tunnel rotation during a network outage counts against the strategy in use.** `DpiPrefs.quarantine` records the
+- **A tunnel rotation during a network outage counts against the strategy in use (narrowed in patch 56).** A stop the user asked for and a first transport death no longer
+  count (`TransportRecovery`); a probe or one-way rotation still does. `DpiPrefs.quarantine` records the
   failure for both of its callers, and the tunnel cannot tell a dead strategy from a dead network (the download ladder
   can: it blames a route only when a later one finished). The damage is bounded (a failure is one weighted entry that
   halves every week and the next success outweighs it), but if a report shows a good strategy sitting low after an
@@ -440,8 +462,13 @@ those are replaced by the patch 51 list above. The tunnel rows, the search strip
 - **Settings and Home disagree on one rule.** Settings still locks the "Use the bypass for downloads" switch while a
   download runs (and says so); Home does not, because the switch only writes a preference and a running download keeps
   its route. Align Settings (and its hint text) after a device report on the Home behavior.
-- **The hints are static text (patch 55).** Seven lines in `strings.xml`; they must be kept in step with the router by hand (`HintsPanel.kt` lists the ids).
+- **The hints are static text (patch 55).** Eight lines in `strings.xml` since patch 56; they must be kept in step with the router by hand (`HintsPanel.kt` lists the ids).
   Anything the router does that a user should know goes there; anything removed must come out of it.
+- **The 3-second transport death is unexplained (patch 56).** One report shows the tunnel's transport stopping three seconds after it came up, once, on a way that
+  had just passed its live check. The patch reconnects without blame and logs which side died; if `engine=down` repeats, look at the `:dpi_vpn` process (a native crash or
+  the system killing it); if `bridge=down`, at the bridge's configuration and the first burst of UDP. Do not guess before the next report.
+- **The mobile group cannot be tested from Wi-Fi (patch 56).** Its check starts when the phone is on it with the app open; a device with no SIM only reaches it through
+  a hotspot that Android marks as metered. Making the engine use the cellular network while Wi-Fi is up (binding sockets to a `Network`) is a design of its own.
 - **The heartbeat is the app's only continuous animation (patch 55).** It draws a polyline every frame while the bypass is on; if a device report shows
   battery or jank cost, lower the frame rate or draw once per beat. Its colours (`pulseAlive`, `pulseLost`) are a design choice, not measured contrast on every card state.
 - **No in-app player.** Playback hands the file to another app (`ACTION_VIEW`). A TV box without a video player

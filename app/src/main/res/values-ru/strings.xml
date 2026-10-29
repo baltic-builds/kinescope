@@ -257,9 +257,9 @@
     <string name="dash_pulse_lost">Нет соединения</string>
     <string name="dash_pulse_idle">Обход не подключён</string>
     <string name="hints_title">Как это устроено</string>
-    <string name="hint_groups">У Wi-Fi и мобильной сети свои списки способов обхода блокировки: они проверяются и ранжируются отдельно.</string>
+    <string name="hint_groups">У Wi-Fi и мобильной сети свои списки способов обхода блокировки: они проверяются и ранжируются отдельно; обе группы показаны на карточке под панелью.</string>
     <string name="hint_first_check">После установки или обновления каждая сеть проверяется один раз, пока не найдётся 5 рабочих способов, из них не меньше 3 безупречных.</string>
-    <string name="hint_random_check">Дважды в день, при первом включении обхода, заново проверяются 2 случайных способа. Не сработавший падает в конец своего списка, а 15 самых нижних ждут 75 дней до следующей проверки.</string>
+    <string name="hint_random_check">Дважды в день, при открытии приложения или включении обхода, заново проверяются 2 случайных способа. Не сработавший падает в конец своего списка, а 15 самых нижних ждут 75 дней до следующей проверки.</string>
     <string name="hint_auto">Автоматический режим берёт лучший способ и сам переключается, когда он перестаёт работать. Отключите его, чтобы выбрать способ внизу настроек.</string>
     <string name="hint_no_route">Если сеть вообще не соединяется с YouTube, приложение так и скажет, а не будет перебирать все способы. Сначала проверьте подключение.</string>
     <string name="hint_blocked">Если все известные способы заблокированы, приложение ищет новые, пока запускается обход.</string>
@@ -417,4 +417,29 @@
     <string name="battery_open">Отключить экономию заряда</string>
     <string name="battery_app_info">Настройки приложения</string>
     <string name="battery_open_failed">Не удалось открыть настройки.</string>
+
+    <!-- Patch 56: the refresh button of the dashboard, the router's last change, the strategy groups card. -->
+    <string name="dash_refresh_cd">Проверить 5 случайных способов</string>
+    <string name="dash_refresh_progress">Обновление · проверено %1$d из %2$d · работают: %3$d</string>
+    <string name="dash_refresh_done">Обновление завершено.</string>
+    <string name="dash_refresh_nothing">Сейчас ничего не удалось проверить. Проверьте подключение и повторите.</string>
+    <string name="dash_refresh_result">Обновление: работают %2$d из %1$d способов · добавлено в список: %3$d · убрано: %4$d</string>
+    <string name="dash_event_switched">Переключился на другой способ %1$s: %2$s</string>
+    <string name="dash_event_reconnected">Переподключился %1$s: соединение прервалось</string>
+    <string name="switch_reason_probe">он перестал отвечать</string>
+    <string name="switch_reason_oneway">ничего не приходило в ответ</string>
+    <string name="switch_reason_transport">соединение дважды прерывалось</string>
+    <string name="switch_reason_network">сменилась сеть</string>
+    <string name="switch_reason_update">найден новый список</string>
+    <string name="groups_title">Группы стратегий</string>
+    <string name="group_now">Сейчас</string>
+    <string name="group_wifi_title">Wi-Fi</string>
+    <string name="group_mobile_title">Мобильный интернет или точка доступа</string>
+    <string name="group_router">В маршрутизаторе: %1$d · известно рабочих: %2$d</string>
+    <string name="group_not_checked">Ещё не проверялась. Проверка пройдёт, когда телефон впервые подключится к такой сети при открытом приложении.</string>
+    <string name="group_borrowed">Пока используется список другой группы: здесь он ещё не проверен.</string>
+    <string name="group_checked">Проверено %1$s</string>
+    <string name="group_random_none">Случайная проверка: ещё не было</string>
+    <string name="group_random">Случайная проверка %1$s: работают %2$d из %3$d</string>
+    <string name="hint_refresh">Кнопка обновления на карточке сразу проверяет 5 случайных способов; рабочие попадают в список маршрутизатора.</string>
 </resources>

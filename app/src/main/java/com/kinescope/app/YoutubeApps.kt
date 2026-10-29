@@ -6,7 +6,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 
-// Patch 51: the app that "Unblock YouTube" opens, and that the YouTube tunnel lets through, is a setting. The default is
+// Patch 51: the app that "Watch YouTube" opens, and that the YouTube tunnel lets through, is a setting. The default is
 // the official YouTube app; any other app that opens youtube.com links can be chosen (an alternative client, or a browser,
 // which opens the YouTube site). The tunnel carries the chosen app only (`BypassVpnService.buildYouTubeTunnel`).
 //

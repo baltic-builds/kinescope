@@ -13,6 +13,100 @@ patch's own `.py` script for the exact, idempotent, exact-match-guarded
 edits it makes.
 
 
+## Patch 56 — The router stops blaming a stop, the random check and the groups become visible, a refresh button, the tablet layout
+
+Request (2026-10-28, applied on top of patch 55, with a device report from build 0.12.2 (10032) on a Redmi Pad, Android 14, on Wi-Fi): (1) the
+smart router does not seem to work: study the code, find the errors and fix them; (2) the automatic update of strategies twice a day and the
+random checks that mark strategies as working or not are not happening; (3) the strategy groups (Wi-Fi and mobile) are not visible; (4) add a
+refresh button in the top-right corner of the Home dashboard that checks 5 random strategies and adds the successful ones to the router's
+list; (5) the Gemini-style interface of patch 55 is not visible: delete old and dead code that may block it; (6) the hints under the
+dashboard are missing on the tablet; (7) a plan, the implementation, one Python script, and the commands to run, check, push and delete it.
+
+### What the report and the code showed (read first, not assumed)
+- *The router did switch, and twice it switched wrongly.* The tail of the report holds two `transport stopped unexpectedly; trying next route`
+  lines. At 11:16:37 no `tun end` line follows, which the code writes only when no stop was requested, and two `bypass stopped` lines follow:
+  the user switched the bypass off. `requestStop` closes the TUN at once; the monitor thread, waking up in the middle of the stop, saw a dead
+  bridge, called it unexpected and ran `rotateStrategy`, which quarantined the strategy that was carrying the traffic (a real failure on
+  its record, `DpiPrefs.quarantine`). Every manual stop could do this. At 17:32:30 a `tun end up=3s` line shows a genuine death three seconds
+  after the tunnel came up on a strategy whose live check had just passed; the report cannot say whether the engine process or the bridge
+  died. The strategy was blamed all the same (`#rate pos=s6 ... bad=1.00`, last in the chain, `quar=1`) although the next start on the
+  next strategy, and the first one again later, ran fine for minutes (`tun win ... v=flowing`).
+- *The random check ran, unseen.* `rand=6h` and `chk=ok` in `#state` show that the check of the Wi-Fi group had run six hours earlier,
+  when the bypass was switched on. Nothing on screen said so, and the code ran it only at that moment: a tunnel that stays up for days was
+  checked once, and opening the app started nothing.
+- *The groups existed, silently.* `#other net=mobile chain=0 seeded=0`: the mobile group has never been checked, because its check starts when
+  the phone is on it with the app open. Home showed only a small connection label under the automatic switch. (If the tablet has no SIM,
+  the second group can only fill when it is on a Wi-Fi network Android marks as metered, in practice a phone's hotspot.)
+- *The hints were there, and easy to miss.* `HintsPanel` was the last item of Home's single scrolling column: on a tablet in landscape it sat
+  below the fold, and its panel was 55% opaque on a nearly identical background. No code path hides it; the layout hid it.
+- *Dead code.* Never called: `DpiBypass.diagnose`, `BypassDiagnosis`, `NetworkCheck.run`, `NetworkCheckReport`, `DashPrefs.seeded`, the drawables
+  `ic_arrow_drop_down.xml` and `ic_download.xml`. Stale comments described removed UI (the patch 31 home card, the strategy-refresh notice,
+  the "Unblock YouTube" button, an orphaned KDoc). None of it blocked the new UI: the theme has no dynamic colour and Home called the new
+  dashboard already.
+
+### 1. The router (`TunnelRecovery.kt`, `BypassVpnService.kt`)
+- A stop the user or the system asked for is never a failure: the monitor checks `stopRequested` after each sleep and before it handles a
+  dead transport, and `rotateStrategy` does nothing once a stop was requested.
+- `TransportRecovery.decide`: the first early death of a strategy is answered with a reconnect on the same strategy, nothing blamed; a second
+  early death before the strategy has carried traffic blames it and rotates as before; a transport that had run two minutes is reconnected and
+  never counted. `earlyDeaths` is cleared when a strategy proves itself (`tun proven`) and when the user starts the bypass.
+- The log line now says which side died and what was decided: `transport stopped unexpectedly engine=up|down bridge=up|down run=3s deaths=0
+  fate=restart_same|rotate|stopped_by_user`; `rotate` lines carry `why=probe|one_way|transport`.
+- The tunnel keeps its last change in `BypassVpnController.lastEvent` (`RouterEvent`: probe, one-way, transport, network, update, reconnected)
+  and the strategy it runs on in `activeLine`; Home shows the change under "Way N of M" ("Switched to another way 3 min ago: it stopped answering").
+
+### 2. The random check and the automatic update, made visible and reliable (`DpiSearchService.kt`, `MainActivity.kt`)
+- `RandomCheck.run` is the one routine; it has three triggers: the tunnel coming up (as before), the calendar looked at every ten minutes
+  while the tunnel runs (new), the app being opened when no class check is needed (new, through `DpiSearchService.startRandom(force=false)`), and
+  the refresh button (new). The twelve-hour calendar and the two-way size of the automatic check are unchanged (`RandomCheckPolicy`). The
+  community list and yt-dlp still refresh once per app version, as in patch 55.
+- Every run stores its outcome per class (`DpiPrefs.randomLast`: when, tested, working) and returns a `RandomReport` (tested, working, added,
+  removed). A manual run also stamps the twelve-hour calendar.
+
+### 3. The refresh button (`BypassDashboard.kt`, `BypassDashboardModel.kt`, `ic_refresh.xml`)
+- A round button in the top-right corner of the card, with the controls (`showRefresh = controls`): it starts `RandomCheck` with five ways
+  picked at random from the connection the phone is on, never a frozen one and never the one carrying the tunnel. Working ways join the router's
+  list by their rating (`applySearchResults`, `partial`), failing ones leave it. It runs beside the tunnel; it is disabled while another search
+  or a download needs the engine. The strip shows "Refreshing · tried N of 5 · M work", and the card keeps "Refresh: M of N ways work · A added to
+  the list · R dropped" until the next search.
+- The router's list is the chain of six; ways beyond the six stay rated (`known` on the groups card) and are the next to join.
+
+### 4. The strategy groups card (`StrategyGroups.kt`, `StrategyGroupsCard.kt`, `DiagnosticReport.kt`)
+- A card below the dashboard lists Wi-Fi and mobile data (or hotspot), the connection the phone is on first with a "Now" badge: ways in the
+  router, ways known to work, when the group was checked, the last random check (when, working of tested), or "not checked yet" / "using the other
+  group's list". The report gets a `#group` line per class with the same numbers.
+
+### 5. Home, the tablet and the Gemini-style interface (`HomeScreen.kt`, `HintsPanel.kt`, `BypassDashboard.kt`, `Theme.kt`)
+- On a wide window (`AdaptiveSpec.twoPane`: a tablet in landscape) Home has two panes: the dashboard and the banners on the left, the groups card
+  and the hints on the right; every other window keeps one column: dashboard, banners, groups, hints. The hints panel is 80% opaque with a hairline
+  border; one more hint explains the refresh button; the hint about the random check says it also runs when the app is opened.
+- The card keeps a soft glow in both states (the ON wash of patch 55; off, a fainter pale-blue one), the headline is one size up
+  (`headlineMedium`, Inter SemiBold), "Watch YouTube" is a pill, the refresh button a tonal circle.
+
+### 6. Dead code removed
+- `DpiBypass.diagnose`, `BypassDiagnosis`, `NetworkCheck.run`, `NetworkCheckReport`, `DashPrefs.seeded`, `ic_arrow_drop_down.xml`, `ic_download.xml`,
+  and the stale comments listed above.
+
+### Not changed
+- The thresholds (two failed probes, three one-way windows, three rotations in ten minutes), the rating, the ranking, the frozen bottom 15, the
+  12-hour calendar, the size of the chain, the download ladder, the theme tokens, the engine and the bridge.
+- The cause of the 3-second transport death at 17:32:30 is not established; this patch reconnects without blame and records which side died.
+
+### Reading of the brief (change here if it was meant otherwise)
+- "Automatic updates twice a day" is read as the 12-hour random check of patch 55 made to actually run (app opening, tunnel start, a tunnel
+  that stays up) and made visible; it does not wake the phone from the background (Android 12+ forbids starting the search service then).
+- "Adds them to the strategy router list" is the chain of six; a working way joins by rating, so a way that rates below the sixth stays known
+  but does not enter the six.
+- The mobile group cannot be tested from Wi-Fi: it is checked the first time the phone is on it with the app open (patch 55); the card says so.
+
+### Verification done here (sandbox: no Android SDK, no Compose libraries, no device, no Gradle)
+- Every non-UI source file type-checks against a real `android.jar` (API 34) with stubs for the libraries that could not be fetched; the JVM
+  unit tests were run with a minimal JUnit stand-in: 246 passed before the patch, 262 after (16 new; `DocumentationTest` included, it checks the file
+  map). Five test files that need Compose, `androidx` or Android runtime classes (`AdaptiveLayoutTest`, `BatteryOptimizationTest`,
+  `HeartbeatShapeTest`, `InstagramShareResolverTest`, `RunMonitorTest`) could not be compiled there.
+- **Not done:** the Compose files (`BypassDashboard`, `HomeScreen`, `HintsPanel`, `StrategyGroupsCard`, `Theme`, `MainActivity`) were not compiled
+  and nothing ran on a device; `./gradlew testDebugUnitTest lintDebug assembleDebug` and the gates in `ROADMAP.md` are still to be done.
+
 ## Patch 55 — Checks that stop at a goal, groups per connection, a two-a-day random check, a heartbeat, hints
 
 Request (2026-10-26, applied on top of patch 54): improve the router. (1) The first launch no longer checks all 72 strategies: the

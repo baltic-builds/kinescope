@@ -1,5 +1,6 @@
 package com.kinescope.app
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,12 +23,16 @@ import androidx.compose.ui.unit.dp
 // both the panel and its text are semi-transparent, so it reads as help in the background and never competes with the
 // dashboard. Each line describes one thing the strategy router does, in a few words, and the last says what the "+" of the
 // navigation does, so a new person can follow the journey (copy a link, tap +, watch the queue) without opening Settings.
+// Patch 56: the panel is 80% opaque with a hairline border (at 55% and no border it was close to invisible on the tablet's plain
+// background, which read as "the hints are missing"), one more line says what the refresh button does, and on a wide window the
+// panel sits in the right-hand pane (`HomeScreen.kt`) instead of below the fold.
 
 /** The hints, in the order they are shown. Every one has an English and a Russian text. */
 private val Hints = listOf(
     R.string.hint_groups,
     R.string.hint_first_check,
     R.string.hint_random_check,
+    R.string.hint_refresh,
     R.string.hint_auto,
     R.string.hint_no_route,
     R.string.hint_blocked,
@@ -35,8 +40,8 @@ private val Hints = listOf(
 )
 
 /** How see-through the panel and its text are (1 = opaque). Text stays above 4.5:1 on the screen background in both themes. */
-private const val PANEL_ALPHA = 0.55f
-private const val TEXT_ALPHA = 0.82f
+private const val PANEL_ALPHA = 0.80f
+private const val TEXT_ALPHA = 0.88f
 
 @Composable
 internal fun HintsPanel(modifier: Modifier = Modifier) {
@@ -45,7 +50,8 @@ internal fun HintsPanel(modifier: Modifier = Modifier) {
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.extraLarge,
-        color = scheme.surfaceContainerLow.copy(alpha = PANEL_ALPHA)
+        color = scheme.surfaceContainer.copy(alpha = PANEL_ALPHA),
+        border = BorderStroke(1.dp, scheme.outlineVariant.copy(alpha = 0.7f))
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),

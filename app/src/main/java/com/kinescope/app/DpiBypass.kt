@@ -6,12 +6,6 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
 
-internal data class BypassDiagnosis(
-    val strategy: String,
-    val engineStarted: Boolean,
-    val reports: List<NetworkCheckReport>
-)
-
 /**
  * Patch 54: whether the engine can reach the hosts at all on a connection, as found by [DpiBypass.reach].
  * [OK] it can; [IPV4_ONLY] it can with the engine's IPv4-only option (now remembered for the class); [NO_ROUTE] it cannot, with or
@@ -28,11 +22,6 @@ object DpiBypass {
      * definition is ChainPlanner.MAX_CHAIN, which DpiPrefs derives its fallback cap from too.
      */
     private const val MAX_VERIFIED_STRATEGIES = ChainPlanner.MAX_CHAIN
-
-    /**
-     * Patch 33: after the first launch (which scans every candidate) a manual search stops once
-     * this many strategies passed, so it does not always take minutes. Ranking still applies.
-     */
 
     /** Patch 33: per-stage timeout of the quick live check made right before a strategy is used. */
     private const val HEALTH_STAGE_TIMEOUT_MS = 6_000
@@ -235,21 +224,6 @@ object DpiBypass {
     internal fun directConnectionWorks(hosts: List<String> = DpiStrategySearch.DEFAULT_HOSTS): Boolean {
         val check = NetworkCheck()
         return inParallel(hosts) { host -> check.checkDirect(host).ok }.all { it }
-    }
-
-    /** Direct and bypassed check of every probe host with the currently selected strategy. */
-    internal fun diagnose(context: Context, hosts: List<String> = DpiStrategySearch.DEFAULT_HOSTS): BypassDiagnosis {
-        val line = DpiStrategyStore.selected(context, NetworkState.currentClass(context))
-        val parsed = DpiStrategyParser.parse(line) as? DpiStrategyParser.Parsed.Ok
-        val session = parsed?.let { DpiEngine.start(context, it.args) }
-        try {
-            val endpoint = session?.let { SocksEndpoint(DpiEngine.HOST, it.port) }
-            val check = NetworkCheck()
-            val reports = inParallel(hosts) { host -> check.run(endpoint, host) }
-            return BypassDiagnosis(line, engineStarted = session != null, reports = reports)
-        } finally {
-            session?.close()
-        }
     }
 
     /**

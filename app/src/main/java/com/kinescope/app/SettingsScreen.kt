@@ -161,7 +161,7 @@ internal fun SettingsScreen(
 
     val bypass: @Composable () -> Unit = {
         BypassSettingsSection(requestNotifications = requestNotifications)
-        // Patch 51: which app "Unblock YouTube" opens (and the tunnel carries).
+        // Patch 51: which app "Watch YouTube" opens (and the tunnel carries).
         Spacer(modifier = Modifier.height(16.dp))
         YoutubeAppSection()
     }

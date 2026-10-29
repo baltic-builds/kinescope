@@ -39,6 +39,14 @@ object BypassVpnController {
     private val mutableTraffic = MutableStateFlow(TunnelTraffic())
     internal val traffic = mutableTraffic.asStateFlow()
 
+    // Patch 56: the strategy line the running tunnel carries traffic on (the refresh and the random check never test it) and the last
+    // change the router made on its own, so Home can show that the router works. Unlike the traffic they survive a reconnect
+    // (`starting()`): a switch is followed by exactly that; they end with the tunnel (`stopped()`, `failed()`).
+    private val mutableLine = MutableStateFlow<String?>(null)
+    internal val activeLine = mutableLine.asStateFlow()
+    private val mutableEvent = MutableStateFlow<RouterEvent?>(null)
+    internal val lastEvent = mutableEvent.asStateFlow()
+
     internal fun starting() {
         mutableState.value = BypassVpnUiState(starting = true)
         mutableTraffic.value = TunnelTraffic()
@@ -49,11 +57,23 @@ object BypassVpnController {
     internal fun stopped() {
         mutableState.value = BypassVpnUiState()
         mutableTraffic.value = TunnelTraffic()
+        mutableLine.value = null
+        mutableEvent.value = null
     }
 
     internal fun failed(@StringRes errorRes: Int) {
         mutableState.value = BypassVpnUiState(errorRes = errorRes)
         mutableTraffic.value = TunnelTraffic()
+        mutableLine.value = null
+        mutableEvent.value = null
+    }
+
+    internal fun publishLine(line: String?) {
+        mutableLine.value = line
+    }
+
+    internal fun publishEvent(kind: RouterEventKind) {
+        mutableEvent.value = RouterEvent(kind, System.currentTimeMillis())
     }
 
     internal fun publishPosition(position: Int, total: Int) {
@@ -106,6 +126,12 @@ class BypassVpnService : VpnService() {
     // Patch 46: the strategy that already proved it carries real traffic in this tunnel run, so it is recorded once.
     @Volatile private var provedLine: String? = null
 
+    // Patch 56: how many times the transport died early on a strategy since it last carried traffic (see TransportRecovery), and when
+    // the calendar of the random check is next looked at while the tunnel runs. Touched by the monitor thread only (the executor).
+    private val earlyDeaths = HashMap<String, Int>()
+    private val randomRunning = AtomicBoolean(false)
+    @Volatile private var nextUpkeepAt = 0L
+
     // Patch 53: the connection class (Wi-Fi, mobile data) the tunnel's strategies were chosen for, and for how many monitor
     // ticks in a row the system has reported another one (see followConnection).
     @Volatile private var tunnelClass: NetClass = NetClass.WIFI
@@ -125,6 +151,7 @@ class BypassVpnService : VpnService() {
             ACTION_START -> {
                 if (!BypassVpnController.state.value.active && !BypassVpnController.state.value.starting) {
                     stopRequested.set(false)
+                    earlyDeaths.clear()
                     BypassVpnController.starting()
                     startForegroundCompat(buildNotification(active = false))
                     executor.execute { startTunnel() }
@@ -266,7 +293,9 @@ class BypassVpnService : VpnService() {
             engine = null
             tun = null
             hevStarted = false
+            nextUpkeepAt = startedNow + UPKEEP_INTERVAL_MS
             BypassVpnController.active()
+            BypassVpnController.publishLine(chosenLine)
             BypassVpnController.publishPosition(chain.indexOf(chosenLine) + 1, chain.size)
             getSystemService(NotificationManager::class.java)
                 .notify(NOTIFICATION_ID, buildNotification(active = true))
@@ -305,13 +334,21 @@ class BypassVpnService : VpnService() {
      * Patch 55: the two-a-day random check ([RandomCheck]) for the connection this tunnel runs on, started once the tunnel is up so
      * switching the bypass on is not delayed. It has its own thread (the monitor and the start/stop work take turns on [executor])
      * and gives way as soon as the tunnel is stopped. The strategy in use is not among the ones it tests.
+     *
+     * Patch 56: also looked at every [UPKEEP_INTERVAL_MS] while the tunnel runs (see [monitorTunnel]): a tunnel that stays on for days
+     * used to be checked once, when it was switched on. One check at a time ([randomRunning]); the thread is only started when the
+     * calendar says a check is due, so a quiet tunnel costs nothing.
      */
     private fun startRandomCheck(cls: NetClass, active: String?) {
+        if (!RandomCheck.dueNow(applicationContext, cls)) return
+        if (!randomRunning.compareAndSet(false, true)) return
         Thread({
             try {
                 RandomCheck.runIfDue(applicationContext, cls, active) { stopRequested.get() || !tunnelRunning }
             } catch (e: Exception) {
                 AppLog.e("BypassVpnService", "Random check failed", e)
+            } finally {
+                randomRunning.set(false)
             }
         }, "kinescope-random-check").apply { isDaemon = true }.start()
     }
@@ -431,6 +468,9 @@ class BypassVpnService : VpnService() {
             while (!stopRequested.get()) {
                 Thread.sleep(500L)
                 if (restarting) continue
+                // Patch 56: a stop closes the TUN and the bridge at once; waking up in the middle of it, the old code took the dead
+                // transport for a failure and blamed the strategy that was carrying the traffic. A stop is never a failure.
+                if (stopRequested.get()) return
                 val engineAlive = engineSession?.isAlive == true
                 val bridgeAlive = runCatching { TProxyService.TProxyIsRunning() }.getOrDefault(false)
                 if (!engineAlive || !bridgeAlive) {
@@ -438,18 +478,15 @@ class BypassVpnService : VpnService() {
                     // engine here means this flag is already visible: an update-triggered
                     // reconnect is not a failure.
                     if (restarting) continue
-                    AppLog.w("BypassVpnService", "YouTube bypass transport stopped unexpectedly; trying next route")
-                    val line = currentLine
-                    if (line != null) rotateStrategy(line)
-                    else {
-                        BypassVpnController.failed(R.string.bypass_vpn_tunnel_failed)
-                        requestStop()
-                        return
-                    }
+                    handleTransportDeath(engineAlive, bridgeAlive)
                     if (stopRequested.get()) return
                     continue
                 }
                 if (++ticks % NOTIFICATION_CHECK_TICKS == 0) ensureNotificationVisible()
+                if (!updating && !restarting && SystemClock.elapsedRealtime() >= nextUpkeepAt) {
+                    nextUpkeepAt = SystemClock.elapsedRealtime() + UPKEEP_INTERVAL_MS
+                    startRandomCheck(tunnelClass, currentLine)
+                }
                 if (!updating && !restarting) followConnection()
                 if (!updating && !restarting && SystemClock.elapsedRealtime() >= nextFlowCheckAt) checkTunnelFlow()
                 if (!updating && !restarting && SystemClock.elapsedRealtime() >= nextProbeAt) probeTunnel()
@@ -458,6 +495,41 @@ class BypassVpnService : VpnService() {
             Thread.currentThread().interrupt()
         } finally {
             monitorRunning.set(false)
+        }
+    }
+
+    /**
+     * Patch 56: the engine or the bridge stopped and nobody asked it to. [TransportRecovery] decides: a stop the user asked for ends
+     * here (nothing is blamed), the first early death of a strategy is answered with a reconnect on the same strategy (the live check
+     * of the start-up still has to pass), and a second early death before the strategy has carried traffic blames it and moves on, as a
+     * failed probe does. A transport that had run for two minutes is reconnected and never counted. The line says which side died, so
+     * the next report shows whether the engine process or the bridge is the one that goes.
+     */
+    private fun handleTransportDeath(engineAlive: Boolean, bridgeAlive: Boolean) {
+        val line = currentLine
+        val runMs = SystemClock.elapsedRealtime() - tunnelStartedAt
+        val deaths = line?.let { earlyDeaths[it] } ?: 0
+        val fate = TransportRecovery.decide(stopRequested.get(), runMs, deaths)
+        AppLog.w(
+            "BypassVpnService",
+            "transport stopped unexpectedly engine=${if (engineAlive) "up" else "down"} bridge=${if (bridgeAlive) "up" else "down"} " +
+                "run=${runMs / 1000L}s deaths=$deaths fate=${fate.name.lowercase()}"
+        )
+        when {
+            fate == TransportFate.STOPPED_BY_USER -> return
+            line == null -> {
+                BypassVpnController.failed(R.string.bypass_vpn_tunnel_failed)
+                requestStop()
+            }
+            fate == TransportFate.RESTART_SAME -> {
+                earlyDeaths[line] = TransportRecovery.deathsAfter(deaths, runMs, fate)
+                BypassVpnController.publishEvent(RouterEventKind.RECONNECTED)
+                restartTunnel()
+            }
+            else -> {
+                earlyDeaths.remove(line)
+                rotateStrategy(line, RouterEventKind.TRANSPORT)
+            }
         }
     }
 
@@ -474,6 +546,7 @@ class BypassVpnService : VpnService() {
         if (!NetSwitch.shouldSwitch(netSwitchStreak)) return
         AppLog.i("BypassVpnService", "net change ${tunnelClass.key}->${seen?.key}: reconnecting on that class's strategies")
         netSwitchStreak = 0
+        BypassVpnController.publishEvent(RouterEventKind.NETWORK)
         restartTunnel()
     }
 
@@ -507,6 +580,7 @@ class BypassVpnService : VpnService() {
                 AppLog.i("BypassVpnService", "Strategy update found the same methods; keeping the connection")
                 return
             }
+            BypassVpnController.publishEvent(RouterEventKind.UPDATE)
             restartTunnel()
         } catch (e: Exception) {
             AppLog.e("BypassVpnService", "Strategy update failed", e)
@@ -538,7 +612,7 @@ class BypassVpnService : VpnService() {
         }
         failStreak++
         AppLog.w("BypassVpnService", "probe fail streak=$failStreak ${load.passed}/${load.total} hs=${load.medianHandshakeMs}ms")
-        if (failStreak >= FAILS_BEFORE_ROTATE) rotateStrategy(line)
+        if (failStreak >= FAILS_BEFORE_ROTATE) rotateStrategy(line, RouterEventKind.PROBE)
     }
 
     /**
@@ -571,6 +645,7 @@ class BypassVpnService : VpnService() {
         // traffic. Remember it once per tunnel run; the chain then puts it first and keeps the others in order of success.
         if (provedLine != line && TunnelFlow.proves(previous, current)) {
             provedLine = line
+            earlyDeaths.remove(line)
             DpiPrefs.promoteVerified(this, tunnelClass, line)
             val chain = DpiStrategyStore.chain(this, tunnelClass)
             BypassVpnController.publishPosition(chain.indexOf(line) + 1, chain.size)
@@ -579,7 +654,7 @@ class BypassVpnService : VpnService() {
         if (TunnelFlow.shouldRotate(oneWayStreak)) {
             AppLog.w("BypassVpnService", "tun one-way windows=$oneWayStreak: the app sends, nothing comes back")
             oneWayStreak = 0
-            rotateStrategy(line)
+            rotateStrategy(line, RouterEventKind.ONE_WAY)
         }
     }
 
@@ -593,8 +668,12 @@ class BypassVpnService : VpnService() {
         )
     }
 
-    /** Quarantines the failing strategy and reconnects on the next one; rate-limited so a dead network cannot thrash it. */
-    private fun rotateStrategy(line: String) {
+    /**
+     * Quarantines the failing strategy and reconnects on the next one; rate-limited so a dead network cannot thrash it. [kind] is why,
+     * for the dashboard (`BypassVpnController.lastEvent`). Patch 56: nothing happens once a stop was asked for.
+     */
+    private fun rotateStrategy(line: String, kind: RouterEventKind) {
+        if (stopRequested.get()) return
         val now = SystemClock.elapsedRealtime()
         while (rotations.isNotEmpty() && now - rotations.first() > ROTATION_WINDOW_MS) rotations.removeFirst()
         val tooSoon = rotations.isNotEmpty() && now - rotations.last() < MIN_ROTATION_GAP_MS
@@ -614,8 +693,9 @@ class BypassVpnService : VpnService() {
         }
         rotations.addLast(now)
         DpiPrefs.quarantine(this, cls, line)
-        AppLog.w("BypassVpnService", "rotate net=${cls.key} quarantined=1 alternatives=${alternatives.size}")
+        AppLog.w("BypassVpnService", "rotate net=${cls.key} why=${kind.name.lowercase()} quarantined=1 alternatives=${alternatives.size}")
         failStreak = 0
+        BypassVpnController.publishEvent(kind)
         restartTunnel()
     }
 
@@ -819,6 +899,9 @@ class BypassVpnService : VpnService() {
         // Patch 35: periodic probe and strategy rotation.
         private const val PROBE_INTERVAL_MS = 30_000L
         private const val FIRST_PROBE_DELAY_MS = 45_000L
+
+        /** Patch 56: how often a running tunnel asks the calendar of the random check whether one is due: ten minutes. */
+        private const val UPKEEP_INTERVAL_MS = 10L * 60L * 1000L
         private const val PROBE_CONNECTIONS = 3
         private const val FAILS_BEFORE_ROTATE = 2
         private const val MIN_ROTATION_GAP_MS = 90_000L

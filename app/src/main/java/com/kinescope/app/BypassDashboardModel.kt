@@ -6,12 +6,14 @@ import kotlin.math.exp
 // on the JVM (`BypassDashboardTest`). `BypassDashboard.kt` only maps the real states into [BypassDashInputs], draws the
 // [BypassDashboardModel] it gets back and forwards taps; it decides nothing itself.
 //
-// Patch 52: the card has ONE switch for the YouTube bypass (the "Unblock YouTube" button moved below the card and the
-// two no longer repeat each other), and the strategies are a drop-down with an "automatic" switch under it.
+// Patch 52: the card has ONE switch for the YouTube bypass (the "Watch YouTube" button, once "Unblock YouTube", moved below the
+// card and the two no longer repeat each other), and the strategies were a drop-down with an "automatic" switch under it.
 // Patch 54: the drop-down, its stars and the "applies next start" note left the card (the manual choice is at the bottom of
 // Settings); the code that only served them is gone.
 // Patch 55: no speed on the card any more (neither the download's nor the tunnel's); a heartbeat line says whether the bypass
 // carries traffic: a green pulse while it does, a red flat line when the connection is lost (`DashPulse`, `HeartbeatLine`).
+// Patch 56: a refresh button in the card's top-right corner (`showRefresh`, `refreshEnabled`); a random check counts as a quiet
+// check for the card (`searchBackground`), so the controls stay while it runs.
 //
 // Two different things are called "bypass" in this app:
 // - DOWNLOADS: Kinescope's own downloads go through a verified ByeDPI strategy when `DpiPrefs.isEnabled` is on (the
@@ -74,9 +76,9 @@ internal data class BypassDashboardModel(
     /** The on/off switch of the YouTube bypass: its position and whether it can be used right now. */
     val tunnelSwitchOn: Boolean,
     val tunnelSwitchEnabled: Boolean,
-    /** The "Unblock YouTube" button below the card (starts the tunnel when it is off, then opens the chosen app). */
+    /** The "Watch YouTube" button below the card (starts the tunnel when it is off, then opens the chosen app). */
     val openEnabled: Boolean,
-    /** The YouTube switch, the strategy drop-down and the button below the card. */
+    /** The YouTube switch, the automatic-strategy switch and the button below the card. */
     val showControls: Boolean,
     /** Choosing a strategy: not while a search is changing the results. */
     val strategiesEnabled: Boolean,
@@ -89,7 +91,10 @@ internal data class BypassDashboardModel(
     val checkEnabled: Boolean,
     val checkHint: DashCheckHint,
     /** Patch 55: the heartbeat line under the YouTube switch. */
-    val pulse: DashPulse
+    val pulse: DashPulse,
+    /** Patch 56: the refresh button in the card's top-right corner (it checks five random ways) and whether it can be pressed now. */
+    val showRefresh: Boolean,
+    val refreshEnabled: Boolean
 )
 
 internal fun bypassDashboardModel(inputs: BypassDashInputs): BypassDashboardModel {
@@ -140,7 +145,12 @@ internal fun bypassDashboardModel(inputs: BypassDashInputs): BypassDashboardMode
             DashTunnelState.NO_ANSWER -> DashPulse.LOST
             DashTunnelState.STARTING -> DashPulse.IDLE
             DashTunnelState.OFF -> if (inputs.tunnelError) DashPulse.LOST else DashPulse.IDLE
-        }
+        },
+        // Patch 56: the refresh sits with the controls (not on a "not set up" card, which has its own check button, nor during the
+        // first-run check). It runs beside the tunnel (the strategy in use is never tested), but needs the engine free of another
+        // search and of a running download, the rule of the Test button in Settings.
+        showRefresh = controls,
+        refreshEnabled = controls && !inputs.searching && !downloadsBusy
     )
 }
 

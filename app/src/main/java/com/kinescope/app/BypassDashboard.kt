@@ -1,6 +1,5 @@
 package com.kinescope.app
 
-import android.text.format.DateUtils
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -14,11 +13,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -37,6 +39,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
@@ -44,6 +47,9 @@ import androidx.compose.ui.unit.dp
 
 // The home surface shows live tunnel status, automatic selection and the Watch YouTube action.
 // Detailed manual strategy selection is intentionally at the bottom of Settings.
+// Patch 56: a refresh button in the card's top-right corner (five random ways are checked, the working ones join the router's list),
+// the router's last change under "Way N of M", a soft glow on the card in both states, a pill-shaped main button. The two strategy
+// groups are drawn by their own card (`StrategyGroupsCard.kt`).
 
 /** The result messages of a finished search that still make sense on a card that says "not set up". */
 private val SETUP_MESSAGES = setOf(
@@ -60,8 +66,6 @@ private val ActionMaxWidth = 360.dp
 private class DashPrefs(
     /** The connection the strategies below are for (Wi-Fi or mobile data), patch 53. */
     val cls: NetClass,
-    /** The chain of that connection was borrowed from the other one and has not been tested here (patch 53). */
-    val seeded: Boolean,
     val waysReady: Int,
     val verifiedAt: Long,
     /** The strategy the user pinned; null while the choice is automatic. */
@@ -83,6 +87,7 @@ internal fun BypassDashboard(
     val context = LocalContext.current
     val search by DpiSearchController.state.collectAsState()
     val traffic by BypassVpnController.traffic.collectAsState()
+    val routerEvent by BypassVpnController.lastEvent.collectAsState()
     // Patch 53: the card shows the strategies of the connection the phone is on, and follows a change from Wi-Fi to mobile data.
     val netClass by NetClassWatcher.state.collectAsState()
     val cls = netClass ?: NetClass.WIFI
@@ -96,14 +101,13 @@ internal fun BypassDashboard(
     // Read again whenever something that can change them happens: a search starting or finishing, the tunnel coming
     // up or going down (an "Update" from its notification can change the chain), or a pick on this card.
     var prefsVersion by remember { mutableIntStateOf(0) }
-    val prefs = remember(search.running, search.resultMessageRes, tunnel.active, prefsVersion, cls) {
+    val prefs = remember(search.running, search.resultMessageRes, search.randomResult, tunnel.active, prefsVersion, cls) {
         // chain() first: a connection that was never tested borrows the other one's chain here.
         val chain = DpiStrategyStore.chain(context, cls)
         val pinned = DpiPrefs.pinned(context, cls)
         val selected = pinned ?: chain.firstOrNull()
         DashPrefs(
             cls = cls,
-            seeded = DpiPrefs.isSeeded(context, cls),
             waysReady = chain.size,
             verifiedAt = DpiPrefs.verifiedAt(context, cls),
             pinned = pinned,
@@ -121,7 +125,8 @@ internal fun BypassDashboard(
             },
             flow = traffic.verdict,
             searching = search.running,
-            searchBackground = search.background,
+            // Patch 56: a random check is as quiet as the check after an update: the controls stay, only the strip shows it.
+            searchBackground = search.background || search.random,
             searchMandatory = search.mandatory,
             activeDownloads = activeDownloads,
             tunnelError = tunnel.errorRes != null
@@ -133,6 +138,12 @@ internal fun BypassDashboard(
         // The search runs in a foreground service: its notification needs the permission first (as in Settings).
         requestNotifications()
         DpiSearchService.start(context)
+    }
+    val startRefresh: () -> Unit = {
+        AppLog.i("BypassDashboard", "home refresh start net=${prefs.cls.key}")
+        // Like the check, it runs in a foreground service whose notification needs the permission.
+        requestNotifications()
+        DpiSearchService.startRandom(context)
     }
     val setAuto: (Boolean) -> Unit = setAuto@{ on ->
         if (on) {
@@ -170,53 +181,84 @@ internal fun BypassDashboard(
                     .fillMaxWidth()
                     .then(
                         // Patch 55: while the bypass is on, a soft wash from the card's orange towards Google's pale blue, the
-                        // glow of Gemini's "Neural Expressive" look; off, the card is a plain surface.
-                        if (isOn) {
-                            Modifier.background(
-                                Brush.verticalGradient(
+                        // glow of Gemini's "Neural Expressive" look. Patch 56: off, the same glow in a fainter, cooler form (the
+                        // surface towards the pale blue), so the card is never a flat grey slab.
+                        Modifier.background(
+                            Brush.verticalGradient(
+                                if (isOn) {
                                     listOf(
                                         scheme.primaryContainer,
                                         lerp(scheme.primaryContainer, scheme.tertiaryContainer, 0.45f)
                                     )
-                                )
+                                } else {
+                                    listOf(scheme.surface, lerp(scheme.surface, scheme.tertiaryContainer, 0.30f))
+                                }
                             )
-                        } else {
-                            Modifier
-                        }
+                        )
                     )
                     .padding(horizontal = 20.dp, vertical = 22.dp)
             ) {
                 val setupMessage = search.resultMessageRes?.takeIf { it in SETUP_MESSAGES }
-                Text(
-                    text = stringResource(
-                        when (model.headline) {
-                            DashHeadline.FIRST_RUN -> R.string.dash_headline_first_run
-                            DashHeadline.CHECKING -> R.string.dash_headline_checking
-                            DashHeadline.SETUP -> R.string.dash_headline_setup
-                            DashHeadline.ON -> R.string.dash_headline_on
-                            DashHeadline.OFF -> R.string.dash_headline_off
-                        }
-                    ),
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = palette.primary
-                )
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = when (model.headline) {
-                        DashHeadline.FIRST_RUN -> stringResource(R.string.dash_sub_first_run)
-                        DashHeadline.CHECKING -> stringResource(R.string.dash_sub_checking)
-                        DashHeadline.SETUP -> stringResource(setupMessage ?: R.string.dash_sub_setup)
-                        DashHeadline.ON, DashHeadline.OFF -> waysReadyText(prefs)
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = palette.secondary
-                )
+                Row(verticalAlignment = Alignment.Top) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = stringResource(
+                                when (model.headline) {
+                                    DashHeadline.FIRST_RUN -> R.string.dash_headline_first_run
+                                    DashHeadline.CHECKING -> R.string.dash_headline_checking
+                                    DashHeadline.SETUP -> R.string.dash_headline_setup
+                                    DashHeadline.ON -> R.string.dash_headline_on
+                                    DashHeadline.OFF -> R.string.dash_headline_off
+                                }
+                            ),
+                            style = MaterialTheme.typography.headlineMedium,
+                            color = palette.primary
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = when (model.headline) {
+                                DashHeadline.FIRST_RUN -> stringResource(R.string.dash_sub_first_run)
+                                DashHeadline.CHECKING -> stringResource(R.string.dash_sub_checking)
+                                DashHeadline.SETUP -> stringResource(setupMessage ?: R.string.dash_sub_setup)
+                                DashHeadline.ON, DashHeadline.OFF -> waysReadyText(prefs)
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = palette.secondary
+                        )
+                    }
+                    // Patch 56: the refresh button, top right: it checks five random ways now.
+                    if (model.showRefresh) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        RefreshButton(enabled = model.refreshEnabled, palette = palette, onClick = startRefresh)
+                    }
+                }
+                // What the last refresh (or the twice-a-day check) found, until the next search starts.
+                val randomResult = search.randomResult
+                if (model.showControls && !search.running && randomResult != null) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = if (randomResult.tested > 0) {
+                            stringResource(
+                                R.string.dash_refresh_result,
+                                randomResult.tested,
+                                randomResult.works,
+                                randomResult.added,
+                                randomResult.removed
+                            )
+                        } else {
+                            stringResource(search.resultMessageRes ?: R.string.dash_refresh_nothing)
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = palette.secondary
+                    )
+                }
 
                 if (model.showSearchStrip) {
                     Spacer(modifier = Modifier.height(10.dp))
                     SearchStrip(
                         progress = search.progress,
                         background = search.background,
+                        random = search.random,
                         stoppable = model.searchStoppable,
                         palette = palette,
                         onStop = { DpiSearchService.stop(context) }
@@ -241,6 +283,7 @@ internal fun BypassDashboard(
                     YouTubeChannel(
                         model = model,
                         traffic = traffic,
+                        event = routerEvent,
                         errorRes = tunnel.errorRes,
                         palette = palette,
                         onToggle = onToggleTunnel
@@ -278,19 +321,38 @@ internal fun BypassDashboard(
 @Composable
 private fun waysReadyText(prefs: DashPrefs): String {
     if (prefs.verifiedAt <= 0L) return stringResource(R.string.dash_ways_ready, prefs.waysReady)
-    val now = System.currentTimeMillis()
-    val age = if (now - prefs.verifiedAt < DateUtils.MINUTE_IN_MILLIS) {
-        stringResource(R.string.dash_just_now)
-    } else {
-        // Localised by the framework ("3 hr. ago" / "3 ч. назад").
-        DateUtils.getRelativeTimeSpanString(
-            prefs.verifiedAt,
-            now,
-            DateUtils.MINUTE_IN_MILLIS,
-            DateUtils.FORMAT_ABBREV_RELATIVE
-        ).toString()
+    return stringResource(R.string.dash_ways_ready_checked, prefs.waysReady, agoText(prefs.verifiedAt))
+}
+
+/** Patch 56: the refresh button of the card: a round, tonal touch target (48dp) with the refresh arrow; it checks five random ways. */
+@Composable
+private fun RefreshButton(enabled: Boolean, palette: DashPalette, onClick: () -> Unit) {
+    FocusRing {
+        Surface(shape = CircleShape, color = palette.primary.copy(alpha = 0.10f)) {
+            IconButton(onClick = onClick, enabled = enabled) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_refresh),
+                    contentDescription = stringResource(R.string.dash_refresh_cd),
+                    tint = if (enabled) palette.primary else palette.secondary.copy(alpha = 0.5f)
+                )
+            }
+        }
     }
-    return stringResource(R.string.dash_ways_ready_checked, prefs.waysReady, age)
+}
+
+/** Patch 56: the router's last change in a line: when, and why (see [RouterEventKind]). */
+@Composable
+private fun routerEventText(event: RouterEvent): String {
+    val ago = agoText(event.at)
+    val reason = when (event.kind) {
+        RouterEventKind.RECONNECTED -> return stringResource(R.string.dash_event_reconnected, ago)
+        RouterEventKind.PROBE -> R.string.switch_reason_probe
+        RouterEventKind.ONE_WAY -> R.string.switch_reason_oneway
+        RouterEventKind.TRANSPORT -> R.string.switch_reason_transport
+        RouterEventKind.NETWORK -> R.string.switch_reason_network
+        RouterEventKind.UPDATE -> R.string.switch_reason_update
+    }
+    return stringResource(R.string.dash_event_switched, ago, stringResource(reason))
 }
 
 @Composable
@@ -323,6 +385,7 @@ private fun CheckHint(hint: DashCheckHint, palette: DashPalette) {
 private fun SearchStrip(
     progress: SearchProgress?,
     background: Boolean,
+    random: Boolean,
     stoppable: Boolean,
     palette: DashPalette,
     onStop: () -> Unit
@@ -334,12 +397,17 @@ private fun SearchStrip(
     val working = (progress?.working ?: 0).coerceAtMost(goal)
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(
-            text = stringResource(
-                if (background) R.string.dash_recheck else R.string.dash_check_progress,
-                done,
-                working,
-                goal
-            ),
+            text = if (random) {
+                // Patch 56: a random check reports how many of its few ways it has tried and how many of those work.
+                stringResource(R.string.dash_refresh_progress, done, total, progress?.working ?: 0)
+            } else {
+                stringResource(
+                    if (background) R.string.dash_recheck else R.string.dash_check_progress,
+                    done,
+                    working,
+                    goal
+                )
+            },
             style = MaterialTheme.typography.bodySmall,
             color = palette.secondary,
             modifier = Modifier.weight(1f)
@@ -375,6 +443,7 @@ private fun SearchStrip(
 private fun YouTubeChannel(
     model: BypassDashboardModel,
     traffic: TunnelTraffic,
+    event: RouterEvent?,
     errorRes: Int?,
     palette: DashPalette,
     onToggle: (Boolean) -> Unit
@@ -426,6 +495,14 @@ private fun YouTubeChannel(
                         // Patch 55: the way in use (no speed any more; the heartbeat line below says whether traffic flows).
                         Text(
                             text = stringResource(R.string.dash_way, traffic.position, traffic.total),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = palette.secondary
+                        )
+                    }
+                    if ((state == DashTunnelState.ON || state == DashTunnelState.NO_ANSWER) && event != null) {
+                        // Patch 56: the router's last change, so a switch is seen and not only logged.
+                        Text(
+                            text = routerEventText(event),
                             style = MaterialTheme.typography.bodySmall,
                             color = palette.secondary
                         )
@@ -504,6 +581,8 @@ private fun ActionButton(text: String, onClick: () -> Unit, enabled: Boolean = t
     Button(
         onClick = onClick,
         enabled = enabled,
+        // Patch 56: a fully rounded (pill) button, as in Google's current design.
+        shape = CircleShape,
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = LocalAdaptive.current.controlHeightDp.dp),

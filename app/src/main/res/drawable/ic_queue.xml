@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Patch 52: the Queue destination of the navigation (a list: three dots with three lines). Static vector on purpose:
-     painterResource() cannot load animated framework drawables (see ic_download.xml). -->
+     painterResource() cannot load animated framework drawables. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"

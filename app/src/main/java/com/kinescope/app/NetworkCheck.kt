@@ -183,8 +183,6 @@ internal data class PathResult(val viaBypass: Boolean, val stages: List<StageRes
     val failedStage: CheckStage? get() = failed?.stage
 }
 
-internal data class NetworkCheckReport(val host: String, val direct: PathResult, val bypassed: PathResult?)
-
 /**
  * Patch 54: how one host is reached directly (no engine) over each IP family: the evidence behind an engine that cannot connect.
  * [dns] is "ok" or a short reason; [tcp4] and [tcp6] are "ok", a short reason, or "none" when the name has no address of that family.
@@ -253,13 +251,6 @@ internal class NetworkCheck(
     private val stageTimeoutMs: Int = 3_000,
     private val secure: SecureProbe = DefaultSecureProbe()
 ) {
-    fun run(engine: SocksEndpoint?, host: String = DEFAULT_HOST): NetworkCheckReport =
-        NetworkCheckReport(
-            host = host,
-            direct = checkDirect(host),
-            bypassed = engine?.let { checkViaBypass(it, host) }
-        )
-
     fun checkDirect(host: String, port: Int = HTTPS_PORT): PathResult {
         val stages = mutableListOf<StageResult>()
         val addresses = try {

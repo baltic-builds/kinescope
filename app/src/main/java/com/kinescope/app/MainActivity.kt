@@ -232,12 +232,15 @@ private fun KinescopeApp(
     // is on it with the app open (`ClassCheckPolicy`). The check stops at five working strategies, three of them perfect, so on
     // mobile data it costs a few megabytes at most. Patch 46's 25-day full re-check is gone. A download that starts meanwhile
     // uses the stored and learned strategies.
+    // Patch 56: when no such check is needed, opening the app starts the twice-a-day random check if the calendar says it is due
+    // (two random ways of the connection the phone is on, `RandomCheck`). Before, it ran only when the bypass was switched on,
+    // so a person who opened the app and saw nothing happen had no way to tell the check from no check. With the bypass up, the
+    // tunnel's own thread does it.
     val connectionClass by NetClassWatcher.state.collectAsState()
     LaunchedEffect(connectionClass) {
         val cls = connectionClass ?: return@LaunchedEffect
+        if (!DpiPrefs.hasRunInitialSearch(context) || DpiSearchController.state.value.running) return@LaunchedEffect
         if (
-            DpiPrefs.hasRunInitialSearch(context) &&
-            !DpiSearchController.state.value.running &&
             ClassCheckPolicy.needed(
                 checkedVersion = DpiPrefs.checkedVersion(context, cls),
                 currentVersion = DpiSearchService.appVersionCode(context),
@@ -246,6 +249,8 @@ private fun KinescopeApp(
             )
         ) {
             DpiSearchService.startCheck(context)
+        } else if (!bypassState.active && !bypassState.starting && RandomCheck.dueNow(context, cls)) {
+            DpiSearchService.startRandom(context, RandomCheckPolicy.PICKS, force = false)
         }
     }
 
@@ -304,7 +309,7 @@ private fun KinescopeApp(
         AppLog.i("MainActivity", "plus result=${result.name.lowercase()}")
     }
 
-    // Patch 51: the switch on Home starts or stops the tunnel; the "Unblock YouTube" button starts it when needed and
+    // Patch 51: the switch on Home starts or stops the tunnel; the "Watch YouTube" button starts it when needed and
     // opens the app chosen in Settings (YoutubeApps). [openApp] is remembered in openYouTubeWhenReady until the tunnel is up.
     fun startBypass(openApp: Boolean) {
         // Patch 53: the chain of the connection the phone is on; a class that was never tested borrows the other's

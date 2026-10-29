@@ -1,10 +1,12 @@
 package com.kinescope.app
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -29,18 +31,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 
-// Home: the bypass dashboard slot and the banners.
+// Home: the bypass dashboard, the strategy groups, the banners and the hints.
 // Patch 40: moved out of MainActivity.kt unchanged. Patch 41: two panes on wide windows, focus rings for TV, an
 // empty-state text that names the control the screen really has.
-// Patch 51: the library left Home (it has its own screen, `LibraryScreen.kt`); the queue became compact; a notice
-// recommends re-checking the strategies after an app update.
-// Patch 52: the queue left Home too (it is the second destination of the navigation, `QueueScreen.kt`). Home is now
-// the dashboard, its "Unblock YouTube" button and the banners in ONE column on every window: the right-hand pane that
-// held the queue is gone, and a card of one-line rows would only be stretched by a second, empty pane.
-// Patch 55: the "app updated" notice is gone (an update now checks the strategies by itself) and the hints panel closes the
-// column (`HintsPanel.kt`).
+// Patch 51/52: the library and the queue left Home (their own destinations); Home is the dashboard, its main button and the
+// banners. Patch 55: the hints panel closes the column.
+// Patch 56: the strategy groups card joins Home, and the wide layout is back, for a reason of its own: on a tablet in landscape
+// the hints sat below the dashboard, out of sight until the column was scrolled. A wide window (`AdaptiveSpec.twoPane`) now shows
+// the dashboard and the banners on the left and the groups and the hints on the right, so nothing the screen explains is hidden
+// below the fold; every other window keeps one column in the order dashboard, banners, groups, hints.
 
-/** The widest Home column; on a tablet or TV the column is centred instead of stretching the dashboard across. */
+/** The widest Home column of the single-column layout; on a phone or a narrow tablet it is centred instead of stretching the dashboard across. */
 private val HomeMaxWidth = 640.dp
 
 @Composable
@@ -53,6 +54,7 @@ internal fun HomeScreen(
     onSignIn: () -> Unit,
     onSignInInstagram: () -> Unit
 ) {
+    val spec = LocalAdaptive.current
     val networkFailure = jobs.any {
         it.failureKind == FailureKind.NO_INTERNET && it.state in setOf(JobState.INTERRUPTED, JobState.FAILED)
     }
@@ -68,55 +70,81 @@ internal fun HomeScreen(
     }
     var instagramBannerDismissed by remember { mutableStateOf(false) }
 
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
-        // `widthIn` first: after `fillMaxSize` the cap would change nothing (HANDOFF.md, patch 48).
-        LazyColumn(
-            modifier = Modifier.widthIn(max = HomeMaxWidth).fillMaxSize(),
-            contentPadding = PaddingValues(bottom = 16.dp)
+    val dashboard: @Composable () -> Unit = {
+        // Patch 45: the hero card is a dashboard (see BypassDashboard.kt); patch 52: its button sits below it.
+        BypassDashboard(
+            tunnel = bypassState,
+            jobs = jobs,
+            onToggleTunnel = onToggleTunnel,
+            onOpenApp = onOpenApp,
+            requestNotifications = requestNotifications
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+    }
+    val banners: @Composable () -> Unit = {
+        if (networkFailure && !networkBannerDismissed) {
+            ErrorBanner(
+                text = stringResource(R.string.banner_no_internet),
+                onDismiss = { networkBannerDismissed = true }
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+        }
+        if (verificationFailure && !verificationBannerDismissed) {
+            VerificationBanner(
+                onDismiss = { verificationBannerDismissed = true },
+                onSignIn = onSignIn
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+        }
+        if (instagramFailure && !instagramBannerDismissed) {
+            VerificationBanner(
+                onDismiss = { instagramBannerDismissed = true },
+                onSignIn = onSignInInstagram,
+                messageRes = R.string.banner_instagram_login,
+                actionRes = R.string.instagram_sign_in_action
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+        }
+    }
+
+    if (spec.twoPane) {
+        Row(
+            modifier = Modifier.fillMaxSize(),
+            horizontalArrangement = Arrangement.spacedBy(spec.paneGapDp.dp)
         ) {
-            item {
-                // Patch 45: the hero card is a dashboard (see BypassDashboard.kt); patch 52: its button sits below it.
-                BypassDashboard(
-                    tunnel = bypassState,
-                    jobs = jobs,
-                    onToggleTunnel = onToggleTunnel,
-                    onOpenApp = onOpenApp,
-                    requestNotifications = requestNotifications
-                )
-                Spacer(modifier = Modifier.height(12.dp))
+            LazyColumn(
+                modifier = Modifier.weight(1f).fillMaxHeight(),
+                contentPadding = PaddingValues(bottom = 16.dp)
+            ) {
+                item { Column { dashboard(); banners() } }
             }
-            if (networkFailure && !networkBannerDismissed) {
+            LazyColumn(
+                modifier = Modifier.weight(1f).fillMaxHeight(),
+                contentPadding = PaddingValues(bottom = 16.dp)
+            ) {
                 item {
-                    ErrorBanner(
-                        text = stringResource(R.string.banner_no_internet),
-                        onDismiss = { networkBannerDismissed = true }
-                    )
+                    StrategyGroupsCard()
                     Spacer(modifier = Modifier.height(12.dp))
                 }
+                item { HintsPanel() }
             }
-            if (verificationFailure && !verificationBannerDismissed) {
+        }
+    } else {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+            // `widthIn` first: after `fillMaxSize` the cap would change nothing (HANDOFF.md, patch 48).
+            LazyColumn(
+                modifier = Modifier.widthIn(max = HomeMaxWidth).fillMaxSize(),
+                contentPadding = PaddingValues(bottom = 16.dp)
+            ) {
+                item { Column { dashboard(); banners() } }
                 item {
-                    VerificationBanner(
-                        onDismiss = { verificationBannerDismissed = true },
-                        onSignIn = onSignIn
-                    )
+                    StrategyGroupsCard()
                     Spacer(modifier = Modifier.height(12.dp))
                 }
-            }
-            if (instagramFailure && !instagramBannerDismissed) {
                 item {
-                    VerificationBanner(
-                        onDismiss = { instagramBannerDismissed = true },
-                        onSignIn = onSignInInstagram,
-                        messageRes = R.string.banner_instagram_login,
-                        actionRes = R.string.instagram_sign_in_action
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
+                    // Patch 55: the hints, below everything else, in a panel that stays.
+                    HintsPanel()
                 }
-            }
-            item {
-                // Patch 55: the hints, below everything else, in a panel that stays.
-                HintsPanel()
             }
         }
     }

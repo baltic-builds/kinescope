@@ -19,8 +19,9 @@ Sources (checked October 25, 2026):
 7. **Accessibility:** explicit switch semantics, labels and descriptive live status, contrast-aware on/off tokens, minimum targets, and actual RTL/large-font/device verification as a release gate.
 8. **Bilingual:** UI strings in English and Russian; all newly modified labels exist in both resources. Manual selection is connection-class-specific.
 9. **Safety:** turning the VPN off frees Kinescope's TUN immediately, followed by engine and bridge cleanup. Never imply control over another app's VPN, and never claim success from engine startup alone.
-10. **Hints (patch 55):** one panel below the dashboard and the banners, semi-transparent (panel 55% opaque, text 82%, kept above 4.5:1 in both themes), no close button, a few words per line, each line about one thing the router does; the last says what `+` does. It is part of the screen, not a banner: it is not focusable on TV.
+10. **Hints (patch 55):** one panel below the dashboard and the banners, semi-transparent (patch 56: panel 80% opaque with a hairline `outlineVariant` border, on `surfaceContainer`; text 88%; kept above 4.5:1 in both themes; it was 55% and borderless and read as missing on a tablet), no close button, a few words per line, each line about one thing the router does; the last says what `+` does. It is part of the screen, not a banner: it is not focusable on TV.
 11. **Surfaces (patch 55):** the tonal layers (`surfaceContainerLowest` .. `Highest`, `surfaceDim`, `surfaceBright`, `outlineVariant`) are set explicitly so no Material3 baseline lavender shows in dialogs, menus, text fields or indicators; the third accent (`tertiary`, Google's blue) is the "glow" tone of the ON card's soft wash and the hints' bullets and is never an action colour (orange stays the only action colour).
+12. **Dashboard actions and the groups (patch 56):** the refresh button is a round tonal touch target (48dp) in the card's top-right corner, an icon with a content description, greyed (not hidden) while it cannot run; the main button is a pill; the card's glow is present in both states (ON: the orange wash; off: a fainter pale-blue one) and never lowers text contrast below 4.5:1; the headline is `headlineMedium`. The strategy groups card is information, not a control (not focusable on TV): a title, then one tonal row per group with the connection the phone is on first and a "Now" pill. On a wide window (`twoPane`) Home is two panes, dashboard and banners left, groups and hints right, so nothing the screen explains sits below the fold.
 
 ## Design tokens (source of truth: `Theme.kt`)
 
@@ -59,6 +60,7 @@ Custom success/warning colors and the heartbeat colors remain in `YtOfflineExtra
 - Verify screens at 320, 360, 600, 840, 1280dp, with 200% font scale, landscape, split-screen, screen reader, TV D-pad, English/Russian.
 - Verify real-device Wi-Fi and cellular transitions and no-stuck-TUN behavior on STOP and revoke; integration cannot be certified by unit tests.
 - No Gemini/Google branding, no proprietary visual assets, and no claim of reproducing confidential Google design specs.
+- Patch 56 checks: the refresh button in light and dark, enabled, disabled and while its check runs; the groups card with one group not yet checked; the two-pane Home on a tablet in landscape and one column in portrait; the hints panel visible at 200% font and in Russian.
 - Patch 55 checks: the heartbeat in all three states and with animations off; the hints panel at 200% font, in Russian and in dark; no lavender in dialogs, menus, text fields; the ON card's wash does not lower the contrast of its text below 4.5:1.
 
 ## Window background consistency (v.3)

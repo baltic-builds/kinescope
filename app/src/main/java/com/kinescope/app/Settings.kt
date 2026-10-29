@@ -99,7 +99,7 @@ object Settings {
         prefs(context).edit().putInt(KEY_OVERSCAN_PERCENT, percent.coerceIn(0, OVERSCAN_MAX_PERCENT)).apply()
     }
 
-    /** Patch 51: the app that "Unblock YouTube" opens and that the tunnel carries; the official YouTube app by default. */
+    /** Patch 51: the app that "Watch YouTube" opens and that the tunnel carries; the official YouTube app by default. */
     internal fun getYoutubeApp(context: Context): String =
         prefs(context).getString(KEY_YOUTUBE_APP, null)?.takeIf { it.isNotBlank() } ?: YoutubeApps.DEFAULT_PACKAGE
 

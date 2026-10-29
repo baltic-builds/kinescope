@@ -155,3 +155,9 @@ future sessions don't lose them.)
   (6) the reference is Gemini's "Neural Expressive" redesign (May 2026; no October 2023 redesign exists), applied as tonal theme tokens and a soft
   wash on the ON card, not as copied assets. Where the brief was loose, `CHANGELOG.md` ("Patch 55", "Reading of the brief") says how it was read.
   Patch 54's background job was replaced by the random check. Result: `CHANGELOG.md`, "Patch 55".
+- **Request (patch 56): the router, the twice-a-day check and the groups must be visible and work; a refresh button; the Gemini-style UI and the tablet hints must show.**
+  Decisions: (1) a stop the user asked for is never a failure, and a first transport death is reconnected on the same strategy without blame (a second one blames it);
+  (2) the random check keeps its 12-hour calendar but also runs when the app is opened and while the tunnel stays up, and its outcome is shown and stored per class;
+  (3) a refresh button in the top-right of the dashboard tests five random strategies of the current connection, working ones join the router's list by rating;
+  (4) a strategy groups card shows Wi-Fi and mobile data; (5) a wide window gets two panes so the hints are not below the fold; (6) dead code and stale comments removed.
+  Where the brief was loose, `CHANGELOG.md` ("Patch 56", "Reading of the brief") says how it was read. Result: `CHANGELOG.md`, "Patch 56".
