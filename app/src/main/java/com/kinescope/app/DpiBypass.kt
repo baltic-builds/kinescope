@@ -271,7 +271,11 @@ object DpiBypass {
             deepProbe = { port -> check.throughputViaBypass(SocksEndpoint(DpiEngine.HOST, port)) },
             // Patch 35: and by how it behaves with several connections at once.
             loadProbe = { port -> check.loadViaBypass(SocksEndpoint(DpiEngine.HOST, port)) },
-            faults = { port -> reachFaults.remove(port)?.get() ?: 0 }
+            faults = { port -> reachFaults.remove(port)?.get() ?: 0 },
+            // Patch 57: and by how many of YouTube's real hosts, video-server nodes included, arrive in full through it.
+            coverageProbe = { port ->
+                check.coverageViaBypass(SocksEndpoint(DpiEngine.HOST, port), ProbeSites.ALL, ProbeSites::isEdge)
+            }
         )
         val candidates = only ?: searchOrder(context, cls)
         val results = search.run(
@@ -320,6 +324,8 @@ object DpiBypass {
             AppLog.i(
                 "DpiSearch",
                 "pass sc=${pass.score()} h=${pass.passed}/${pass.total} xfer=$transfer load=${pass.loadPassed}/${pass.loadTotal} " +
+                    "cov=${pass.coveragePassed}/${pass.coverageTotal} edge=${pass.edgePassed}/${pass.edgeTotal} " +
+                    (if (pass.coverageWhy.isEmpty()) "" else "cw=[${pass.coverageWhy}] ") +
                     "hs=${pass.handshakeMs}ms s=\"${pass.line.take(60)}\""
             )
         }

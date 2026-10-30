@@ -262,3 +262,5 @@ does not reach YouTube at all it says so (section 8).
 - A failure that happens before a strategy acts (CONNECT, "unreachable") is the route's, never the strategy's: it is not stored, not quarantined, not counted.
 - A check has a goal and ends when it is reached; nothing scans the whole list for its own sake. The frozen bottom of the ranking is last, not removed.
 - The pure files take no `Context`; keep policy there and storage in `DpiPrefs`, so it stays testable without a device.
+- Patch 57: a strategy's test also fetches YouTube's real hosts in full (`ProbeSites`, `NetworkCheck.coverageViaBypass`, judged by `HttpBodyJudge`). It runs only for a strategy whose real transfer worked, feeds `StrategyResult.score()` (the hosts share) and
+  `DpiStrategySearch.ranked` (after holding up under load, before the score), and is never a gate: nodes that do not answer from a network cost every strategy alike. It is not stored separately; the stored score carries it.

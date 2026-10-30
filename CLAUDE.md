@@ -161,3 +161,11 @@ future sessions don't lose them.)
   (3) a refresh button in the top-right of the dashboard tests five random strategies of the current connection, working ones join the router's list by rating;
   (4) a strategy groups card shows Wi-Fi and mobile data; (5) a wide window gets two panes so the hints are not below the fold; (6) dead code and stale comments removed.
   Where the brief was loose, `CHANGELOG.md` ("Patch 56", "Reading of the brief") says how it was read. Result: `CHANGELOG.md`, "Patch 56".
+- **Request (patch 57): make the bypass work as well as ByeByeDPI does on the user's phone ("as close to ByeByeDPI in its functionality as possible", the best techniques and
+  practices, no GUI change for now).** Decisions: (1) ByeByeDPI's code was read and compared before anything was written; its GPL Kotlin/Java code is NOT used,
+  the mechanisms are reimplemented (the engine stays the MIT `hufrea/byedpi`). (2) The comparison found the engine commit, the strategy list and the tunnel library at parity or newer;
+  the differences were in what a strategy is judged by and in how the tunnel is configured, and only those changed. (3) A strategy is also judged by how many of YouTube's real hosts,
+  video-server nodes included, arrive IN FULL through it (`ProbeSites`, `HttpBodyJudge`); it ranks strategies and is never a gate. (4) The tunnel is IPv4-only and adds no DNS server
+  when the phone has a Private DNS host name, as ByeByeDPI's defaults do; this supersedes patch 44's "do not change the tunnel's DNS or IPv6 on a guess" (the reference is a working
+  app on the user's own phone, not a guess; MTU is unchanged). (5) Not ported on purpose, because each needs a GUI or a product decision: an all-apps / per-app tunnel, start at boot,
+  a pause action, a configurable fake SNI. Result: `CHANGELOG.md`, "Patch 57".

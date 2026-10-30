@@ -13,6 +13,51 @@ patch's own `.py` script for the exact, idempotent, exact-match-guarded
 edits it makes.
 
 
+## Patch 57 — ByeByeDPI parity: strategies judged by YouTube's real hosts, an IPv4-only tunnel, Private DNS respected
+
+Request (2026-10-30, applied on top of patch 56): ByeByeDPI (a free app) works perfectly on the user's phone; study its code, mechanisms and strategies, then make Kinescope's bypass "as close to ByeByeDPI in its functionality as possible" with all the best techniques and practices; do not change the GUI for now.
+The source zip and the repomix were read, then ByeByeDPI was cloned (`git clone --no-recurse-submodules`, because the zip's submodule folders are empty) to read what it pins.
+
+### What was compared (read first, not assumed)
+- **Identical or newer, left alone.** ByeByeDPI pins `hufrea/byedpi` at `ba532298de7b`, the commit Kinescope vendors (`KINESCOPE_VENDOR.txt`). Its `proxytest_strategies.list` is byte-identical to `dpi_strategies_bundled.txt` (60 lines, upstream `4ca350c` of 2026-10-14). It
+  pins `hev-socks5-tunnel` at tag 2.14.4; Kinescope has 2.17.1. The engine start (a real SOCKS5 greeting, not a port check), one engine per process killed after use, 16 KB page alignment, `setMetered(false)`, hev's UDP-over-SOCKS (`udp: 'udp'`) and the foreground notification
+  with a swipe-back were already the same idea in Kinescope. The parser already accepts every flag of the 60 lines (`DpiBundledStrategiesTest`).
+- **Different, and changed.**
+  1. *What a strategy is judged by.* ByeByeDPI fetches about thirty real hosts per strategy (13 YouTube names and 19 `rrN---sn-*.googlevideo.com` video nodes), twenty at a time, and counts a host only when the announced body length arrived (a body
+     cut short is the signature of a connection a filter lets through and then starves); the strategy's score is the share of hosts that answered. Kinescope judged by three hosts (`www.youtube.com`, `i.ytimg.com`, a bare redirector, only two of them required), a
+     status line, one 200 KB transfer and six simultaneous fetches, none of them a video-server name: a strategy could pass all of that and still stall on the host a video's bytes come from.
+  2. *The tunnel.* ByeByeDPI's tunnel is IPv4-only by default and gives the TUN the DNS `1.1.1.1` unless the phone has a Private DNS host name. Kinescope's gave IPv4 and IPv6 addresses, routes and DNS servers and always forced `1.1.1.1` and `2606:4700:4700::1111`.
+
+### 1. Real-host coverage (`ProbeSites.kt`, `HttpBodyJudge.kt`, `NetworkCheck.kt`, `DpiSearch.kt`, `DpiBypass.kt`)
+- `ProbeSites`: 11 YouTube site names and the 19 video-server nodes of ByeByeDPI's list (hostnames only). The two bare apex names of its YouTube list (`googleapis.com`, `googleusercontent.com`) are left out: their certificates are not known to carry the apex and a mismatch would fail every strategy alike.
+- `HttpBodyJudge` (pure): reads one HTTP/1.x response from a stream and says `COMPLETE`, `TRUNCATED` or `NO_RESPONSE`. Framing in order: no body (1xx, 204, 304), chunked until the terminating chunk, `Content-Length` (short = truncated), otherwise until the stream ends; a body over the cap
+  (64 KB in the probe) is complete once the cap arrived. Any status counts, a 404 included (the host was reached); a stall or reset after the headers is truncated.
+- `NetworkCheck.fetchWholeBody` (SOCKS5 by name, TLS with host-name verification, one GET, the judge) and `coverageViaBypass` (all hosts at once, one overall deadline, the commonest failure reasons as `why=count`).
+- `StrategyResult` gains `coveragePassed/Total`, `edgePassed/Total`, `coverageWhy`. `DpiStrategySearch` runs the coverage probe only for a strategy whose real transfer worked (`deepOk`), so a dead strategy costs nothing extra; a probe that throws leaves the result unmeasured, not failed.
+- It is a ranking signal, **not a gate**: a node name belongs to one provider's cache and may not answer from the user's network at all, which costs every strategy the same. `score()` folds it into the hosts share (25 points) with the three light hosts; a result with no coverage scores exactly as before
+  (pinned by `CoverageScoreTest`). `ranked()` sorts by holding up under load, then a real transfer, then the share of real hosts, then the score. `perfect` and `SearchGoal` are unchanged, so a check still stops at 5 working / 3 perfect.
+- The log's `pass` lines gain `cov=A/B edge=C/D cw=[why=count]`.
+
+### 2. The tunnel (`BypassVpnService.kt`, `PrivateDns.kt`, `TunnelConfig.kt`, `DiagnosticReport.kt`)
+- IPv4 only: no IPv6 address, route or DNS server is added, and `ipv6` is no longer written to hev's configuration. Verified in the sources, not assumed: AOSP `VpnService.Builder.allowFamily` says a family with no address, route or DNS server is blocked for the apps the VPN carries, so the YouTube app uses IPv4 at once
+  (adding even an IPv6 DNS server would have allowed it again); hev 2.17.1 `hev-config.c` treats `tunnel.ipv6` as optional.
+- DNS: `1.1.1.1` unless the phone has a Private DNS host name (`LinkProperties.privateDnsServerName` of this app's default network), in which case none is added and, per `addDnsServer`'s documentation, Android uses the default network's DNS, where that name takes effect. The host name is never logged;
+  `#state` shows `pdns=strict|off|unknown` and the `tun up` line `v6=0 dns=1.1.1.1|system`.
+- `hevTunnelConfig(port, mtu)` is a pure function now, pinned by `PrivateDnsRuleTest` (no `ipv6`, `udp: 'udp'`). MTU stays 1500 (ByeByeDPI writes 8500 into hev's buffer size but never sets the TUN's MTU, so the link is 1500 there too).
+- This supersedes patch 44's caution "do not change the tunnel's DNS, IPv6 or MTU on a guess" for DNS and IPv6: the reference is an app that works on the user's own phone. MTU is unchanged.
+
+### Not done, on purpose
+No GUI change. Not ported, because each needs a GUI or a product decision (`ROADMAP.md`, technical debt): an all-apps or per-app tunnel, start at boot, a Pause action, a configurable fake SNI, host lists, the user's domain lists. ByeByeDPI's GPL Kotlin/Java code was read for its mechanisms and none of it was copied.
+
+### Verified here, and not
+Run in the session: `kotlinc` 2.1.0 (the project's version) compiled the new and edited pure files against stubs; the 29 new tests and 41 existing related ones pass in a small reflection runner (not Gradle); an end-to-end run of `fetchWholeBody` / `coverageViaBypass` through a local SOCKS5 server to a local TLS server
+(a whole 404 body, a chunked body, a body cut short, a stalled one, an unknown name) gave `COMPLETE`, `COMPLETE`, `TRUNCATED/short`, `TRUNCATED/stall`, `NO_RESPONSE/tls`. NOT run: Gradle, lint, the Android-bound edits (`BypassVpnService`, `DpiBypass`, `DiagnosticReport`, `PrivateDns` against the real SDK), anything on a device.
+`LinkProperties.privateDnsServerName` rests on ByeByeDPI's compiled use of it (the AOSP text could not be fetched). Gate: `ROADMAP.md`, "ByeByeDPI parity".
+
+### Reading of the brief
+"As close as possible in functionality" was read as: the same things decide the same outcomes (what a strategy is judged by, the tunnel's address families and DNS), not the same features (modes, lists, autostart). "Best techniques" was read as the ones the comparison showed ByeByeDPI has and Kinescope lacked; the ones Kinescope already had were not redone.
+"Do not alter GUI" was read strictly: no string, layout or setting changed; only log lines and the report header gained tokens.
+
 ## Patch 56 — The router stops blaming a stop, the random check and the groups become visible, a refresh button, the tablet layout
 
 Request (2026-10-28, applied on top of patch 55, with a device report from build 0.12.2 (10032) on a Redmi Pad, Android 14, on Wi-Fi): (1) the

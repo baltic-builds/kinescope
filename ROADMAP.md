@@ -1,6 +1,6 @@
 # Roadmap
 
-State after patch 56 (2026-10-29). This file tracks only what is still open: device verification gates,
+State after patch 57 (2026-10-30). This file tracks only what is still open: device verification gates,
 technical debt and what is out of scope. How each item was closed lives in `CHANGELOG.md`; the state a new
 session needs is in `HANDOFF.md`.
 
@@ -67,6 +67,9 @@ session needs is in `HANDOFF.md`.
   stop the user asked for or for a first transport death; the random check also runs when the app is opened and while the tunnel stays up, and its outcome
   is shown; Home has a refresh button (five random ways), a strategy groups card, the router's last change, and on a wide window two panes so the hints are
   not below the fold; dead code is removed. Nothing of it is confirmed on a device; the cause of the 3-second transport death in the report is not established.
+- **Patch 57 (2026-10-30) brings the bypass closer to ByeByeDPI, which works on the user's phone.** Compared first (the engine commit, the strategy list and the tunnel library are the same or newer), then only the differences were changed: a strategy is also
+  judged by how many of YouTube's real hosts, video-server nodes included, arrive in full through it (ranking only, never a gate), the YouTube tunnel is IPv4-only, and it adds no DNS server when the phone has a Private DNS host name. No GUI change.
+  Nothing of it is confirmed on a device; the Android-bound edits (`BypassVpnService`, `DpiBypass`, `DiagnosticReport`) were not compiled in the session that wrote them.
 
 ## Decisions that remain unchanged
 
@@ -85,6 +88,17 @@ session needs is in `HANDOFF.md`.
 Patches 54 and 55 are applied together and share the first gate. Gates below that name things patch 54/55 or the October out-of-band change
 removed (the Home drop-down, stars, the speed line, the update notice, the 25-day upkeep, "Unblock YouTube") are superseded by the first two
 sections; tick or delete them against the new behaviour, not the old.
+
+### ByeByeDPI parity: real-host coverage, IPv4-only tunnel, Private DNS (patch 57)
+`Copy report` shows `tun up ... v6=0 dns=`, `#state ... pdns=`, and `cov= edge= cw=[]` on the `pass` lines (`HANDOFF.md`, "How to read the next report", item 6).
+- [ ] `./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug` is green. (`BypassVpnService.kt`, `DpiBypass.kt` and `DiagnosticReport.kt` were edited without the Android SDK: expect to fix an import or a signature.)
+- [ ] Settings -> Test strategies (or the first check): the `pass` lines carry `cov=A/B edge=C/D`; B is 30 (11 site names + 19 nodes). A search of five working strategies takes visibly longer than before (up to about six seconds more per working strategy) and
+  uses a little more data; report both numbers.
+- [ ] Compare the top-ranked strategy of a check with the one that works best in ByeByeDPI on the same network: do they agree, or does the better one have the higher `cov=`? If every strategy shows the same low `edge=` with `cw=[conn_r4=...]` or `tls=...`, the node names do not answer
+  from this network and the signal is noise there; report it.
+- [ ] Switch the bypass on, open the YouTube app, play a video: it plays, the log says `tun up mtu=1500 v6=0 dns=1.1.1.1` (or `dns=system` with a Private DNS host name set in Android settings and `pdns=strict` in `#state`), and `tun win ... v=flowing` follows. No IPv6 address appears in the tunnel.
+- [ ] With Private DNS set to a provider host name: names still resolve in the YouTube app while the bypass is on. If they do not, set it back to Automatic and report it (the rule can be reverted in `PrivateDns.tunnelDnsServer`).
+- [ ] On an IPv6-only mobile network (if one is available): the app still plays (the engine reaches IPv4 destinations through the carrier's translation); report it either way.
 
 ### Router fixes, refresh button, groups card, tablet layout (patch 56)
 `Copy report` shows `transport stopped unexpectedly engine= bridge= run= deaths= fate=`, `rotate ... why=` and the `#group` lines (`HANDOFF.md`, "How to read the next report").
@@ -407,6 +421,11 @@ those are replaced by the patch 51 list above. The tunnel rows, the search strip
   verified.
 
 ## Technical debt
+
+- **ByeByeDPI features not ported (patch 57), each needs a GUI or a product decision.** An all-apps or per-app tunnel (today the tunnel carries exactly one app, `addAllowedApplication`); start at boot / auto-connect; a Pause action in the
+  notification; a configurable fake SNI (`{sni}` is always `google.com`); `-H` host lists (the parser forbids file paths on purpose); the user's domain lists (the coverage hosts are fixed in `ProbeSites`). Revisit when a device report shows one is needed.
+- **The coverage hosts are fixed names (patch 57).** The video-server nodes are cache nodes of particular providers; from some networks many do not answer, which costs every strategy the same and only blurs the ranking. If a report shows that, choose the
+  nodes at run time (e.g. keep the ones that answer with no strategy at all, or that answered in earlier searches) instead of a fixed list.
 
 - **Patch 51 open points.** (a) The manifest `<queries>` for "apps that open YouTube links" is the documented browser query plus a
   youtube.com one; whether Android matches host-restricted clients (NewPipe, ReVanced) the same way on every version is unverified,

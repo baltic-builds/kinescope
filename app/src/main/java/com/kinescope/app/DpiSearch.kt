@@ -28,7 +28,18 @@ internal data class StrategyResult(
     val handshakeMs: Int = 0,
     val loadKbps: Int = 0,
     /** Patch 54: how many of this strategy's failed probes ended at the CONNECT stage with a SOCKS "unreachable" reply. */
-    val connectFaults: Int = 0
+    val connectFaults: Int = 0,
+    /**
+     * Patch 57: of [coverageTotal] real hosts (YouTube's own names and video-server nodes, [ProbeSites]) fetched in full through this
+     * strategy, how many arrived complete. 0 of 0 means "not measured" (the probe ran only for a strategy whose real transfer worked).
+     */
+    val coveragePassed: Int = 0,
+    val coverageTotal: Int = 0,
+    /** Patch 57: the video-server part of that count (`rrN---sn-*.googlevideo.com`), the names a download's bytes come from. */
+    val edgePassed: Int = 0,
+    val edgeTotal: Int = 0,
+    /** Patch 57: the commonest reasons the unreached hosts failed, as `why=count` (log-sized). */
+    val coverageWhy: String = ""
 ) {
     val fullPass: Boolean get() = started && total > 0 && requiredPassed
 
@@ -37,6 +48,9 @@ internal data class StrategyResult(
      * Such a result is no evidence for or against the strategy and is not stored as a failure.
      */
     val connectFault: Boolean get() = started && !fullPass && connectFaults > 0 && connectFaults >= total - passed
+
+    /** Patch 57: the share (0-100) of the real hosts that arrived in full; 0 when it was not measured. */
+    val coveragePercent: Int get() = if (coverageTotal > 0) coveragePassed * 100 / coverageTotal else 0
 
     /** Patch 35: at least four in five simultaneous connections completed. */
     val loadOk: Boolean get() = loadTotal > 0 && loadPassed * 5 >= loadTotal * 4
@@ -58,7 +72,13 @@ internal data class StrategyResult(
      */
     fun score(): Int {
         if (!fullPass) return 0
-        val hosts = if (total > 0) 25 * passed / total else 0
+        // Patch 57: when the real hosts were fetched too, they count with the three of the light probe (ByeByeDPI scores a strategy
+        // by the share of its hosts that answered); an unmeasured result keeps the old formula exactly.
+        val hosts = when {
+            coverageTotal > 0 -> 25 * (passed + coveragePassed) / (total + coverageTotal)
+            total > 0 -> 25 * passed / total
+            else -> 0
+        }
         val transfer = if (deepOk) 15 else 0
         val load = if (loadTotal > 0) 45 * loadPassed / loadTotal else 0
         val latency = when {
@@ -137,7 +157,12 @@ internal class DpiStrategySearch(
      * Patch 54: how many probes of the engine on [port] failed because it could not reach the host (see
      * `StageResult.isReachFault`), read once after the probes of one strategy. The default counts none.
      */
-    private val faults: (port: Int) -> Int = { 0 }
+    private val faults: (port: Int) -> Int = { 0 },
+    /**
+     * Patch 57: optional fetch of the real hosts ([ProbeSites]) in full, run only for a strategy whose real transfer worked. It is
+     * evidence for the ranking, never a gate: a node name that does not answer from this network costs every strategy the same.
+     */
+    private val coverageProbe: ((port: Int) -> CoverageResult?)? = null
 ) {
     /**
      * [stopAfterFullPasses] bounds how many fully-passing strategies to collect before
@@ -226,6 +251,17 @@ internal class DpiStrategySearch(
                     null
                 }
             }
+            // Patch 57: the real hosts, fetched in full, for a strategy that already carries a real transfer.
+            var coverage: CoverageResult? = null
+            if (deepOk && coverageProbe != null) {
+                coverage = try {
+                    coverageProbe.invoke(session.port)
+                } catch (e: InterruptedException) {
+                    throw e
+                } catch (e: Exception) {
+                    null
+                }
+            }
             return StrategyResult(
                 line,
                 started = true,
@@ -238,7 +274,12 @@ internal class DpiStrategySearch(
                 loadTotal = load?.total ?: 0,
                 handshakeMs = load?.medianHandshakeMs ?: 0,
                 loadKbps = load?.kbps ?: 0,
-                connectFaults = faultCount
+                connectFaults = faultCount,
+                coveragePassed = coverage?.passed ?: 0,
+                coverageTotal = coverage?.total ?: 0,
+                edgePassed = coverage?.edgePassed ?: 0,
+                edgeTotal = coverage?.edgeTotal ?: 0,
+                coverageWhy = coverage?.failures.orEmpty()
             )
         } finally {
             pool.shutdownNow()
@@ -274,6 +315,8 @@ internal class DpiStrategySearch(
             results.filter { it.fullPass }.sortedWith(
                 compareByDescending<StrategyResult> { it.loadOk }
                     .thenByDescending { it.deepOk }
+                    // Patch 57: among strategies that carry real traffic, the one that reaches more of YouTube's real hosts.
+                    .thenByDescending { it.coveragePercent }
                     .thenByDescending { it.score() }
                     .thenByDescending { it.throughputKbps }
             )

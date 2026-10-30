@@ -4,7 +4,7 @@ The current state of Kinescope for anyone (human or AI agent) resuming work. It 
 appended to: per-patch history lives in `CHANGELOG.md`, open work in `ROADMAP.md`, process rules in `AGENTS.md`,
 product constraints in `CLAUDE.md`. Where this file and the code disagree, the code wins; fix this file.
 
-State as of patch 56 (2026-10-29). Patches 53-55 and the October 2026 v.3 fixes are described below and in `CHANGELOG.md`.
+State as of patch 57 (2026-10-30). Patches 53-56 and the October 2026 v.3 fixes are described below and in `CHANGELOG.md`.
 
 ## What Kinescope is
 
@@ -38,6 +38,9 @@ ranking with its frozen bottom 15, the heartbeat line, the hints panel, the them
 death is reconnected without blame, the random check also at app opening and while the tunnel stays up, the refresh button, the strategy groups card,
 the two-pane Home on wide windows, dead code removed). The exact
 checklist is `ROADMAP.md`; do not tick a box without the user's report.
+**Patch 57 (not yet confirmed on a device):** the bypass is brought closer to ByeByeDPI, which works on the user's phone: a strategy is also judged by how many of YouTube's real
+hosts (11 site names and 19 real video-server nodes) arrive in full through it (`cov=`, `edge=` in the report), and the YouTube tunnel is IPv4-only with no DNS server of its own
+under a Private DNS host name. The exact checklist is `ROADMAP.md`.
 **CI:** the release workflow was red at patch 42 (`AdaptiveLayoutTest` still referenced the removed
 `WidthClass`). Patch 43 fixes it, pins the NDK/CMake, and restructures the workflow (validate, tests + lint,
 then the signed build; reports uploaded on failure). It counts as green only after the user reports a run.
@@ -239,6 +242,8 @@ Network bypass
 - `StrategyRating.kt`, `StrategyRouter.kt` -- the pure rating (last test + real use) and the router policy (the chain, `StrategyRank`, `RandomCheckPolicy`, `ClassCheckPolicy`); see `STRATEGY_ROUTER.md` (patches 53-55).
 - `StrategyMemory.kt` -- pure record of which strategies really carried traffic (real outcomes only since patch 53; fading score, text form); `MaintenanceSchedule.kt` -- pure calendar of the yt-dlp update (25 days) and the day length the other calendars count in.
 - `NetworkCheck.kt`, `NetworkState.kt` -- layered reachability probe through the engine; third-party VPN detection; the connection class (patch 53).
+- `ProbeSites.kt`, `HttpBodyJudge.kt` -- patch 57: the real hosts a strategy is judged against (`SITE_HOSTS`, `VIDEO_EDGE_HOSTS`: hostnames only) and the pure rule that says a response arrived IN FULL (fixed length, chunked or read to the end; a body cut short is `TRUNCATED`); used by `NetworkCheck.coverageViaBypass`.
+- `PrivateDns.kt`, `TunnelConfig.kt` -- patch 57: whether the phone has a Private DNS host name (the tunnel then adds no DNS server) and the pure text of the bridge's configuration (IPv4 only).
 - `TunnelStartupPolicy.kt` -- checks verified route health before activation and only learns failed candidates after a successful fallback.
 - `TunnelRecovery.kt` -- pure rule for a transport that stops by itself (`TransportRecovery`: stop / reconnect on the same way / rotate) and the router event Home shows (`RouterEvent`) (patch 56).
 - `BypassVpnService.kt` -- `BypassVpnController` and the YouTube-only `VpnService` (`:dpi_vpn`).
@@ -303,6 +308,12 @@ parser/search/ranking/store, the network probe, the privacy redaction, the windo
 - Patch 56, read from a device report and the code: a stop the user asks for leaves no `tun end` line (`logTunnelTotals` runs only when no stop was requested)
   yet the monitor thread can still see the closed bridge (`requestStop` closes the TUN at once), so `monitorTunnel` must look at `stopRequested` before it calls
   anything a failure. In `#rate`, `bad=1.00` together with `quar=1` is a failure recorded minutes ago. `versionCode` comes from the CI run number: a patch does not bump it.
+- Patch 57, compared against a clone of ByeByeDPI at `4ca350c` (2026-10-14) and the AOSP / hev sources: ByeByeDPI pins `hufrea/byedpi` at `ba532298`, the SAME commit as `KINESCOPE_VENDOR.txt`;
+  its `proxytest_strategies.list` is identical to `dpi_strategies_bundled.txt`; it pins `hev-socks5-tunnel` at tag 2.14.4 (Kinescope: 2.17.1, newer). Its strategy test fetches about thirty real hosts (13
+  YouTube names, 19 `rrN---sn-*.googlevideo.com` nodes) and counts a host only when the announced body length arrived; its tunnel is IPv4-only by default, gives the TUN the DNS `1.1.1.1` unless a Private DNS
+  host name is set, and writes only `mtu`, `task-stack-size` and `udp` to hev's configuration. `VpnService.Builder` (AOSP, `allowFamily`): with no address, route or DNS server of one family that family is blocked for
+  the apps the VPN carries; `addDnsServer`: with none set "the DNS servers of the default network will be used". hev 2.17.1 `hev-config.c`: `tunnel.ipv6` is optional (absent = no IPv6 address configured).
+  `LinkProperties.privateDnsServerName` (API 28) is the call ByeByeDPI's own Private DNS check makes; its AOSP text could not be fetched in the session, so that one rests on ByeByeDPI's compiled use.
 
 ## How to read the next report
 
@@ -319,6 +330,9 @@ parser/search/ranking/store, the network probe, the privacy redaction, the windo
    checked for the running app version; `rand=Nh` is the hours since its last random check. `vpn chk ... rc=4` is the SOCKS reply of a failed
    CONNECT; `byp reach net=... none ... dns=ok a4=N a6=N tcp4=... tcp6=...` is the no-route evidence (which IP family connects); `reach ... v4only=learned`
    is the IPv6 fallback working; `srch rand net=... works= fault=` is a random check; `byp start search net= found=` is the start-up search.
+6. Patch 57: `tun up ... v6=0 dns=1.1.1.1|system` (system = the phone's Private DNS host name applies; `#state ... pdns=strict|off|unknown` says which); in a search the `pass` lines now carry `cov=A/B edge=C/D cw=[why=count]`: A of B real hosts arrived in full, C of D of them are video-server nodes,
+   `cw` the commonest reasons the others failed (`short` = the body stopped before its announced length, `stall` = it stopped arriving, `tls`, `conn_rN` = SOCKS reply N, `timeout`, `reset`, `eof`, `badhead`). Many `conn_r4`
+   or `tls` on the edge nodes for EVERY strategy means those node names do not answer from this network (they are cache nodes of particular providers), not that the strategies are bad.
 
 ## Key learnings
 
@@ -365,6 +379,8 @@ parser/search/ranking/store, the network probe, the privacy redaction, the windo
   two scripts, but `ndkVersion` was unset, so AGP's default was what actually built the native code until patch 43.
 - `pipefail` plus `yes |` raises SIGPIPE in setup scripts; dot-directories are skipped by some transfer tools
   (`git add -A` from a terminal keeps them).
+- **Compare with a working reference before guessing (patch 57).** The user's phone runs ByeByeDPI perfectly; reading its code and its pinned dependencies (the engine commit, the list, the tunnel library) first showed what was already
+  identical, so the patch changed only what differed. A "works on my phone" reference is evidence a guess is not: clone it (`git clone --no-recurse-submodules`, then `git ls-tree` shows the pinned commits), do not rely on a zip alone (submodule folders are empty in it).
 
 ## How to resume in a new conversation
 

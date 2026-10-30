@@ -159,6 +159,12 @@ internal data class LoadResult(val total: Int, val passed: Int, val medianHandsh
     val ok: Boolean get() = total > 0 && passed * 5 >= total * 4
 }
 
+/**
+ * Patch 57: outcome of [NetworkCheck.coverageViaBypass]: how many of the real hosts answered IN FULL (see [HttpBodyJudge]), and how
+ * many of those are video-server nodes. [failures] is the commonest reasons, as `why=count` (log-sized).
+ */
+internal data class CoverageResult(val total: Int, val passed: Int, val edgeTotal: Int, val edgePassed: Int, val failures: String)
+
 internal enum class CheckStage { DNS, TCP, PROXY, CONNECT, TLS, HTTP }
 
 internal data class StageResult(
@@ -527,6 +533,98 @@ internal class NetworkCheck(
         }
     }
 
+    /**
+     * Patch 57: one complete HTTPS GET of [path] through the bypass engine, judged by [HttpBodyJudge]: the host counts as reached only
+     * when the whole response arrived, which is what tells a strategy that carries traffic from one that lets a connection start
+     * and then starves it. A failure's [BodyJudgement.why] is one token: `proxy`, `conn` (with the SOCKS reply, `conn_r4`), `tls`,
+     * `tls_timeout`, or the judge's own (`short`, `stall`, `reset`, `eof`, `timeout`, `badhead`, `badchunk`).
+     */
+    fun fetchWholeBody(
+        engine: SocksEndpoint,
+        host: String,
+        path: String = "/",
+        maxBodyBytes: Int = COVERAGE_MAX_BODY,
+        budgetMs: Int = COVERAGE_BUDGET_MS
+    ): BodyJudgement {
+        val socket = Socket()
+        try {
+            socket.connect(InetSocketAddress(engine.host, engine.port), stageTimeoutMs)
+            socket.soTimeout = stageTimeoutMs
+            if (Socks5.greet(socket.getInputStream(), socket.getOutputStream()) != null) return noResponse("proxy")
+            val connect = Socks5.connectByName(socket.getInputStream(), socket.getOutputStream(), host, HTTPS_PORT)
+            if (!connect.ok) return noResponse("conn" + (connect.replyCode?.let { "_r$it" } ?: ""))
+
+            val factory = SSLSocketFactory.getDefault() as SSLSocketFactory
+            val ssl = factory.createSocket(socket, host, HTTPS_PORT, false) as SSLSocket
+            ssl.soTimeout = stageTimeoutMs
+            ssl.sslParameters = ssl.sslParameters.also { it.endpointIdentificationAlgorithm = "HTTPS" }
+            try {
+                ssl.startHandshake()
+            } catch (e: InterruptedException) {
+                throw e
+            } catch (e: Exception) {
+                return noResponse(if (e is java.net.SocketTimeoutException) "tls_timeout" else "tls")
+            }
+            val request = "GET $path HTTP/1.1\r\nHost: $host\r\nUser-Agent: Kinescope\r\nAccept: */*\r\n" +
+                "Accept-Encoding: identity\r\nConnection: close\r\n\r\n"
+            ssl.outputStream.write(request.toByteArray(Charsets.US_ASCII))
+            ssl.outputStream.flush()
+            return HttpBodyJudge.judge(ssl.inputStream, maxBodyBytes, System.nanoTime() + budgetMs * 1_000_000L)
+        } catch (e: InterruptedException) {
+            throw e
+        } catch (e: Exception) {
+            return noResponse(if (e is java.net.SocketTimeoutException) "timeout" else "io")
+        } finally {
+            closeQuietly(socket)
+        }
+    }
+
+    private fun noResponse(why: String) = BodyJudgement(BodyOutcome.NO_RESPONSE, 0, 0, why)
+
+    /**
+     * Patch 57: [fetchWholeBody] for every host of [hosts] at once (ByeByeDPI tests about thirty names at a time, twenty in parallel;
+     * this runs them all together, they are small). Counts the hosts that arrived in full, and how many of those [isEdge] calls a
+     * video-server node. One overall deadline bounds the call however many hosts hang.
+     */
+    fun coverageViaBypass(
+        engine: SocksEndpoint,
+        hosts: List<String>,
+        isEdge: (String) -> Boolean,
+        parallel: Int = COVERAGE_PARALLEL,
+        budgetMs: Int = COVERAGE_BUDGET_MS
+    ): CoverageResult {
+        if (hosts.isEmpty()) return CoverageResult(0, 0, 0, 0, "")
+        val pool = java.util.concurrent.Executors.newFixedThreadPool(parallel.coerceIn(1, hosts.size)) { runnable ->
+            Thread(runnable, "kinescope-coverage").apply { isDaemon = true }
+        }
+        try {
+            val futures = hosts.map { host -> pool.submit(Callable { fetchWholeBody(engine, host, "/", COVERAGE_MAX_BODY, budgetMs) }) }
+            val deadline = System.nanoTime() + (stageTimeoutMs * 3L + budgetMs + 2_000L) * 1_000_000L
+            val judged = futures.map { future ->
+                val leftMs = ((deadline - System.nanoTime()) / 1_000_000L).coerceAtLeast(1L)
+                try {
+                    future.get(leftMs, TimeUnit.MILLISECONDS)
+                } catch (e: InterruptedException) {
+                    throw e
+                } catch (e: Exception) {
+                    noResponse("lost")
+                }
+            }
+            val edge = hosts.indices.filter { isEdge(hosts[it]) }
+            val reasons = judged.filter { !it.ok }.groupingBy { it.why }.eachCount().entries
+                .sortedByDescending { it.value }.take(3).joinToString(",") { "${it.key}=${it.value}" }
+            return CoverageResult(
+                total = hosts.size,
+                passed = judged.count { it.ok },
+                edgeTotal = edge.size,
+                edgePassed = edge.count { judged[it].ok },
+                failures = reasons
+            )
+        } finally {
+            pool.shutdownNow()
+        }
+    }
+
     private fun closeQuietly(socket: Socket) {
         try {
             socket.close()
@@ -535,6 +633,11 @@ internal class NetworkCheck(
     }
 
     companion object {
+        // Patch 57: the coverage probe (coverageViaBypass): small pages, all hosts at once, a short budget for each body.
+        private const val COVERAGE_MAX_BODY = 64 * 1024
+        private const val COVERAGE_BUDGET_MS = 6_000
+        private const val COVERAGE_PARALLEL = 32
+
         const val DEFAULT_HOST = "www.youtube.com"
         private const val HTTPS_PORT = 443
         private const val MAX_ADDRESS_ATTEMPTS = 4

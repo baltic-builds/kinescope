@@ -102,6 +102,9 @@ class BypassVpnService : VpnService() {
     @Volatile private var tunInterface: ParcelFileDescriptor? = null
     @Volatile private var tunnelRunning = false
 
+    // Patch 57: what the last TUN was given as DNS (`1.1.1.1`, or `system` when the phone's own Private DNS name applies).
+    @Volatile private var tunnelDnsTag = "?"
+
     // Patch 32: "Update" in the notification re-tests the strategies inside this service and then
     // reconnects with the best result, without leaving the notification.
     @Volatile private var updating = false
@@ -301,7 +304,7 @@ class BypassVpnService : VpnService() {
                 .notify(NOTIFICATION_ID, buildNotification(active = true))
             AppLog.i(
                 "BypassVpnService",
-                "tun up mtu=$TUN_MTU v6=1 dns=1.1.1.1 udp=udp net=${cls.key} s=${chain.indexOf(chosenLine) + 1}/${chain.size} " +
+                "tun up mtu=$TUN_MTU v6=0 dns=$tunnelDnsTag udp=udp net=${cls.key} s=${chain.indexOf(chosenLine) + 1}/${chain.size} " +
                     "app=${if (appPackage == YoutubeApps.DEFAULT_PACKAGE) "yt" else "other"}"
             )
             AppLog.i("BypassVpnService", "YouTube-only bypass active")
@@ -739,42 +742,28 @@ class BypassVpnService : VpnService() {
 
     /** Patch 51: a tunnel that lets exactly one app through, the one the user chose (YouTube unless changed in Settings). */
     private fun buildAppTunnel(appPackage: String): ParcelFileDescriptor? {
+        // Patch 57, ByeByeDPI's defaults: the tunnel is IPv4-only. `VpnService.Builder` blocks a family for the apps it carries when no
+        // address, route or DNS server of that family is added, so the app uses IPv4 at once instead of an IPv6 path the engine may
+        // not be able to use (patch 54's reach fault). Adding ANY IPv6 address, route or DNS server would allow the family again.
+        // DNS: the fixed resolver, unless the phone has a Private DNS name: then none is added and Android uses the default
+        // network's DNS, where that name takes effect (`PrivateDns`).
+        val dns = PrivateDns.tunnelDnsServer(PrivateDns.state(this))
+        tunnelDnsTag = dns ?: "system"
         val builder = Builder()
             .setSession(getString(R.string.bypass_title))
             .setMtu(TUN_MTU)
             .addAddress("198.18.0.1", 32)
-            .addAddress("fc00::1", 128)
             .addRoute("0.0.0.0", 0)
-            .addRoute("::", 0)
-            .addDnsServer("1.1.1.1")
-            .addDnsServer("2606:4700:4700::1111")
             .addAllowedApplication(appPackage)
+        if (dns != null) builder.addDnsServer(dns)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) builder.setMetered(false)
         return builder.establish()
     }
 
     private fun writeTunnelConfig(port: Int): File {
         val file = File(cacheDir, "hev-youtube-bypass.yml")
-        file.writeText(
-            """
-            tunnel:
-              name: tun0
-              mtu: $TUN_MTU
-              ipv4: 198.18.0.1
-              ipv6: 'fc00::1'
-              icmp: 'off'
-            socks5:
-              port: $port
-              address: 127.0.0.1
-              udp: 'udp'
-            misc:
-              task-stack-size: 86016
-              tcp-buffer-size: 65536
-              max-session-count: 512
-              log-file: null
-              log-level: warn
-            """.trimIndent() + "\n"
-        )
+        // Patch 57: the text is built by the pure `hevTunnelConfig` (IPv4 only), which a unit test pins.
+        file.writeText(hevTunnelConfig(port, TUN_MTU))
         return file
     }
 
