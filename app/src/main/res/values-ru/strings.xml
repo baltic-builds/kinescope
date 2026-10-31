@@ -401,6 +401,9 @@
     <string name="dash_strategy_auto_title">Выбирать стратегию автоматически</string>
     <string name="dash_strategy_auto_on">Используется лучшая стратегия; если она перестанет работать, приложение переключится.</string>
     <string name="dash_strategy_auto_off">Ваш выбор пробуется первым. Если он перестанет работать, приложение всё равно переключится.</string>
+    <!-- Patch 58: the five-entry manual menu, visible on Home only while automatic selection is off. -->
+    <string name="dash_strategy_manual">Стратегия вручную · 5 лучших для этого подключения</string>
+    <string name="dash_strategy_manual_hint">Применится при следующем запуске обхода. Если стратегия перестанет работать, приложение переключится на другую.</string>
     <string name="settings_youtube_app">Приложение для «Смотреть YouTube»</string>
     <string name="youtube_app_hint">Выберите приложение, которое открывает кнопка «Смотреть YouTube» и которому обход помогает. По умолчанию это официальное YouTube; подойдёт и другое приложение для YouTube или браузер.</string>
     <string name="youtube_app_default">По умолчанию</string>

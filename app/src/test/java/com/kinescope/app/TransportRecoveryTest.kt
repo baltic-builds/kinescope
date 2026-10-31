@@ -46,6 +46,14 @@ class TransportRecoveryTest {
     }
 
     @Test
+    fun aFailureDrivenRestartCannotSelectTheSameStrategyAgain() {
+        val chain = listOf("pinned", "second", "third")
+        assertEquals(listOf("second", "third"), TunnelRotation.withoutFailed(chain, "pinned"))
+        assertEquals(chain, TunnelRotation.withoutFailed(chain, null))
+        assertEquals(emptyList<String>(), TunnelRotation.withoutFailed(listOf("only"), "only"))
+    }
+
+    @Test
     fun theStoryOfTheReportPlaysOutAsOneReconnectAndNoBlame() {
         // 17:32:30 in the report: dead after three seconds, first death of that strategy.
         var deaths = 0

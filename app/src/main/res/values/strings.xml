@@ -401,6 +401,9 @@
     <string name="dash_strategy_auto_title">Choose the strategy automatically</string>
     <string name="dash_strategy_auto_on">The best strategy is used, and the app switches if it stops working.</string>
     <string name="dash_strategy_auto_off">Your choice is tried first. The app still switches if it stops working.</string>
+    <!-- Patch 58: the five-entry manual menu, visible on Home only while automatic selection is off. -->
+    <string name="dash_strategy_manual">Manual strategy · top 5 on this connection</string>
+    <string name="dash_strategy_manual_hint">Applies the next time the bypass starts. If it stops working, the app switches to another way.</string>
     <string name="settings_youtube_app">App for “Watch YouTube”</string>
     <string name="youtube_app_hint">Choose the app that the “Watch YouTube” button opens and that the bypass lets through. The official YouTube app is the default; another app for YouTube, or a browser, works too.</string>
     <string name="youtube_app_default">Default</string>

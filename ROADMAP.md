@@ -1,6 +1,6 @@
 # Roadmap
 
-State after patch 57 (2026-10-30). This file tracks only what is still open: device verification gates,
+State after patch 58 (2026-10-31). This file tracks only what is still open: device verification gates,
 technical debt and what is out of scope. How each item was closed lives in `CHANGELOG.md`; the state a new
 session needs is in `HANDOFF.md`.
 
@@ -54,7 +54,8 @@ session needs is in `HANDOFF.md`.
 
 - **Out-of-band October changes (recorded in `CHANGELOG.md`).** Home has one tunnel toggle, an automatic toggle and "Watch YouTube"; the strategy
   drop-down, colour names and stars left Home; manual choice is the last section of Settings; a route that fails its health probe is never
-  accepted; the TUN is closed at once on stop. Older entries below that name the drop-down, the stars or "Unblock YouTube" describe what existed before.
+  accepted; the TUN is closed at once on stop. Patch 58 supersedes only the manual-choice part: a five-entry menu returns while automatic is off; stars stay gone.
+  Older entries below that name the drop-down, the stars or "Unblock YouTube" describe what existed before.
 - **Patch 54 (2026-10-26) tells an unreachable route from a blocked strategy.** On mobile data every strategy failed at CONNECT "unreach": the engine
   could not reach the host, which says nothing about the strategy. The app now retries with the engine's IPv4-only option, remembers it per class,
   or says there is no route; such failures are no longer stored as failed tests. Cause on the reporting phone not confirmed (a hypothesis: IPv6).
@@ -70,6 +71,9 @@ session needs is in `HANDOFF.md`.
 - **Patch 57 (2026-10-30) brings the bypass closer to ByeByeDPI, which works on the user's phone.** Compared first (the engine commit, the strategy list and the tunnel library are the same or newer), then only the differences were changed: a strategy is also
   judged by how many of YouTube's real hosts, video-server nodes included, arrive in full through it (ranking only, never a gate), the YouTube tunnel is IPv4-only, and it adds no DNS server when the phone has a Private DNS host name. No GUI change.
   Nothing of it is confirmed on a device; the Android-bound edits (`BypassVpnService`, `DpiBypass`, `DiagnosticReport`) were not compiled in the session that wrote them.
+- **Patch 58 (2026-10-31) restores manual choice on Home and closes a rotation loophole.** Automatic off now reveals exactly five manual choices from the current class's canonical ranking;
+  turning it off while the tunnel runs pins the actual active line, not a stale chain head. A failure-driven restart excludes the just-failed line even when every route is quarantined.
+  The full Settings list, pins, ratings, probes and rotation limits are unchanged. Device confirmation is open below.
 
 ## Decisions that remain unchanged
 
@@ -88,6 +92,14 @@ session needs is in `HANDOFF.md`.
 Patches 54 and 55 are applied together and share the first gate. Gates below that name things patch 54/55 or the October out-of-band change
 removed (the Home drop-down, stars, the speed line, the update notice, the 25-day upkeep, "Unblock YouTube") are superseded by the first two
 sections; tick or delete them against the new behaviour, not the old.
+
+### Home manual choice and failure-driven rotation (patch 58)
+- [ ] `./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug` is green.
+- [ ] On Wi-Fi, switch automatic off: a drop-down appears on Home with exactly five entries from the Wi-Fi ranking, with colour names and ratings. Choose one: the pin toast appears and the same choice is visible in Settings.
+- [ ] Repeat on mobile data (or a metered hotspot): the mobile pin and five choices are independent of Wi-Fi. Switch automatic on: the Home menu disappears; the full Settings list remains available only while that class is pinned.
+- [ ] While the tunnel runs on an automatic fallback, switch automatic off: the newly pinned line is the one named by the live route state, not the route that failed before it.
+- [ ] Make the current route fail while at least one alternative exists (airplane mode is only a negative test, not proof of a blocked strategy): after the existing probe/one-way thresholds, `rotate ... why=` is followed by `tun up` on a DIFFERENT line. A pinned or already quarantined failed line is not selected by its own recovery restart.
+- [ ] Check the menu in English and Russian, light and dark, at 200% font and with a TV D-pad. The selected pin may be shown above a five-entry menu even when it is currently outside that top five; choosing a menu entry replaces it.
 
 ### ByeByeDPI parity: real-host coverage, IPv4-only tunnel, Private DNS (patch 57)
 `Copy report` shows `tun up ... v6=0 dns=`, `#state ... pdns=`, and `cov= edge= cw=[]` on the `pass` lines (`HANDOFF.md`, "How to read the next report", item 6).
@@ -474,10 +486,9 @@ those are replaced by the patch 51 list above. The tunnel rows, the search strip
 - **The chain holds six strategies now (it held four).** In the worst case, when the network is down and every route
   fails, the route ladder tries up to six routes before giving up. Lower `MAX_VERIFIED_STRATEGIES` and `MAX_FALLBACKS`
   together if that wait is noticeable.
-- **The Home dashboard reads the bypass preferences when something it watches changes**, not through a live observer:
-  a search starting or finishing, the tunnel coming up or going down, or its own switch. A change made elsewhere
-  without one of those (none is known today) would show on the next one. If that ever matters, `DpiPrefs` needs a
-  `StateFlow`.
+- **The Home dashboard still reads bypass preferences as snapshots (patch 58 narrowed the staleness).** Searches, tunnel state, its own switch, connection class, `activeLine` and `lastEvent`
+  now invalidate the snapshot, so a rotation and the actual route are observed. Another preference write without one of those signals would still appear only at the next invalidation;
+  replace the remaining reads with a `DpiPrefs` flow only if such a writer appears.
 - **Settings and Home disagree on one rule.** Settings still locks the "Use the bypass for downloads" switch while a
   download runs (and says so); Home does not, because the switch only writes a preference and a running download keeps
   its route. Align Settings (and its hint text) after a device report on the Home behavior.

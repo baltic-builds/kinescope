@@ -169,3 +169,9 @@ future sessions don't lose them.)
   when the phone has a Private DNS host name, as ByeByeDPI's defaults do; this supersedes patch 44's "do not change the tunnel's DNS or IPv6 on a guess" (the reference is a working
   app on the user's own phone, not a guess; MTU is unchanged). (5) Not ported on purpose, because each needs a GUI or a product decision: an all-apps / per-app tunnel, start at boot,
   a pause action, a configurable fake SNI. Result: `CHANGELOG.md`, "Patch 57".
+- **Request (patch 58): restore manual strategy selection on the Dashboard and make the router switch away from a strategy that stops working.**
+  Decisions: (1) this explicitly supersedes the October 2026 no-Home-drop-down decision; only while automatic is off, Home shows exactly the five best strategies
+  of the CURRENT connection class (`StrategyRank.manualChoices`), while Settings keeps the full paged list; (2) automatic off while the tunnel runs pins the actual active line,
+  not a stale preference snapshot; (3) a failure-driven restart excludes the just-failed line for that restart even when it is pinned or every route is quarantined;
+  (4) pins, ratings, health checks, quarantine duration and rotation limits otherwise stay unchanged; (5) manual selection applies at the next tunnel start and never disables later failure recovery.
+  Result: `CHANGELOG.md`, "Patch 58"; `STRATEGY_ROUTER.md` and `ROADMAP.md` carry the mechanism and device gates.

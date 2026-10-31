@@ -93,7 +93,7 @@ Worked examples (all computed by the code, see `StrategyRatingTest`):
 So a strategy that tested well but keeps failing for real sinks below the line after four failures within about a week, and
 one that tested badly or never but keeps carrying traffic climbs. Old evidence of either kind fades by itself.
 
-Settings shows the number ("Rating 74") in front of the last test. (Patch 51's stars on Home went with the Home drop-down.)
+Settings shows the number ("Rating 74") in front of the last test. Patch 58's five-entry Home manual menu shows the same rating beside the colour name; the old stars are not restored.
 
 ## 5. What changes a chain (`StrategyRouter`)
 
@@ -122,7 +122,8 @@ The stored chain of a class is a cache of the router's decisions; it is rewritte
    the ranking. A chain left empty is cleared and the class borrows the other one's again until it is checked.
 
 What the chain is used as (`DpiStrategyStore.chain`): the pin first, then the stored order, with the quarantined
-strategies last (`ChainPlanner.order`).
+strategies last (`ChainPlanner.order`). Patch 58 adds one runtime guard: the restart caused by a strategy's own failure
+excludes that strategy even if every route is quarantined, so it cannot pass a light startup check and become active again at once.
 
 ## 6. Where it is applied
 
@@ -140,7 +141,8 @@ ratings.
 - Monitoring: the engine is probed about every 30 s (the first probe 45 s after the start) and the YouTube app's traffic is
   judged every 10 s. Two failed probes in a row, or three one-way windows in a row (the app sends, nothing comes back), mean
   the strategy stopped working. It is quarantined (`REAL_BAD`, demoted) and the tunnel reconnects on the next strategy of the
-  chain, the best rated one that is not quarantined. At most 3 such switches in 10 minutes, at least 90 s apart.
+  chain, the best rated one that is not quarantined. Patch 58 also excludes the just-failed line from that one restart, including
+  when it is pinned or every route is quarantined. At most 3 such switches in 10 minutes, at least 90 s apart.
 - Change of connection: when the system reports the other class for four ticks in a row (two seconds, so a handover that
   flickers is ignored) the tunnel reconnects on the chain of the new class. That is not a failure: nothing is quarantined and
   it does not count towards the 3 switches.
@@ -157,10 +159,12 @@ changed class when it ends its results are dropped (`DpiBypass.recordSearch`, me
 check"), because they would describe neither network. Otherwise the results go to the class's results store and then the
 chain is rebuilt (event 1).
 
-**Home and Settings** (`BypassDashboard`, `BypassSettings`): since the October change the Home card has the tunnel switch (with the
-heartbeat line), the automatic switch and the connection label; switching the automatic switch off pins the strategy in use for that
-class only, and the choice of another one is the last section of Settings (`StrategyPicker`, the strategies of that class by rating). The
-card follows a change of connection by itself.
+**Home and Settings** (`BypassDashboard`, `BypassSettings`): patch 58 supersedes the October no-picker decision. The Home card has
+the tunnel switch (with the heartbeat line), the automatic switch and the connection label. Switching automatic off pins the tunnel's
+actual active line when known (otherwise the chain head) for that class only and reveals a drop-down with exactly the five best lines of
+`StrategyRank.order` for that class. It shows colour names and ratings, never stars; choosing one writes the same per-class pin as Settings.
+The full paged list remains the last section of Settings. Home follows active-line and router-event flows as well as connection changes, so
+a rotation cannot leave its next automatic-off action pointing at a stale chain head. A manual pick applies at the next tunnel start.
 
 ## 7. Checks (patch 55): when, how much, which strategies
 
@@ -232,7 +236,8 @@ does not reach YouTube at all it says so (section 8).
 | "Recently carried a download" | 14 days (chain), 10 minutes (route) | `DpiPrefs.PROVEN_MAX_AGE_MS`, `RouteScoreboard` |
 | Class change must hold | 4 ticks of 500 ms = 2 s | `NetSwitch.STABLE_TICKS` |
 | Tunnel probe / flow window / first probe | 30 s / 10 s / 45 s | `BypassVpnService` |
-| Tunnel strategy switches | 2 failed probes or 3 one-way windows; at most 3 per 10 min, 90 s apart | `BypassVpnService` |
+| Tunnel strategy switches | 2 failed probes or 3 one-way windows; at most 3 per 10 min, 90 s apart; the failed line is excluded from its own restart | `BypassVpnService`, `TunnelRotation` |
+| Home manual choices | 5 best of the current class's canonical ranking | `StrategyRank.MANUAL_CHOICES` |
 | Check goal (first, class, manual) | 5 working, 3 perfect | `SearchGoal.STANDARD` |
 | Start-up search goal | 2 working | `SearchGoal.QUICK` |
 | Random check | 2 strategies, 12 h apart per class | `RandomCheckPolicy.PICKS`, `INTERVAL_MS` |
@@ -262,5 +267,6 @@ does not reach YouTube at all it says so (section 8).
 - A failure that happens before a strategy acts (CONNECT, "unreachable") is the route's, never the strategy's: it is not stored, not quarantined, not counted.
 - A check has a goal and ends when it is reached; nothing scans the whole list for its own sake. The frozen bottom of the ranking is last, not removed.
 - The pure files take no `Context`; keep policy there and storage in `DpiPrefs`, so it stays testable without a device.
+- A failure-driven restart never offers the just-failed line again (`TunnelRotation.withoutFailed`); this does not change later starts or quarantine expiry.
 - Patch 57: a strategy's test also fetches YouTube's real hosts in full (`ProbeSites`, `NetworkCheck.coverageViaBypass`, judged by `HttpBodyJudge`). It runs only for a strategy whose real transfer worked, feeds `StrategyResult.score()` (the hosts share) and
   `DpiStrategySearch.ranked` (after holding up under load, before the score), and is never a gate: nodes that do not answer from a network cost every strategy alike. It is not stored separately; the stored score carries it.

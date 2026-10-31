@@ -80,6 +80,9 @@ internal object StrategyRouter {
  * (75 days). A search that needs more than the rest of the list can give still reaches them, because they are last, not removed.
  */
 internal object StrategyRank {
+    /** Patch 58: how many of this class's best strategies the Home manual menu offers. */
+    const val MANUAL_CHOICES = 5
+
     /** How many of the lowest-ranked strategies of a class are left alone. */
     const val BOTTOM_COUNT = 15
 
@@ -96,6 +99,13 @@ internal object StrategyRank {
         val poor = all.filter { bad(it, ratings) }.sortedBy { tested[it]?.at ?: 0L }
         return good + untested + poor
     }
+
+    /** The five best choices of one class for Home; the pin never changes this canonical ranking. */
+    fun manualChoices(
+        candidates: List<String>,
+        ratings: Map<String, Int>,
+        tested: Map<String, StoredResult>
+    ): List<String> = order(candidates, ratings, tested).take(MANUAL_CHOICES)
 
     /**
      * The strategies of [order] that are frozen at [now]: among the last [BOTTOM_COUNT] of the list, those that did badly and were

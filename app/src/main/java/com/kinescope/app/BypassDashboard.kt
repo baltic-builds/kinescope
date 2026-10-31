@@ -2,6 +2,7 @@ package com.kinescope.app
 
 import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,6 +19,8 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -30,6 +33,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -46,7 +50,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 
 // The home surface shows live tunnel status, automatic selection and the Watch YouTube action.
-// Detailed manual strategy selection is intentionally at the bottom of Settings.
+// Patch 58: automatic off reveals five manual choices for the current class; Settings keeps the full list.
 // Patch 56: a refresh button in the card's top-right corner (five random ways are checked, the working ones join the router's list),
 // the router's last change under "Way N of M", a soft glow on the card in both states, a pill-shaped main button. The two strategy
 // groups are drawn by their own card (`StrategyGroupsCard.kt`).
@@ -70,8 +74,11 @@ private class DashPrefs(
     val verifiedAt: Long,
     /** The strategy the user pinned; null while the choice is automatic. */
     val pinned: String?,
-    /** The strategy in use: the pinned one, else the first of the chain (the one that works best). */
-    val selected: String?
+    /** The pinned one, else the tunnel's actual route when known, else the chain head. */
+    val selected: String?,
+    /** Patch 58: this class's five best manual choices and the ratings their labels show. */
+    val choices: List<String>,
+    val ratings: Map<String, Int>
 )
 
 private data class DashPalette(val container: Color, val primary: Color, val secondary: Color, val divider: Color)
@@ -87,6 +94,7 @@ internal fun BypassDashboard(
     val context = LocalContext.current
     val search by DpiSearchController.state.collectAsState()
     val traffic by BypassVpnController.traffic.collectAsState()
+    val activeLine by BypassVpnController.activeLine.collectAsState()
     val routerEvent by BypassVpnController.lastEvent.collectAsState()
     // Patch 53: the card shows the strategies of the connection the phone is on, and follows a change from Wi-Fi to mobile data.
     val netClass by NetClassWatcher.state.collectAsState()
@@ -101,17 +109,29 @@ internal fun BypassDashboard(
     // Read again whenever something that can change them happens: a search starting or finishing, the tunnel coming
     // up or going down (an "Update" from its notification can change the chain), or a pick on this card.
     var prefsVersion by remember { mutableIntStateOf(0) }
-    val prefs = remember(search.running, search.resultMessageRes, search.randomResult, tunnel.active, prefsVersion, cls) {
+    val prefs = remember(
+        search.running, search.resultMessageRes, search.randomResult, tunnel.active,
+        activeLine, routerEvent, prefsVersion, cls
+    ) {
         // chain() first: a connection that was never tested borrows the other one's chain here.
         val chain = DpiStrategyStore.chain(context, cls)
         val pinned = DpiPrefs.pinned(context, cls)
-        val selected = pinned ?: chain.firstOrNull()
+        // Automatic off must pin the route that is really carrying the tunnel, not a stale chain head.
+        val selected = pinned ?: activeLine?.takeIf { it in chain } ?: chain.firstOrNull()
+        val ratings = if (pinned == null) emptyMap() else DpiPrefs.ratings(context, cls)
+        val choices = if (pinned == null) {
+            emptyList()
+        } else {
+            StrategyRank.manualChoices(DpiStrategyStore.candidates(context), ratings, DpiResultsStore.load(context, cls))
+        }
         DashPrefs(
             cls = cls,
             waysReady = chain.size,
             verifiedAt = DpiPrefs.verifiedAt(context, cls),
             pinned = pinned,
-            selected = selected
+            selected = selected,
+            choices = choices,
+            ratings = ratings
         )
     }
 
@@ -158,6 +178,13 @@ internal fun BypassDashboard(
             if (on) R.string.strategy_unpinned else R.string.strategy_pinned_done,
             Toast.LENGTH_SHORT
         ).show()
+    }
+
+    val selectStrategy: (String) -> Unit = { line ->
+        DpiPrefs.pin(context, prefs.cls, line)
+        prefsVersion++
+        AppLog.i("BypassDashboard", "home manual net=${prefs.cls.key}")
+        Toast.makeText(context, R.string.strategy_pinned_done, Toast.LENGTH_SHORT).show()
     }
 
     val scheme = MaterialTheme.colorScheme
@@ -293,7 +320,8 @@ internal fun BypassDashboard(
                         prefs = prefs,
                         model = model,
                         palette = palette,
-                        onAuto = setAuto
+                        onAuto = setAuto,
+                        onSelect = selectStrategy
                     )
                 }
             }
@@ -529,13 +557,14 @@ private fun YouTubeChannel(
     }
 }
 
-/** Automatic strategy selection is the only strategy control on Home. Manual choices are in Settings. */
+/** Patch 58: the automatic switch and, while it is off, the current class's five best manual choices. */
 @Composable
 private fun AutomaticStrategySection(
     prefs: DashPrefs,
     model: BypassDashboardModel,
     palette: DashPalette,
-    onAuto: (Boolean) -> Unit
+    onAuto: (Boolean) -> Unit,
+    onSelect: (String) -> Unit
 ) {
     val auto = prefs.pinned == null
     FocusRing(modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.large) {
@@ -569,6 +598,75 @@ private fun AutomaticStrategySection(
             KinescopeSwitch(checked = auto, onCheckedChange = null, enabled = model.strategiesEnabled)
         }
     }
+    if (!auto && prefs.choices.isNotEmpty()) {
+        ManualStrategyDropdown(prefs, palette, model.strategiesEnabled, onSelect)
+    }
+}
+
+@Composable
+private fun ManualStrategyDropdown(
+    prefs: DashPrefs,
+    palette: DashPalette,
+    enabled: Boolean,
+    onSelect: (String) -> Unit
+) {
+    val selected = prefs.pinned ?: return
+    val context = LocalContext.current
+    var expanded by remember(prefs.cls) { mutableStateOf(false) }
+    val names = remember(prefs.choices, prefs.pinned) { DpiStrategyStore.names(context) }
+    @Composable
+    fun label(line: String): String {
+        val name = names.nameOf(line).ifBlank { line }
+        val rating = prefs.ratings[line]
+        return if (rating == null) name else name + " · " + stringResource(R.string.strategy_rating, rating)
+    }
+
+    Spacer(modifier = Modifier.height(4.dp))
+    Text(
+        text = stringResource(R.string.dash_strategy_manual),
+        style = MaterialTheme.typography.labelSmall,
+        color = palette.secondary
+    )
+    FocusRing(modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium) {
+        Box {
+            Surface(
+                modifier = Modifier.fillMaxWidth().clickable(
+                    enabled = enabled,
+                    role = Role.Button,
+                    onClick = { expanded = true }
+                ),
+                shape = MaterialTheme.shapes.medium,
+                color = palette.primary.copy(alpha = 0.08f)
+            ) {
+                Text(
+                    text = label(selected),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = palette.primary,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)
+                )
+            }
+            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                for (line in prefs.choices) {
+                    FocusRing {
+                        DropdownMenuItem(
+                            text = { Text(label(line)) },
+                            enabled = enabled,
+                            onClick = {
+                                expanded = false
+                                if (line != selected) onSelect(line)
+                            }
+                        )
+                    }
+                }
+            }
+        }
+    }
+    Text(
+        text = stringResource(R.string.dash_strategy_manual_hint),
+        style = MaterialTheme.typography.bodySmall,
+        color = palette.secondary,
+        modifier = Modifier.padding(top = 4.dp)
+    )
 }
 
 /**

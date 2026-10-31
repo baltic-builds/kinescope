@@ -13,6 +13,28 @@ patch's own `.py` script for the exact, idempotent, exact-match-guarded
 edits it makes.
 
 
+## Patch 58 — Home's five-entry manual menu, live active-line pinning, deterministic failure rotation
+
+Request (2026-10-31, applied on top of patch 57): the product generally works, but (1) turning automatic strategy selection off shows no manual control on the Dashboard, and (2) the selected strategy appears never to change when it stops working. Analyse the Dashboard and router, make surgical edits, and deliver one Codespaces Python script that checks, commits and pushes the change.
+
+### What the code showed
+- **The missing control was exact, not a storage problem.** Home's `AutomaticStrategySection` only wrote a per-class pin; the only picker was `ManualStrategySettings` at the bottom of Settings. Pins, ratings and test results were already separate for Wi-Fi and mobile data.
+- **Home could pin a stale route.** `BypassVpnController.activeLine` already published the route actually carrying the tunnel, but Home did not collect it. Its preference snapshot used the chain head and was not invalidated by router events, so an automatic fallback could be live while automatic-off still pinned the old head.
+- **Quarantine was ordering, not an absolute guard for the restart.** `rotateStrategy` quarantined and demoted the failed line, then `startTunnel` read the chain again. Normally that put another line first. If every route was quarantined, however, `ChainPlanner.order` intentionally restored the base order; a pinned failed line could lead again and pass the lightweight startup health check. This does not prove that every reported non-switch had this cause, but it is a concrete way the recovery restart could select the same route again.
+
+### What changed
+- Automatic off on Home now reveals a compact drop-down containing exactly `StrategyRank.MANUAL_CHOICES` (five) lines from the CURRENT class's canonical ranking: good evidence first, then unknown, then poor evidence. It uses colour names and the existing rating text; no stars return. A pin outside the current top five remains the displayed selection, while the menu itself still contains only the canonical five. Choosing an entry writes the existing per-class `DpiPrefs.pin`; the full Settings picker is unchanged.
+- Home collects `activeLine` and `lastEvent`. Automatic off while the tunnel runs pins the actual active line when it belongs to the current chain, otherwise the previous fallback. Manual selection applies at the next tunnel start, as the menu says; it does not interrupt a running route merely because a preference was tapped.
+- `TunnelRotation.withoutFailed` removes the just-failed line from the candidate list of its own recovery restart, including a chain returned by the on-demand quick search. Ordinary starts, network-change reconnects, updates, later quarantine expiry, the 90-second gap and the three-rotations-in-ten-minutes limit are unchanged.
+- English and Russian labels were added together. No strategy parser, extraction, native-engine, tunnel-address or DNS code changed.
+
+### Regression coverage and verification
+`StrategyRankTest` pins the exact five-entry cap/order and shows that the same candidates produce different menus from different class evidence. `TransportRecoveryTest` pins exclusion of the failed line, including a pinned lead and a one-line chain. The delivery script checks Kotlin delimiter balance and both touched XML resource files, then runs `./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug` before committing or pushing.
+Real behavior remains a device gate in `ROADMAP.md`: per-class menu contents, actual active-line pinning, a recovery restart landing on a different line, and Russian/large-font/TV interaction. Compilation or these pure tests are not device confirmation.
+
+### Reading of the brief
+"Top 5 most successful" uses the existing `StrategyRank.order`, not a new success metric and not the six-entry runtime chain. "Automatic selection off" remains represented by a per-class pin; no second mode flag was introduced. The request explicitly supersedes October's deliberate removal of the Home drop-down, but only for the compact five-entry manual state.
+
 ## Patch 57 — ByeByeDPI parity: strategies judged by YouTube's real hosts, an IPv4-only tunnel, Private DNS respected
 
 Request (2026-10-30, applied on top of patch 56): ByeByeDPI (a free app) works perfectly on the user's phone; study its code, mechanisms and strategies, then make Kinescope's bypass "as close to ByeByeDPI in its functionality as possible" with all the best techniques and practices; do not change the GUI for now.

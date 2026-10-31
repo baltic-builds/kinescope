@@ -8,8 +8,8 @@ import kotlin.math.exp
 //
 // Patch 52: the card has ONE switch for the YouTube bypass (the "Watch YouTube" button, once "Unblock YouTube", moved below the
 // card and the two no longer repeat each other), and the strategies were a drop-down with an "automatic" switch under it.
-// Patch 54: the drop-down, its stars and the "applies next start" note left the card (the manual choice is at the bottom of
-// Settings); the code that only served them is gone.
+// Patch 54 removed the drop-down and stars; patch 58 restores only a compact five-entry menu while automatic is off.
+// The full manual choice remains at the bottom of Settings; stars and the old dashboard model code stay gone.
 // Patch 55: no speed on the card any more (neither the download's nor the tunnel's); a heartbeat line says whether the bypass
 // carries traffic: a green pulse while it does, a red flat line when the connection is lost (`DashPulse`, `HeartbeatLine`).
 // Patch 56: a refresh button in the card's top-right corner (`showRefresh`, `refreshEnabled`); a random check counts as a quiet

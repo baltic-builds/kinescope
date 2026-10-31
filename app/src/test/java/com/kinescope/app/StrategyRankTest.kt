@@ -48,6 +48,26 @@ class StrategyRankTest {
     }
 
     @Test
+    fun homeManualChoiceIsExactlyTheFiveBestOfTheClassRanking() {
+        val candidates = listOf("-a", "-b", "-c", "-d", "-e", "-f", "-g")
+        val ratings = mapOf("-f" to 95, "-b" to 85, "-d" to 75, "-a" to 65, "-g" to 55, "-c" to 20)
+        val tested = mapOf("-c" to stored("-c", false, 2))
+        assertEquals(
+            listOf("-f", "-b", "-d", "-a", "-g"),
+            StrategyRank.manualChoices(candidates, ratings, tested)
+        )
+    }
+
+    @Test
+    fun homeManualChoiceUsesOnlyTheEvidenceOfTheClassItWasGiven() {
+        val candidates = listOf("-a", "-b", "-c", "-d", "-e")
+        val wifi = mapOf("-a" to 90, "-b" to 80, "-c" to 70, "-d" to 60, "-e" to 50)
+        val mobile = mapOf("-e" to 90, "-d" to 80, "-c" to 70, "-b" to 60, "-a" to 50)
+        assertEquals(candidates, StrategyRank.manualChoices(candidates, wifi, emptyMap()))
+        assertEquals(candidates.reversed(), StrategyRank.manualChoices(candidates, mobile, emptyMap()))
+    }
+
+    @Test
     fun duplicatesAreCollapsed() {
         assertEquals(listOf("-a", "-b"), StrategyRank.order(listOf("-a", "-b", "-a"), emptyMap(), emptyMap()))
     }

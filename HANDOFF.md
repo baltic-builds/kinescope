@@ -4,7 +4,7 @@ The current state of Kinescope for anyone (human or AI agent) resuming work. It 
 appended to: per-patch history lives in `CHANGELOG.md`, open work in `ROADMAP.md`, process rules in `AGENTS.md`,
 product constraints in `CLAUDE.md`. Where this file and the code disagree, the code wins; fix this file.
 
-State as of patch 57 (2026-10-30). Patches 53-56 and the October 2026 v.3 fixes are described below and in `CHANGELOG.md`.
+State as of patch 58 (2026-10-31). Patches 53-57 and the October 2026 v.3 fixes are described below and in `CHANGELOG.md`.
 
 ## What Kinescope is
 
@@ -41,6 +41,8 @@ checklist is `ROADMAP.md`; do not tick a box without the user's report.
 **Patch 57 (not yet confirmed on a device):** the bypass is brought closer to ByeByeDPI, which works on the user's phone: a strategy is also judged by how many of YouTube's real
 hosts (11 site names and 19 real video-server nodes) arrive in full through it (`cov=`, `edge=` in the report), and the YouTube tunnel is IPv4-only with no DNS server of its own
 under a Private DNS host name. The exact checklist is `ROADMAP.md`.
+**Patch 58 (not yet confirmed on a device):** automatic off on Home reveals the current class's five best manual strategies; automatic off while the tunnel runs pins the actual active line;
+a failure-driven tunnel restart excludes the line that just failed even if every route is quarantined. The exact checklist is `ROADMAP.md`.
 **CI:** the release workflow was red at patch 42 (`AdaptiveLayoutTest` still referenced the removed
 `WidthClass`). Patch 43 fixes it, pins the NDK/CMake, and restructures the workflow (validate, tests + lint,
 then the signed build; reports uploaded on failure). It counts as green only after the user reports a run.
@@ -105,27 +107,22 @@ not yet being 16 KB page-size compatible (upstream).
   through `AdaptiveSpec`, not through ad-hoc `if (isTv)` checks. `AppFrame` is ONE structure for every layout
   (a Scaffold with empty bars in the rail layout, a Row, a Column, a single call of the screen content): a
   second branch around the content would rebuild every screen when a phone is rotated.
-- **Home dashboard (patch 45, redrawn in patches 51, 52, the out-of-band October change and patch 55).** The hero card on Home
-  (`BypassDashboard`) shows the state of the YouTube bypass with ONE on/off switch (the YouTube-only tunnel: start / stop, the strategy
-  position, `TunnelTraffic.verdict` from `BypassVpnController.traffic`) and, under it, a **heartbeat line** (`HeartbeatLine`, `DashPulse`):
-  a green pulse that travels along the line while the bypass carries traffic, a red flat line when the connection is lost (the tunnel is up
-  and nothing comes back, or it stopped on an error), a muted flat line when it is off or starting. There is NO speed on the dashboard
-  (patch 55 removed the download speed and the tunnel's rate and everything that measured them), no strategy picker and no stars (the
-  drop-down went with the October change; the manual choice is the last section of Settings, shown when the automatic switch is off for the
-  connected class). Under the tunnel row: the automatic switch (on = no pin; switching it off pins the strategy in use, `DpiPrefs.pin`; on =
-  `DpiPrefs.unpin`). Below the card: **Watch YouTube** (`onOpenApp`) and, after the banners, the **hints panel** (`HintsPanel`: seven short
-  semi-transparent lines about how the router works and what `+` does; it has no close button by design). The queue is not on Home.
-  `+` in the navigation (`addFromClipboard` in `MainActivity.kt`) reads the clipboard on the tap and enqueues a valid link at the
-  default quality; with no link it opens the Add screen. The DOWNLOADS switch (`DpiPrefs.enabled`, ON by default since patch 51) is in Settings only. Every
-  rule lives in the pure `bypassDashboardModel`; the composable maps state in and draws. Preferences are read when a watched
-  state changes, not through a live observer. The heartbeat is the one continuous animation in the app and is tied to a MEASURED state; it holds still
-  when the system's animations are off (`design.md`, rule 6).
+- **Home dashboard (patch 45, redrawn in patches 51, 52, 55 and 58).** The hero card on Home (`BypassDashboard`) shows the YouTube bypass
+  with ONE tunnel switch, its strategy position and `TunnelTraffic.verdict`, then a **heartbeat line** (`HeartbeatLine`, `DashPulse`): green
+  and pulsing for measured traffic, red and flat for a lost connection, muted and flat when off or starting. There is no speed and no stars.
+  Under the tunnel row is the automatic switch. Patch 58 supersedes the October no-picker decision: automatic off pins the actual active tunnel
+  line when known (otherwise the chain head) and reveals a drop-down with exactly five choices from `StrategyRank.manualChoices` for the current
+  class, labelled by colour name and rating. The full paged expert list remains last in Settings. A Home or Settings pick writes the same per-class
+  `DpiPrefs.pin`; automatic on lifts it. A manual pick applies at the next tunnel start; a later real failure still rotates away.
+  Below the card: **Watch YouTube** (`onOpenApp`) and, after the banners, the **hints panel**. The queue is not on Home. `+` downloads a valid
+  clipboard link or opens Add. The DOWNLOADS switch remains in Settings only. Preferences are snapshots invalidated by searches, tunnel state,
+  active-line/router-event flows, connection class and local picks. The heartbeat respects the system animation setting (`design.md`, rule 6).
 - **Strategy names (patch 51) -- THE RULE.** Every strategy has a colour name from `R.array.strategy_colors` (EN and RU, 100
   colours, most common first). A strategy takes the FIRST palette colour no other known strategy has, in the order strategies
   are first met (built-ins, then the community list); the assignment is stored (`DpiPrefs.nameBook`, `StrategyNames`) and never
   changes while the strategy stays in the list; a strategy that leaves the list (and is not in the chain or pinned) frees its
   colour; the palette is append-only (never reorder or remove, add at the end in both languages with equal counts; the unit test
-  and lint check it); beyond the palette a number is added ("Red 2"). Names are shown in the manual picker (Settings) and the pin toast.
+  and lint check it); beyond the palette a number is added ("Red 2"). Names are shown in Home's five-entry manual menu and the full Settings picker.
 - **The strategy list mirrors its source (patch 51).** `DpiStrategyStore.candidates` = built-ins + (the downloaded community list
   if there is one, else the bundled snapshot), never both (`mergeStrategyLists`). Source today: 60 strategies; built-ins: 12.
 - **First install and updates (patches 51 and 55).** `AppUpdate.onProcessStart` (in `YtOfflineApp`) compares the version code with the last
@@ -216,7 +213,7 @@ UI
 - `AppChrome.kt` -- `AppFrame` (top bar + bottom bar, or header + navigation rail; five destinations since patch 52: Home, Queue, `+`, Library, Settings), responsive column.
 - `HomeScreen.kt` -- Home: the bypass dashboard slot, the banners (errors, sign-in), the strategy groups card and the hints panel; one column, or two panes (dashboard + banners | groups + hints) on a wide window since patch 56.
 - `QueueScreen.kt` -- the download queue as its own screen (patch 52): the full list, Pause / Resume / Stop per row, the empty text.
-- `BypassDashboard.kt` -- the Home hero: bypass and automatic-selection switches, network class, tunnel health/traffic, the router's last change, the refresh button (patch 56) and "Watch YouTube". Manual strategy selection is in Settings.
+- `BypassDashboard.kt` -- the Home hero: bypass and automatic-selection switches, network class, tunnel health/traffic, the router's last change, the refresh button, the conditional five-entry manual menu (patch 58) and "Watch YouTube".
 - `StrategyGroups.kt`, `StrategyGroupsCard.kt` -- the pure model of the Wi-Fi / mobile group lines (`GroupState`, `RandomLast`) and the Home card that draws them (patch 56); `agoText` (relative time) lives in the card file.
 - `LibraryScreen.kt` -- the library of finished downloads as its own screen (patch 51).
 - `BypassDashboardModel.kt` -- pure rules of that card (`bypassDashboardModel`, `DashPulse`) and the shape of one heartbeat (`heartbeatSample`).
@@ -245,7 +242,7 @@ Network bypass
 - `ProbeSites.kt`, `HttpBodyJudge.kt` -- patch 57: the real hosts a strategy is judged against (`SITE_HOSTS`, `VIDEO_EDGE_HOSTS`: hostnames only) and the pure rule that says a response arrived IN FULL (fixed length, chunked or read to the end; a body cut short is `TRUNCATED`); used by `NetworkCheck.coverageViaBypass`.
 - `PrivateDns.kt`, `TunnelConfig.kt` -- patch 57: whether the phone has a Private DNS host name (the tunnel then adds no DNS server) and the pure text of the bridge's configuration (IPv4 only).
 - `TunnelStartupPolicy.kt` -- checks verified route health before activation and only learns failed candidates after a successful fallback.
-- `TunnelRecovery.kt` -- pure rule for a transport that stops by itself (`TransportRecovery`: stop / reconnect on the same way / rotate) and the router event Home shows (`RouterEvent`) (patch 56).
+- `TunnelRecovery.kt` -- pure transport recovery (`TransportRecovery`), failure-restart candidate exclusion (`TunnelRotation`, patch 58) and the router event Home shows (`RouterEvent`).
 - `BypassVpnService.kt` -- `BypassVpnController` and the YouTube-only `VpnService` (`:dpi_vpn`).
 - `TunnelFlow.kt` -- pure judge of the YouTube app's traffic through the tunnel (idle / flowing / one-way, from the bridge counters) and the snapshot the dashboard reads (`TunnelTraffic`: verdict and place in the chain; no speed since patch 55).
 - `app/src/main/java/hev/htproxy/TProxyService.java` -- JNI contract of the vendored `hev-socks5-tunnel`; `app/src/main/cpp/` -- ByeDPI sources, `dpi_jni.c`, `CMakeLists.txt`; `app/src/main/jniLibs/` -- the tunnel library with its license and provenance.

@@ -10,7 +10,7 @@ Sources (checked October 25, 2026):
 
 ## Rules in this patch
 
-1. **Hierarchy:** one meaningful home hero (VPN status, one tunnel switch, the heartbeat line), one automated-selection control, then the primary Watch YouTube action, then the hints panel. No strategy picker on Home; expert controls last in Settings.
+1. **Hierarchy:** one meaningful home hero (VPN status, one tunnel switch, the heartbeat line), one automated-selection control, then the primary Watch YouTube action, then the hints panel. Patch 58: only while automatic selection is off, a compact drop-down on Home offers the current class's five best strategies; the full expert list remains last in Settings.
 2. **Color:** bright but grounded Kinescope orange is reserved for checked switches, the action button and positive focus. The off track/thumb are neutral grays with clear outlines in both light and dark themes. Never encode status by color alone: show readable text.
 3. **Shape and space:** larger 28dp hero corners, raised surface, 20dp horizontal / 22dp vertical interior spacing, comfortable touch target (>=48dp) and clear typography scale.
 4. **Type:** Inter for readable UI and headlines; avoid faux branded serif/gemini fonts and keep the system fallback. Headlines have one dominant scale, supporting text uses title/body/label M3 roles.
@@ -56,7 +56,7 @@ Custom success/warning colors and the heartbeat colors remain in `YtOfflineExtra
 ## Verification and acceptance criteria
 
 - Both switch positions: visible orange `on` and neutral gray `off` in both themes, with clear textual labels; disabled remains distinguishable.
-- Home displays status / tunnel / automatic mode / Watch YouTube; manual selection only at Settings bottom when auto is off for the present network.
+- Home displays status / tunnel / automatic mode / Watch YouTube; when auto is off for the present network, Home shows its five-entry manual menu (colour names and ratings, no stars). The full manual list remains at Settings bottom.
 - Verify screens at 320, 360, 600, 840, 1280dp, with 200% font scale, landscape, split-screen, screen reader, TV D-pad, English/Russian.
 - Verify real-device Wi-Fi and cellular transitions and no-stuck-TUN behavior on STOP and revoke; integration cannot be certified by unit tests.
 - No Gemini/Google branding, no proprietary visual assets, and no claim of reproducing confidential Google design specs.

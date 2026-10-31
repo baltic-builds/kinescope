@@ -216,7 +216,7 @@ class BypassVpnService : VpnService() {
         super.onDestroy()
     }
 
-    private fun startTunnel() {
+    private fun startTunnel(avoidLine: String? = null) {
         var engine: DpiEngineSession? = null
         var tun: ParcelFileDescriptor? = null
         var hevStarted = false
@@ -241,7 +241,7 @@ class BypassVpnService : VpnService() {
             // A pinned manual choice leads, but failed choices are still skipped.
             // Patch 54: see selectRoute -- a connection the engine cannot reach is told from a blocked strategy, and a class that
             // was never tested gets a short search of its own when its borrowed strategies are blocked.
-            val route = selectRoute(cls, chain)
+            val route = selectRoute(cls, chain, avoidLine)
             if (stopRequested.get()) return
             if (route.noRoute) throw BypassStartException(R.string.bypass_vpn_no_route)
             engine = route.engine ?: throw BypassStartException(R.string.bypass_vpn_engine_failed)
@@ -369,8 +369,9 @@ class BypassVpnService : VpnService() {
      * one of them is, the class's chain is probably just not meant for this connection (a chain borrowed from the other class,
      * patch 53), so one short search runs for the class and its result is tried.
      */
-    private fun selectRoute(cls: NetClass, startChain: List<String>): RouteChoice {
-        var chain = startChain
+    private fun selectRoute(cls: NetClass, startChain: List<String>, avoidLine: String? = null): RouteChoice {
+        // Patch 58: a failure-driven restart must not select the route that just failed again.
+        var chain = TunnelRotation.withoutFailed(startChain, avoidLine)
         var reachChecked = false
         var searched = false
         while (true) {
@@ -418,8 +419,9 @@ class BypassVpnService : VpnService() {
             if (!searched && failedLines.isNotEmpty()) {
                 searched = true
                 val found = searchOnDemand(cls)
-                if (found.isNotEmpty() && found != chain) {
-                    chain = found
+                val usable = TunnelRotation.withoutFailed(found, avoidLine)
+                if (usable.isNotEmpty() && usable != chain) {
+                    chain = usable
                     continue
                 }
             }
@@ -699,10 +701,10 @@ class BypassVpnService : VpnService() {
         AppLog.w("BypassVpnService", "rotate net=${cls.key} why=${kind.name.lowercase()} quarantined=1 alternatives=${alternatives.size}")
         failStreak = 0
         BypassVpnController.publishEvent(kind)
-        restartTunnel()
+        restartTunnel(avoidLine = line)
     }
 
-    private fun restartTunnel() {
+    private fun restartTunnel(avoidLine: String? = null) {
         restarting = true
         try {
             stopTunnelInternal(publishStopped = false)
@@ -713,7 +715,7 @@ class BypassVpnService : VpnService() {
             }
             BypassVpnController.starting()
             postNotification()
-            startTunnel()
+            startTunnel(avoidLine)
         } finally {
             restarting = false
         }

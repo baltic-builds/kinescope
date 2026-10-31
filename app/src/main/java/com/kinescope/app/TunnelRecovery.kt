@@ -42,6 +42,16 @@ internal object TransportRecovery {
         if (fate == TransportFate.RESTART_SAME && runMs < LONG_RUN_MS) deaths + 1 else deaths
 }
 
+/**
+ * Patch 58: candidates for the restart caused by [failed]. Quarantine normally puts that route last, but when
+ * every route is quarantined its pin could lead again and pass the light startup check. Excluding it for this
+ * one restart makes a failure-driven switch real; ordinary starts and later quarantine expiry are unchanged.
+ */
+internal object TunnelRotation {
+    fun withoutFailed(chain: List<String>, failed: String?): List<String> =
+        if (failed == null) chain else chain.filter { it != failed }
+}
+
 /** Why the tunnel changed what it runs on, in the words the dashboard uses. */
 internal enum class RouterEventKind {
     /** Two live probes of the engine failed in a row. */
