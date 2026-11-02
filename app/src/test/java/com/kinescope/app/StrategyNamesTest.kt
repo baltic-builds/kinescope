@@ -7,9 +7,9 @@ import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** Patch 51: the colour names of the strategies (the rule is in `StrategyNames`' own comment and in `CLAUDE.md`). */
+/** Patch 51: the names of the strategies, flowers since patch 59 (the rule is in `StrategyNames`' own comment and in `CLAUDE.md`). */
 class StrategyNamesTest {
-    private val palette = listOf("White", "Black", "Red")
+    private val palette = listOf("Rose", "Carnation", "Geranium")
 
     @Test
     fun newStrategiesTakeTheFirstFreeColoursInTheOrderTheyAreMet() {
@@ -75,10 +75,10 @@ class StrategyNamesTest {
 
     @Test
     fun namesCarryANumberOnlyAfterThePaletteIsUsedUp() {
-        assertEquals("White", StrategyNames.displayName(0, palette))
-        assertEquals("Red", StrategyNames.displayName(2, palette))
-        assertEquals("White 2", StrategyNames.displayName(3, palette))
-        assertEquals("Red 3", StrategyNames.displayName(8, palette))
+        assertEquals("Rose", StrategyNames.displayName(0, palette))
+        assertEquals("Geranium", StrategyNames.displayName(2, palette))
+        assertEquals("Rose 2", StrategyNames.displayName(3, palette))
+        assertEquals("Geranium 3", StrategyNames.displayName(8, palette))
         assertEquals("", StrategyNames.displayName(-1, palette))
         assertEquals("", StrategyNames.displayName(0, emptyList()))
     }
@@ -92,7 +92,7 @@ class StrategyNamesTest {
     @Test
     fun theBookAnswersByLineAndKnowsWhatItHasNotMet() {
         val book = StrategyNameBook(mapOf("a" to 1), palette)
-        assertEquals("Black", book.nameOf("a"))
+        assertEquals("Carnation", book.nameOf("a"))
         assertEquals("", book.nameOf("unknown"))
         assertNotEquals(book.nameOf("a"), book.nameOf("unknown"))
     }
@@ -106,26 +106,24 @@ class StrategyNamesTest {
     private fun paletteOf(path: String): List<String> {
         val file = resource(path)
         assertTrue("missing ${file.absolutePath}", file.exists())
-        val block = Regex("<string-array\\s+name=\"strategy_colors\">(.*?)</string-array>", RegexOption.DOT_MATCHES_ALL)
+        val block = Regex("<string-array\\s+name=\"strategy_flowers\">(.*?)</string-array>", RegexOption.DOT_MATCHES_ALL)
             .find(file.readText())
-        assertTrue("strategy_colors is missing in $path", block != null)
+        assertTrue("strategy_flowers is missing in $path", block != null)
         return Regex("<item>(.*?)</item>").findAll(block!!.groupValues[1]).map { it.groupValues[1].trim() }.toList()
     }
 
     @Test
-    fun theColourPaletteIsCompleteAndUniqueInBothLanguages() {
+    fun theFlowerPaletteIsCompleteAndUniqueInBothLanguages() {
         val english = paletteOf("values/strings.xml")
         val russian = paletteOf("values-ru/strings.xml")
-        assertEquals("both palettes list the same number of colours", english.size, russian.size)
-        assertEquals("no English colour is listed twice", english.size, english.toSet().size)
-        assertEquals("no Russian colour is listed twice", russian.size, russian.toSet().size)
+        assertEquals("both palettes list the same number of flowers", english.size, russian.size)
+        assertEquals("no English flower is listed twice", english.size, english.toSet().size)
+        assertEquals("no Russian flower is listed twice", russian.size, russian.toSet().size)
         assertTrue("every name is filled in", (english + russian).none { it.isBlank() })
-        // The library of today (12 built-in + 60 community strategies) plus room to grow before a name needs a number.
+        // The library of today (12 built-in + 60 community strategies = 72) plus room to grow before a name needs a number.
         assertTrue("the palette must cover every strategy: ${english.size}", english.size >= 90)
-        // Append-only: the first colours are the eleven basic colour terms (Berlin and Kay).
-        assertEquals(
-            listOf("White", "Black", "Red", "Green", "Yellow", "Blue", "Brown", "Purple", "Pink", "Orange", "Gray"),
-            english.take(11)
-        )
+        // Append-only: the most popular flowers come first (patch 59 renamed the palette from colours, positions unchanged).
+        assertEquals(listOf("Rose", "Carnation", "Geranium", "Tulip", "Chrysanthemum"), english.take(5))
+        assertEquals(listOf("Роза", "Гвоздика", "Герань", "Тюльпан", "Хризантема"), russian.take(5))
     }
 }

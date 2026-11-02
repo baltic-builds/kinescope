@@ -175,3 +175,9 @@ future sessions don't lose them.)
   not a stale preference snapshot; (3) a failure-driven restart excludes the just-failed line for that restart even when it is pinned or every route is quarantined;
   (4) pins, ratings, health checks, quarantine duration and rotation limits otherwise stay unchanged; (5) manual selection applies at the next tunnel start and never disables later failure recovery.
   Result: `CHANGELOG.md`, "Patch 58"; `STRATEGY_ROUTER.md` and `ROADMAP.md` carry the mechanism and device gates.
+- **Decision (patch 59): strategies are named after flowers, the router switches after about seven seconds, two strategies lead the Wi-Fi group.** (1) Supersedes the
+  colour rule of patch 51: the palette is `R.array.strategy_flowers` (EN and RU, the 72 most popular flowers first, 28 more), the rule is otherwise the same (first free
+  flower in the order strategies are met, stored as a palette position, append-only); the rename was done in place, once, so no stored name moved. (2) The tunnel leaves a
+  strategy that has had the YouTube app waiting about 7 s for an answer (`TunnelStall`); do not slow it back down without a device report showing false switches, and do
+  not bring back the 90 s / 3-per-10-minutes limits (`RotationLimits`). (3) `StrategyPriority.WIFI` leads the Wi-Fi group by default as a prior, never as a pin and never
+  written into a chain without a test. Result: `CHANGELOG.md`, "Patch 59"; `STRATEGY_ROUTER.md` section 7a.

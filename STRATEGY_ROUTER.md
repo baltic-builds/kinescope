@@ -1,4 +1,4 @@
-# Strategy router (patches 53-56)
+# Strategy router (patches 53-59)
 
 How Kinescope decides which bypass strategy to use, on which kind of connection, and when to change it. This is the one
 place that describes the mechanism end to end; `HANDOFF.md` has the short version and the file map, `CHANGELOG.md` the
@@ -93,7 +93,7 @@ Worked examples (all computed by the code, see `StrategyRatingTest`):
 So a strategy that tested well but keeps failing for real sinks below the line after four failures within about a week, and
 one that tested badly or never but keeps carrying traffic climbs. Old evidence of either kind fades by itself.
 
-Settings shows the number ("Rating 74") in front of the last test. Patch 58's five-entry Home manual menu shows the same rating beside the colour name; the old stars are not restored.
+Settings shows the number ("Rating 74") in front of the last test. Patch 58's five-entry Home manual menu shows the same rating beside the flower name; the old stars are not restored.
 
 ## 5. What changes a chain (`StrategyRouter`)
 
@@ -162,7 +162,7 @@ chain is rebuilt (event 1).
 **Home and Settings** (`BypassDashboard`, `BypassSettings`): patch 58 supersedes the October no-picker decision. The Home card has
 the tunnel switch (with the heartbeat line), the automatic switch and the connection label. Switching automatic off pins the tunnel's
 actual active line when known (otherwise the chain head) for that class only and reveals a drop-down with exactly the five best lines of
-`StrategyRank.order` for that class. It shows colour names and ratings, never stars; choosing one writes the same per-class pin as Settings.
+`StrategyRank.order` for that class. It shows flower names and ratings, never stars; choosing one writes the same per-class pin as Settings.
 The full paged list remains the last section of Settings. Home follows active-line and router-event flows as well as connection changes, so
 a rotation cannot leave its next automatic-off action pointing at a stale chain head. A manual pick applies at the next tunnel start.
 
@@ -198,6 +198,26 @@ probe, drops results where the engine could not reach the host, stores the rest,
 **A transport that stops by itself** (patch 56, `TransportRecovery`): a stop the user asked for is never a failure; the first early death of a strategy reconnects on the same one with
 nothing blamed; a second early death before it has carried traffic quarantines it and rotates; a transport that ran two minutes is reconnected and not counted. Rotations from a failed
 probe or from one-way windows are unchanged. The last change is shown on Home (`RouterEvent`).
+
+## 7a. The seven-second switch and the priority strategies (patch 59)
+
+**Detecting a strategy that does not carry the app's traffic** (`TunnelStall`, once a second, from the bridge counters): an episode opens at the first sample in which the
+YouTube app sent and less than 2 KB came back (and less than a third of what was sent); it stays open through silent samples (a blocked connection is silent: the bridge
+acknowledges the app's hello and the app then waits); it adds up everything sent and received; 16 KB back in total closes it as WORKING; at 7 s, with at least 8 packets and
+3000 bytes sent and more than three times as much sent as received, it is STALLED. An episode that reaches 7 s without enough sent closes without a verdict. Why not the earlier
+detectors alone: the 10 s one-way windows (patch 44) need three in a row and the silent window after the burst resets the streak; the engine probe (every 30 s, first at 45 s)
+tests a few hosts through the engine, not the video servers the app uses. Known blind spot: if some of the app's connections get data (API calls) while its video connections
+do not, the episode closes as working; the slow detectors remain. A stall with no connection at all (`kind=none`) switches nothing.
+
+**What a stall does** is what a failed probe does: `rotateStrategy` quarantines the line (a real failure on its record, 10 minutes at the back of the chain), restarts the tunnel with
+that line excluded, and the live check of the start-up picks the next one that passes. **How often** (`RotationLimits`): at least 4 s apart, at most one switch per strategy of the
+chain (never fewer than three) in ten minutes, so a chain of six is walked once; a chain with no alternative runs one `searchOnDemand` (the 2-working goal) per tunnel run
+first; then the tunnel is stopped as unusable, as before.
+
+**Priority strategies** (`StrategyPriority`): per class, strategies that lead by default. Wi-Fi has two (the `-d1 -s1+s -d3+s ...-d35+s -a1` and `-d1 -s1+s -d1+s ...-s30+s -a1`
+lines of the community list); mobile has none. They are first in `DpiStrategyStore.candidates`, first in a search of the class and first among never-tested strategies; among
+strategies rated 50 or more they count +10 when a chain (`StrategyRouter.scorer`) or the ranking (`StrategyRank.order`) is ordered. The displayed rating is not changed;
+a strategy rated below 50 gets no bonus. A priority is a prior: it is never written into a chain without a test, and a failed priority strategy sinks like any other.
 
 ## 8. Reachability (patch 54)
 
@@ -236,7 +256,9 @@ does not reach YouTube at all it says so (section 8).
 | "Recently carried a download" | 14 days (chain), 10 minutes (route) | `DpiPrefs.PROVEN_MAX_AGE_MS`, `RouteScoreboard` |
 | Class change must hold | 4 ticks of 500 ms = 2 s | `NetSwitch.STABLE_TICKS` |
 | Tunnel probe / flow window / first probe | 30 s / 10 s / 45 s | `BypassVpnService` |
-| Tunnel strategy switches | 2 failed probes or 3 one-way windows; at most 3 per 10 min, 90 s apart; the failed line is excluded from its own restart | `BypassVpnService`, `TunnelRotation` |
+| Tunnel strategy switches | a 7 s stall (`TunnelStall`), 2 failed probes or 3 one-way windows; at most one per chain strategy (min 3) per 10 min, 4 s apart; the failed line is excluded from its own restart | `BypassVpnService`, `TunnelStall`, `RotationLimits`, `TunnelRotation` |
+| Stall rule | read every 1 s; 7 s; 8 packets / 3000 B sent; 16 KB back = working; ratio 3 | `TunnelStall` |
+| Priority bonus (Wi-Fi: 2 strategies) | +10 rating points when ordering, rated 50 or more only | `StrategyPriority.BONUS` |
 | Home manual choices | 5 best of the current class's canonical ranking | `StrategyRank.MANUAL_CHOICES` |
 | Check goal (first, class, manual) | 5 working, 3 perfect | `SearchGoal.STANDARD` |
 | Start-up search goal | 2 working | `SearchGoal.QUICK` |

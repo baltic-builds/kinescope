@@ -13,6 +13,58 @@ patch's own `.py` script for the exact, idempotent, exact-match-guarded
 edits it makes.
 
 
+## Patch 59 — the seven-second switch, Wi-Fi priority strategies, flower names
+
+Request (2026-11-01, applied on top of the user's own edits after patch 58, repomix as the source of truth): (1) automatic switching between strategies does not
+work, only a hand-picked one does; the router must move to the next working strategy after 7 seconds of the active one not working; (2) put the two strategies
+`-d1 -s1+s -d3+s -s6+s -d9+s -s12+s -d15+s -s20+s -d25+s -s30+s -d35+s -a1` and `-d1 -s1+s -d1+s -s3+s -d6+s -s12+s -d14+s -s20+s -d24+s -s30+s -a1` in the Wi-Fi
+group with high priority by default; (3) name strategies after the 72 most popular flowers instead of colours.
+
+### What the code showed
+- **The detectors could not fire for the failure that matters.** A blocked YouTube connection does not keep sending: the app sends its hello once, the bridge
+  acknowledges it, and the app waits in silence. `TunnelFlow` needed three one-way 10 s windows IN A ROW with 20+ packets each; the silent window after the
+  burst is IDLE and idle resets the streak, so it practically never rotated. The engine probe (first at 45 s, then every 30 s, two failures) talks to a few
+  hosts through the engine, so a strategy that passes it but is cut on the googlevideo.com nodes the app really uses looked healthy for ever.
+- **The limits would have cut a fast switch short anyway.** 90 s between switches and three per ten minutes: with a chain of six, the tunnel would have
+  been declared unusable after the third bad strategy and the good fallbacks never reached.
+- **Both strategies of the request were already on the community list** (positions 11 and 12 of the bundled snapshot), so the total stays 72; what was missing was
+  a default lead for them.
+
+### What changed
+- `TunnelStall.kt` (new, pure): once a second the bridge counters are read. An episode opens at the first sample where the app sent and next to nothing came back,
+  stays open through silence, adds up what was sent and received, closes as WORKING when 16 KB came back in total, and is STALLED at 7 s with at least 8 packets /
+  3000 bytes sent and more than three times as much sent as received. A closed episode without enough sent (keep-alives, an app that gave up) is no verdict.
+  `BypassVpnService.checkTunnelStall` applies it through the existing `rotateStrategy` (quarantine, the failed line excluded from its own restart, the
+  dashboard event "nothing came back"). A phone with no connection switches nothing. A bridge restart (the counters go down) ends the episode.
+- `RotationLimits` (in `TunnelRecovery.kt`, pure): at least 4 s between switches (a restart takes longer anyway) and at most one switch per strategy of the
+  chain per ten minutes (never fewer than three), so a whole chain is walked once before the tunnel is called unusable. A chain with nothing to switch to gets ONE
+  short search for spare strategies per tunnel run (`searchOnDemand`, the 2-working goal) before that verdict.
+- `StrategyPriority` (in `StrategyRouter.kt`, pure): the two lines lead the Wi-Fi group by default. They are always on offer and first in `candidates`; a
+  search tests them first; among never-tested strategies they come first (`StrategyRank.order(..., priority)`); among strategies rated 50 or more they count
+  +10 points when a chain or the ranking is ordered (`StrategyRouter.scorer`). The shown rating is not changed, and a priority strategy rated below 50 gets
+  no bonus: evidence beats a prior. The mobile group has no priority strategies. A priority strategy is NOT written into a chain without a test (the first-run
+  gate reads the stored chains), so the mandatory first check still decides what works.
+- Names are flowers: `R.array.strategy_colors` became `R.array.strategy_flowers` (EN and RU, 100 entries: the 72 most popular flowers first, 28 more for
+  headroom). The name book stores palette POSITIONS, so every strategy kept its place and only the word changed; nothing is migrated. Rose and Carnation
+  are the first two positions, then Geranium; on a fresh install the two Wi-Fi priority strategies, being first on offer, get the first two.
+- No extraction, parser allowlist, native-engine, tunnel-address, DNS or download-ladder code changed. Strategy-count checks (72) still hold.
+
+### Reading of the brief
+- "After 7 seconds of the non-working strategy being active" is read as 7 seconds of the YouTube app's own traffic getting no answer through the active strategy
+  (the only thing the app can observe without a device); the sample is a second, so the switch starts 7 to 8 seconds after the first unanswered packet, and the
+  restart (engine start and live check) comes on top. The slow engine probe and the 10 s flow windows stay as the net under it.
+- "High priority by default" is a prior, not a pin: a priority strategy that fails is demoted like any other, and nothing forces it into the chain before a test.
+- "72 flowers": the first 72 palette entries are the requested ones; 28 more were added because the community list can grow (a name needs a number only past the palette).
+
+### Regression coverage and verification
+`TunnelStallTest` (blocked connection, silence after a burst, healthy load, slow trickle, keep-alives, few packets, bridge restart, retries), `RotationLimitsTest`,
+`StrategyPriorityTest` (parser acceptance, the 72 total, the order rules, the bonus rule, chain order after a search and a failure) and the updated
+`StrategyNamesTest` (flowers, same count and uniqueness in both languages). The whole non-Compose source set (including `BypassVpnService`, `DpiSearchService`, `DpiBypass` and `DpiStrategyStore`) was compiled with kotlinc 2.1.0 against an API 35 `android.jar` with stubs for
+androidx, yt-dlp and the download classes: no error in any file this patch touches, and the error profile of the untouched files is identical before and after; 210 pure unit tests ran green (the new ones, the strategy-router, rank, chain,
+parser, bundled-list, flow, recovery and documentation tests). This is not a Gradle run: the user's `testDebugUnitTest lintDebug assembleDebug` is the real gate.
+Real behaviour is a device gate in `ROADMAP.md`: a blocked strategy at the head of the
+chain is left within about 10 s of opening YouTube, the next one carries traffic, and a good strategy is never switched while a video plays.
+
 ## Patch 58 — Home's five-entry manual menu, live active-line pinning, deterministic failure rotation
 
 Request (2026-10-31, applied on top of patch 57): the product generally works, but (1) turning automatic strategy selection off shows no manual control on the Dashboard, and (2) the selected strategy appears never to change when it stops working. Analyse the Dashboard and router, make surgical edits, and deliver one Codespaces Python script that checks, commits and pushes the change.

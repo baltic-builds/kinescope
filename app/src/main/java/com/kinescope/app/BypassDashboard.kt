@@ -122,7 +122,12 @@ internal fun BypassDashboard(
         val choices = if (pinned == null) {
             emptyList()
         } else {
-            StrategyRank.manualChoices(DpiStrategyStore.candidates(context), ratings, DpiResultsStore.load(context, cls))
+            StrategyRank.manualChoices(
+                DpiStrategyStore.candidates(context),
+                ratings,
+                DpiResultsStore.load(context, cls),
+                StrategyPriority.forClass(cls)
+            )
         }
         DashPrefs(
             cls = cls,

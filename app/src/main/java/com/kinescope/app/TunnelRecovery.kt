@@ -75,3 +75,35 @@ internal enum class RouterEventKind {
 
 /** The last change the tunnel made on its own: what and when (epoch ms). Kept in memory for the life of the tunnel. */
 internal data class RouterEvent(val kind: RouterEventKind, val at: Long)
+
+/** Patch 59: what [RotationLimits.decide] says about one more strategy switch. */
+internal enum class RotationDecision { GO, TOO_SOON, EXHAUSTED }
+
+/**
+ * Patch 59: how often the tunnel may switch strategy on its own. Before, a switch had to wait 90 s from the previous one and
+ * at most three were allowed in ten minutes: with the seven-second rule ([TunnelStall]) that would stop the tunnel after the
+ * third bad strategy of a chain of six, so the best fallbacks were never reached. Now:
+ * - a switch needs [MIN_GAP_MS] since the last one (a restart takes longer than that anyway; this only stops a loop that spins);
+ * - at most one switch per strategy of the chain in [WINDOW_MS] (and never fewer than [MIN_ALLOWED]), so a whole chain can be
+ *   walked once; after that the tunnel is called unusable, as before;
+ * - a chain with nothing to switch to is exhausted at once (the caller first tries one short search for spare strategies).
+ *
+ * Pure, unit-tested in `RotationLimitsTest`.
+ */
+internal object RotationLimits {
+    const val WINDOW_MS = 10L * 60L * 1000L
+    const val MIN_GAP_MS = 4_000L
+    const val MIN_ALLOWED = 3
+
+    /** How many switches the window allows for a chain of [chainSize]. */
+    fun allowed(chainSize: Int): Int = maxOf(MIN_ALLOWED, chainSize)
+
+    /** [recent] are the times (elapsed-realtime ms) of the switches made so far, oldest first; [alternatives] the strategies to move to. */
+    fun decide(recent: List<Long>, now: Long, chainSize: Int, alternatives: Int): RotationDecision {
+        val inWindow = recent.filter { now - it in 0L..WINDOW_MS }
+        if (alternatives <= 0 || inWindow.size >= allowed(chainSize)) return RotationDecision.EXHAUSTED
+        val last = inWindow.lastOrNull()
+        if (last != null && now - last < MIN_GAP_MS) return RotationDecision.TOO_SOON
+        return RotationDecision.GO
+    }
+}

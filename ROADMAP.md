@@ -1,6 +1,6 @@
 # Roadmap
 
-State after patch 58 (2026-10-31). This file tracks only what is still open: device verification gates,
+State after patch 59 (2026-11-01). This file tracks only what is still open: device verification gates,
 technical debt and what is out of scope. How each item was closed lives in `CHANGELOG.md`; the state a new
 session needs is in `HANDOFF.md`.
 
@@ -74,6 +74,10 @@ session needs is in `HANDOFF.md`.
 - **Patch 58 (2026-10-31) restores manual choice on Home and closes a rotation loophole.** Automatic off now reveals exactly five manual choices from the current class's canonical ranking;
   turning it off while the tunnel runs pins the actual active line, not a stale chain head. A failure-driven restart excludes the just-failed line even when every route is quarantined.
   The full Settings list, pins, ratings, probes and rotation limits are unchanged. Device confirmation is open below.
+- **Patch 59 (2026-11-01) makes the router switch within about seven seconds, puts two strategies first in the Wi-Fi group and names strategies after flowers.** The tunnel
+  reads the YouTube app's traffic once a second (`TunnelStall`) and leaves a strategy that has had the app waiting about 7 s with nothing back; switches are limited per
+  chain (`RotationLimits`), not 3 per 10 minutes 90 s apart. Two Wi-Fi strategies lead by default (`StrategyPriority`, a prior that evidence beats). Names are flowers.
+  Nothing of it is confirmed on a device; `BypassVpnService` was compiled against the Android API with stubs, not in Gradle.
 
 ## Decisions that remain unchanged
 
@@ -93,9 +97,18 @@ Patches 54 and 55 are applied together and share the first gate. Gates below tha
 removed (the Home drop-down, stars, the speed line, the update notice, the 25-day upkeep, "Unblock YouTube") are superseded by the first two
 sections; tick or delete them against the new behaviour, not the old.
 
+### Seven-second switch, Wi-Fi priority, flower names (patch 59)
+- [ ] `./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug` is green.
+- [ ] On Wi-Fi with automatic ON and a chain whose first strategy is blocked for YouTube (pick a known-bad one as the pin, then switch automatic on, or wait for a network where the leader fails): open the YouTube app. `stall net=wifi wait=7s tx=... rx=...` appears about 7-8 s after the first unanswered request, followed by `rotate net=wifi why=stall` and a `tun up` on a DIFFERENT line; the app loads on the new one. Home shows the router event "nothing came back".
+- [ ] Watch a video for several minutes on a working strategy, including a pause and a seek: no `stall` line, no `rotate`.
+- [ ] Airplane mode while the app is open: `stall ignored: no connection` (or nothing), no `rotate`, no quarantine.
+- [ ] With every strategy of the chain blocked: the tunnel walks the chain once (one `rotate` per strategy, at least 4 s apart), may run one `start search`, and only then stops with the "unusable" message.
+- [ ] Fresh install on Wi-Fi: the two priority strategies are the first two tested (`srch` order) and the first two named Rose and Carnation; after the first check, if both pass, they lead the Wi-Fi chain. Mobile data has no such lead.
+- [ ] Names: after updating over patch 58 every strategy keeps its place and shows a flower name (EN and RU); no two strategies share a name.
+
 ### Home manual choice and failure-driven rotation (patch 58)
 - [ ] `./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug` is green.
-- [ ] On Wi-Fi, switch automatic off: a drop-down appears on Home with exactly five entries from the Wi-Fi ranking, with colour names and ratings. Choose one: the pin toast appears and the same choice is visible in Settings.
+- [ ] On Wi-Fi, switch automatic off: a drop-down appears on Home with exactly five entries from the Wi-Fi ranking, with flower names and ratings. Choose one: the pin toast appears and the same choice is visible in Settings.
 - [ ] Repeat on mobile data (or a metered hotspot): the mobile pin and five choices are independent of Wi-Fi. Switch automatic on: the Home menu disappears; the full Settings list remains available only while that class is pinned.
 - [ ] While the tunnel runs on an automatic fallback, switch automatic off: the newly pinned line is the one named by the live route state, not the route that failed before it.
 - [ ] Make the current route fail while at least one alternative exists (airplane mode is only a negative test, not proof of a blocked strategy): after the existing probe/one-way thresholds, `rotate ... why=` is followed by `tun up` on a DIFFERENT line. A pinned or already quarantined failed line is not selected by its own recovery restart.

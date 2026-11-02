@@ -468,7 +468,7 @@ internal object RandomCheck {
         val now = System.currentTimeMillis()
         val stored = DpiResultsStore.load(app, cls)
         val ratings = DpiPrefs.ratings(app, cls, now)
-        val order = StrategyRank.order(DpiStrategyStore.candidates(app), ratings, stored)
+        val order = StrategyRank.order(DpiStrategyStore.candidates(app), ratings, stored, StrategyPriority.forClass(cls))
         val frozen = StrategyRank.frozen(order, ratings, stored, now)
         val picks = RandomCheckPolicy.pick(RandomCheckPolicy.pool(order, frozen, active), count, random)
         if (picks.isEmpty()) return RandomReport(NOTHING, 0, 0, 0, 0, now)

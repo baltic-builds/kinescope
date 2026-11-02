@@ -1,27 +1,29 @@
 package com.kinescope.app
 
 /**
- * Patch 51: every bypass strategy has a name, and the name is a colour.
+ * Patch 51: every bypass strategy has a name. Patch 59: the name is a flower (it was a colour).
  *
  * A strategy line such as `-d1 -Atorst -r1+s` means nothing to a person, and a position number (`#14`) changes when
- * the list changes. So each strategy gets one colour name from a fixed palette ([R.array.strategy_colors], English and
- * Russian, ordered from the most common colour in the world to the rarer ones: the eleven basic colour terms of
- * Berlin and Kay first, then the everyday ones).
+ * the list changes. So each strategy gets one flower name from a fixed palette ([R.array.strategy_flowers], English and
+ * Russian, ordered from the most popular flower in the world to the rarer ones: the 72 most popular first, then 28 more
+ * so a longer community list still gets a plain name).
  *
- * THE RULE (documented in `CLAUDE.md`, "Decision (patch 51)", and `HANDOFF.md`):
- * 1. A strategy gets the FIRST colour of the palette that no other known strategy has, in the order the strategies are
- *    first met (the built-in ones, then the community list). A name is never given twice at the same time.
- * 2. The assignment is stored and never changes while the strategy stays in the list, so "Crimson" keeps meaning the
- *    same line after a list update, an app update or a reorder.
- * 3. A strategy that leaves the list (and is not in the chain or pinned) frees its colour for a later one.
- * 4. The palette is append-only: never reorder or remove a colour (names would change under the user), only add at the
- *    end, in BOTH languages and with the same number of entries (`StrategyNamesTest` and lint check that).
- * 5. If the strategies ever outnumber the colours, the palette starts over with a number: "Red 2".
+ * THE RULE (documented in `CLAUDE.md`, "Decision (patch 59)", and `HANDOFF.md`):
+ * 1. A strategy gets the FIRST flower of the palette that no other known strategy has, in the order the strategies are
+ *    first met (the Wi-Fi priority ones, the built-in ones, then the community list). A name is never given twice at the
+ *    same time.
+ * 2. The assignment is stored as a palette POSITION and never changes while the strategy stays in the list, so "Peony"
+ *    keeps meaning the same line after a list update, an app update or a reorder.
+ * 3. A strategy that leaves the list (and is not in the chain or pinned) frees its flower for a later one.
+ * 4. The palette is append-only: never reorder or remove a flower (names would change under the user), only add at the
+ *    end, in BOTH languages and with the same number of entries (`StrategyNamesTest` and lint check that). Patch 59 renamed
+ *    the palette from colours to flowers IN PLACE, once: positions did not move, so every strategy kept its place.
+ * 5. If the strategies ever outnumber the flowers, the palette starts over with a number: "Rose 2".
  *
  * Pure (no Android types) so it is unit-tested on the JVM; `DpiPrefs.nameBook` is the preference-backed glue.
  */
 internal object StrategyNames {
-    /** Strategy line -> index (0 = the first colour). Indexes of a book are unique. */
+    /** Strategy line -> index (0 = the first flower). Indexes of a book are unique. */
     fun parse(text: String?): Map<String, Int> {
         val out = LinkedHashMap<String, Int>()
         val used = HashSet<Int>()
@@ -41,7 +43,7 @@ internal object StrategyNames {
 
     /**
      * The book after meeting [wanted] (in order). Entries for lines in neither [wanted] nor [keep] are dropped, which
-     * frees their colours; lines already in the book keep their index; a new line takes the lowest free index.
+     * frees their flowers; lines already in the book keep their index; a new line takes the lowest free index.
      */
     fun assign(existing: Map<String, Int>, wanted: List<String>, keep: Set<String>): Map<String, Int> {
         val live = wanted.toHashSet() + keep
@@ -64,7 +66,7 @@ internal object StrategyNames {
         return book
     }
 
-    /** "Red" for the first round of the palette, "Red 2" for the second, and so on. */
+    /** "Rose" for the first round of the palette, "Rose 2" for the second, and so on. */
     fun displayName(index: Int, palette: List<String>): String {
         if (palette.isEmpty() || index < 0) return ""
         val base = palette[index % palette.size]
@@ -75,6 +77,6 @@ internal object StrategyNames {
 
 /** The names of the strategies as of one moment: ask it for the name of a strategy line. */
 internal class StrategyNameBook(private val indexes: Map<String, Int>, private val palette: List<String>) {
-    /** The colour name of [line]; empty for a line the book has never met. */
+    /** The flower name of [line]; empty for a line the book has never met. */
     fun nameOf(line: String): String = indexes[line]?.let { StrategyNames.displayName(it, palette) }.orEmpty()
 }

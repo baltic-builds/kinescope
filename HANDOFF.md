@@ -4,7 +4,7 @@ The current state of Kinescope for anyone (human or AI agent) resuming work. It 
 appended to: per-patch history lives in `CHANGELOG.md`, open work in `ROADMAP.md`, process rules in `AGENTS.md`,
 product constraints in `CLAUDE.md`. Where this file and the code disagree, the code wins; fix this file.
 
-State as of patch 58 (2026-10-31). Patches 53-57 and the October 2026 v.3 fixes are described below and in `CHANGELOG.md`.
+State as of patch 59 (2026-11-01). Patches 53-57 and the October 2026 v.3 fixes are described below and in `CHANGELOG.md`.
 
 ## What Kinescope is
 
@@ -43,6 +43,9 @@ hosts (11 site names and 19 real video-server nodes) arrive in full through it (
 under a Private DNS host name. The exact checklist is `ROADMAP.md`.
 **Patch 58 (not yet confirmed on a device):** automatic off on Home reveals the current class's five best manual strategies; automatic off while the tunnel runs pins the actual active line;
 a failure-driven tunnel restart excludes the line that just failed even if every route is quarantined. The exact checklist is `ROADMAP.md`.
+**Patch 59 (not yet confirmed on a device):** the tunnel switches strategy about 7 s after the YouTube app starts waiting for an answer that does not come (`TunnelStall`, once-a-second bridge
+counters; the old 10 s windows and 30 s probe stay as the slow net); switches are limited per chain (`RotationLimits`); two strategies lead the Wi-Fi group by default (`StrategyPriority`); strategy names are flowers.
+The exact checklist is `ROADMAP.md`; the mechanism is `STRATEGY_ROUTER.md` section 7a.
 **CI:** the release workflow was red at patch 42 (`AdaptiveLayoutTest` still referenced the removed
 `WidthClass`). Patch 43 fixes it, pins the NDK/CMake, and restructures the workflow (validate, tests + lint,
 then the signed build; reports uploaded on failure). It counts as green only after the user reports a run.
@@ -112,17 +115,17 @@ not yet being 16 KB page-size compatible (upstream).
   and pulsing for measured traffic, red and flat for a lost connection, muted and flat when off or starting. There is no speed and no stars.
   Under the tunnel row is the automatic switch. Patch 58 supersedes the October no-picker decision: automatic off pins the actual active tunnel
   line when known (otherwise the chain head) and reveals a drop-down with exactly five choices from `StrategyRank.manualChoices` for the current
-  class, labelled by colour name and rating. The full paged expert list remains last in Settings. A Home or Settings pick writes the same per-class
+  class, labelled by flower name and rating. The full paged expert list remains last in Settings. A Home or Settings pick writes the same per-class
   `DpiPrefs.pin`; automatic on lifts it. A manual pick applies at the next tunnel start; a later real failure still rotates away.
   Below the card: **Watch YouTube** (`onOpenApp`) and, after the banners, the **hints panel**. The queue is not on Home. `+` downloads a valid
   clipboard link or opens Add. The DOWNLOADS switch remains in Settings only. Preferences are snapshots invalidated by searches, tunnel state,
   active-line/router-event flows, connection class and local picks. The heartbeat respects the system animation setting (`design.md`, rule 6).
-- **Strategy names (patch 51) -- THE RULE.** Every strategy has a colour name from `R.array.strategy_colors` (EN and RU, 100
-  colours, most common first). A strategy takes the FIRST palette colour no other known strategy has, in the order strategies
-  are first met (built-ins, then the community list); the assignment is stored (`DpiPrefs.nameBook`, `StrategyNames`) and never
+- **Strategy names (patch 51, flowers since patch 59) -- THE RULE.** Every strategy has a flower name from `R.array.strategy_flowers` (EN and RU, 100
+  flowers, the 72 most popular first). A strategy takes the FIRST palette flower no other known strategy has, in the order strategies
+  are first met (the Wi-Fi priority ones, built-ins, then the community list); the assignment is stored as a palette position (`DpiPrefs.nameBook`, `StrategyNames`) and never
   changes while the strategy stays in the list; a strategy that leaves the list (and is not in the chain or pinned) frees its
-  colour; the palette is append-only (never reorder or remove, add at the end in both languages with equal counts; the unit test
-  and lint check it); beyond the palette a number is added ("Red 2"). Names are shown in Home's five-entry manual menu and the full Settings picker.
+  flower; the palette is append-only (never reorder or remove, add at the end in both languages with equal counts; the unit test
+  and lint check it); beyond the palette a number is added ("Rose 2"). Patch 59 renamed colours to flowers in place, once: positions did not move. Names are shown in Home's five-entry manual menu and the full Settings picker.
 - **The strategy list mirrors its source (patch 51).** `DpiStrategyStore.candidates` = built-ins + (the downloaded community list
   if there is one, else the bundled snapshot), never both (`mergeStrategyLists`). Source today: 60 strategies; built-ins: 12.
 - **First install and updates (patches 51 and 55).** `AppUpdate.onProcessStart` (in `YtOfflineApp`) compares the version code with the last
@@ -224,7 +227,7 @@ UI
 - `BypassSettings.kt`, `StrategyPicker.kt` -- the bypass section of Settings and the manual strategy list.
 - `YoutubeApps.kt`, `YoutubeAppSettings.kt` -- the app behind "Watch YouTube": the candidates, the choice, opening it; its Settings section (patch 51).
 - `BatteryOptimization.kt` -- the power-saving exemption: intents, the pop-up rule, the dialog and the Settings section (patch 51).
-- `StrategyNames.kt` -- the colour names of the strategies (pure rule + the name book) (patch 51).
+- `StrategyNames.kt` -- the flower names of the strategies (pure rule + the name book) (patch 51, flowers in patch 59).
 - `AppUpdate.kt` -- fresh install / update classification (patch 51) and the once-per-version community-list refresh (patch 55).
 - `KinescopeSwitch.kt` -- shared Material 3 switch with explicit orange-on and gray-off tokens in both themes.
 - `Theme.kt` -- Material3 tokens, Inter/Lora via the Google Fonts provider, shapes (`design.md`).
@@ -242,8 +245,9 @@ Network bypass
 - `ProbeSites.kt`, `HttpBodyJudge.kt` -- patch 57: the real hosts a strategy is judged against (`SITE_HOSTS`, `VIDEO_EDGE_HOSTS`: hostnames only) and the pure rule that says a response arrived IN FULL (fixed length, chunked or read to the end; a body cut short is `TRUNCATED`); used by `NetworkCheck.coverageViaBypass`.
 - `PrivateDns.kt`, `TunnelConfig.kt` -- patch 57: whether the phone has a Private DNS host name (the tunnel then adds no DNS server) and the pure text of the bridge's configuration (IPv4 only).
 - `TunnelStartupPolicy.kt` -- checks verified route health before activation and only learns failed candidates after a successful fallback.
-- `TunnelRecovery.kt` -- pure transport recovery (`TransportRecovery`), failure-restart candidate exclusion (`TunnelRotation`, patch 58) and the router event Home shows (`RouterEvent`).
+- `TunnelRecovery.kt` -- pure transport recovery (`TransportRecovery`), failure-restart candidate exclusion (`TunnelRotation`, patch 58), the limits on strategy switches (`RotationLimits`, patch 59) and the router event Home shows (`RouterEvent`).
 - `BypassVpnService.kt` -- `BypassVpnController` and the YouTube-only `VpnService` (`:dpi_vpn`).
+- `TunnelStall.kt` -- patch 59: the seven-second rule, a pure judge of the YouTube app's traffic read once a second from the bridge counters (`TunnelStall.step`: an episode opens when the app sent and nothing came back, closes as working at 16 KB, is stalled at 7 s).
 - `TunnelFlow.kt` -- pure judge of the YouTube app's traffic through the tunnel (idle / flowing / one-way, from the bridge counters) and the snapshot the dashboard reads (`TunnelTraffic`: verdict and place in the chain; no speed since patch 55).
 - `app/src/main/java/hev/htproxy/TProxyService.java` -- JNI contract of the vendored `hev-socks5-tunnel`; `app/src/main/cpp/` -- ByeDPI sources, `dpi_jni.c`, `CMakeLists.txt`; `app/src/main/jniLibs/` -- the tunnel library with its license and provenance.
 

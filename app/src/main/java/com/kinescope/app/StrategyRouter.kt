@@ -21,9 +21,15 @@ package com.kinescope.app
  * minutes last ([ChainPlanner.order]).
  */
 internal object StrategyRouter {
-    /** The rating as the 0.0-1.0 score [ChainPlanner] orders by; a strategy with no rating sits in the middle. */
-    fun scorer(ratings: Map<String, Int>): (String) -> Double =
-        { line -> (ratings[line] ?: StrategyRating.NEUTRAL) / 100.0 }
+    /**
+     * The rating as the 0.0-1.0 score [ChainPlanner] orders by; a strategy with no rating sits in the middle. Patch 59: a
+     * strategy of [priority] (see [StrategyPriority]) that is not rated below [StrategyRating.ELIGIBLE] counts
+     * [StrategyPriority.BONUS] points more, so the default leaders lead unless another strategy is clearly better.
+     */
+    fun scorer(ratings: Map<String, Int>, priority: Collection<String> = emptyList()): (String) -> Double =
+        { line ->
+            ((ratings[line] ?: StrategyRating.NEUTRAL) + StrategyPriority.bonus(line, ratings[line], priority)) / 100.0
+        }
 
     /**
      * The chain after a search on the class. [ranked] are the strategies that fully passed it, best first; [failed] those
@@ -38,7 +44,8 @@ internal object StrategyRouter {
         pinned: String?,
         keepProven: Boolean,
         fill: List<String>,
-        max: Int
+        max: Int,
+        priority: Collection<String> = emptyList()
     ): List<String> = ChainPlanner.merge(
         ranked = ranked,
         failed = failed,
@@ -48,16 +55,25 @@ internal object StrategyRouter {
         max = max,
         fill = fill,
         learned = StrategyRating.eligible(ratings),
-        score = scorer(ratings)
+        score = scorer(ratings, priority)
     )
 
     /** The chain after [winner] carried real traffic (its success is already in [ratings]). */
-    fun afterSuccess(chain: List<String>, winner: String, ratings: Map<String, Int>, max: Int): List<String> =
-        ChainPlanner.promote(chain, winner, scorer(ratings), max)
+    fun afterSuccess(
+        chain: List<String>,
+        winner: String,
+        ratings: Map<String, Int>,
+        max: Int,
+        priority: Collection<String> = emptyList()
+    ): List<String> = ChainPlanner.promote(chain, winner, scorer(ratings, priority), max)
 
     /** The chain after [loser] failed in real use (its failure is already in [ratings]). */
-    fun afterFailure(chain: List<String>, loser: String, ratings: Map<String, Int>): List<String> =
-        ChainPlanner.demote(chain, loser, scorer(ratings))
+    fun afterFailure(
+        chain: List<String>,
+        loser: String,
+        ratings: Map<String, Int>,
+        priority: Collection<String> = emptyList()
+    ): List<String> = ChainPlanner.demote(chain, loser, scorer(ratings, priority))
 
     /** The chain a class starts from: its own when it has one, else the other class's first [max] strategies. */
     fun seed(own: List<String>, other: List<String>, max: Int): List<String> =
@@ -91,11 +107,23 @@ internal object StrategyRank {
 
     private fun bad(line: String, ratings: Map<String, Int>): Boolean = ratings[line]?.let { it < StrategyRating.ELIGIBLE } == true
 
-    /** [candidates] in the order described above. [ratings] and [tested] are the class's (`DpiPrefs.ratings`, `DpiResultsStore`). */
-    fun order(candidates: List<String>, ratings: Map<String, Int>, tested: Map<String, StoredResult>): List<String> {
+    /**
+     * [candidates] in the order described above. [ratings] and [tested] are the class's (`DpiPrefs.ratings`, `DpiResultsStore`).
+     * Patch 59: [priority] (`StrategyPriority.forClass`) are the strategies that lead the class by default: among the ones never
+     * tested they come first, in the order given, and among the good ones they count [StrategyPriority.BONUS] points more. A
+     * priority strategy that did badly is ranked like any other bad one.
+     */
+    fun order(
+        candidates: List<String>,
+        ratings: Map<String, Int>,
+        tested: Map<String, StoredResult>,
+        priority: List<String> = emptyList()
+    ): List<String> {
         val all = candidates.distinct()
-        val good = all.filter { (ratings[it] ?: -1) >= StrategyRating.ELIGIBLE }.sortedByDescending { ratings.getValue(it) }
-        val untested = all.filter { it !in ratings }
+        val good = all.filter { (ratings[it] ?: -1) >= StrategyRating.ELIGIBLE }
+            .sortedByDescending { ratings.getValue(it) + StrategyPriority.bonus(it, ratings[it], priority) }
+        val untestedAll = all.filter { it !in ratings }
+        val untested = priority.filter { it in untestedAll } + untestedAll.filter { it !in priority }
         val poor = all.filter { bad(it, ratings) }.sortedBy { tested[it]?.at ?: 0L }
         return good + untested + poor
     }
@@ -104,8 +132,9 @@ internal object StrategyRank {
     fun manualChoices(
         candidates: List<String>,
         ratings: Map<String, Int>,
-        tested: Map<String, StoredResult>
-    ): List<String> = order(candidates, ratings, tested).take(MANUAL_CHOICES)
+        tested: Map<String, StoredResult>,
+        priority: List<String> = emptyList()
+    ): List<String> = order(candidates, ratings, tested, priority).take(MANUAL_CHOICES)
 
     /**
      * The strategies of [order] that are frozen at [now]: among the last [BOTTOM_COUNT] of the list, those that did badly and were
@@ -170,4 +199,37 @@ internal object ClassCheckPolicy {
         currentVersion > 0L &&
             checkedVersion != currentVersion &&
             (tryAt <= 0L || (now - tryAt) !in 0L until RETRY_GAP_MS)
+}
+
+/**
+ * Patch 59: strategies that lead a connection class by default, before the app has learned anything about them. Today only the
+ * Wi-Fi group has any: two long split/disorder lines that the user's own ByeByeDPI runs on Wi-Fi (both are in the community list
+ * already; here they are put first). A priority is a PRIOR, not a verdict: evidence beats it.
+ * - the search tests them first, and among strategies nothing is known about they come first ([StrategyRank.order]);
+ * - among strategies rated [StrategyRating.ELIGIBLE] or better they count [BONUS] points more when a chain is ordered
+ *   ([StrategyRouter.scorer]) or the ranking is made, so they lead unless another strategy is clearly better;
+ * - a strategy rated below [StrategyRating.ELIGIBLE] (it failed) gets no bonus: it sinks like any other.
+ *
+ * The first strategy of a fresh install is still found by the mandatory first check, never assumed: a priority strategy is not
+ * written into a chain without a test (the first-run gate reads the stored chains, see `MainActivity`).
+ * Pure, unit-tested in `StrategyPriorityTest`.
+ */
+internal object StrategyPriority {
+    val WIFI: List<String> = listOf(
+        "-d1 -s1+s -d3+s -s6+s -d9+s -s12+s -d15+s -s20+s -d25+s -s30+s -d35+s -a1",
+        "-d1 -s1+s -d1+s -s3+s -d6+s -s12+s -d14+s -s20+s -d24+s -s30+s -a1"
+    )
+
+    /** Points added to the rating of a priority strategy when strategies are put in order (the shown rating is not changed). */
+    const val BONUS = 10
+
+    /** The strategies that lead [cls] by default. */
+    fun forClass(cls: NetClass): List<String> = if (cls == NetClass.WIFI) WIFI else emptyList()
+
+    /** [BONUS] for a strategy of [priority] that is not rated below [StrategyRating.ELIGIBLE] ([rating] null = unknown), else 0. */
+    fun bonus(line: String, rating: Int?, priority: Collection<String>): Int =
+        if (line in priority && (rating ?: StrategyRating.NEUTRAL) >= StrategyRating.ELIGIBLE) BONUS else 0
+
+    /** The strategies on offer with the Wi-Fi priority ones first; a priority line missing from [candidates] is added. */
+    fun withPriority(candidates: List<String>): List<String> = (WIFI + candidates).distinct()
 }

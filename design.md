@@ -56,7 +56,7 @@ Custom success/warning colors and the heartbeat colors remain in `YtOfflineExtra
 ## Verification and acceptance criteria
 
 - Both switch positions: visible orange `on` and neutral gray `off` in both themes, with clear textual labels; disabled remains distinguishable.
-- Home displays status / tunnel / automatic mode / Watch YouTube; when auto is off for the present network, Home shows its five-entry manual menu (colour names and ratings, no stars). The full manual list remains at Settings bottom.
+- Home displays status / tunnel / automatic mode / Watch YouTube; when auto is off for the present network, Home shows its five-entry manual menu (flower names and ratings, no stars). The full manual list remains at Settings bottom.
 - Verify screens at 320, 360, 600, 840, 1280dp, with 200% font scale, landscape, split-screen, screen reader, TV D-pad, English/Russian.
 - Verify real-device Wi-Fi and cellular transitions and no-stuck-TUN behavior on STOP and revoke; integration cannot be certified by unit tests.
 - No Gemini/Google branding, no proprietary visual assets, and no claim of reproducing confidential Google design specs.

@@ -279,109 +279,109 @@
     <string name="overscan_hint">Raise it if the TV cuts off the edges of the picture; lower it to use the whole screen.</string>
     <string name="overscan_percent">%1$d%%</string>
 
-    <!-- Patch 51: colour names of the strategies (append-only, see StrategyNames.kt), the Home dashboard,
+    <!-- Patch 51, 59: flower names of the strategies (append-only, see StrategyNames.kt), the Home dashboard,
          the YouTube app setting, the power-saving prompt, the first-run and update notices, the Library tab. -->
-    <string-array name="strategy_colors">
-        <item>White</item>
-        <item>Black</item>
-        <item>Red</item>
-        <item>Green</item>
-        <item>Yellow</item>
-        <item>Blue</item>
-        <item>Brown</item>
-        <item>Purple</item>
-        <item>Pink</item>
-        <item>Orange</item>
-        <item>Gray</item>
-        <item>Light blue</item>
-        <item>Beige</item>
-        <item>Turquoise</item>
-        <item>Gold</item>
-        <item>Silver</item>
-        <item>Maroon</item>
-        <item>Navy</item>
-        <item>Lime</item>
-        <item>Olive</item>
-        <item>Teal</item>
-        <item>Cyan</item>
-        <item>Magenta</item>
-        <item>Lavender</item>
-        <item>Lilac</item>
-        <item>Violet</item>
-        <item>Indigo</item>
-        <item>Coral</item>
-        <item>Salmon</item>
-        <item>Peach</item>
-        <item>Apricot</item>
-        <item>Amber</item>
-        <item>Mustard</item>
-        <item>Lemon</item>
-        <item>Cream</item>
-        <item>Ivory</item>
-        <item>Khaki</item>
-        <item>Sand</item>
-        <item>Chocolate</item>
-        <item>Coffee</item>
-        <item>Chestnut</item>
-        <item>Copper</item>
-        <item>Bronze</item>
-        <item>Rust</item>
-        <item>Brick</item>
-        <item>Crimson</item>
-        <item>Scarlet</item>
-        <item>Ruby</item>
-        <item>Raspberry</item>
-        <item>Cherry</item>
-        <item>Wine</item>
-        <item>Fuchsia</item>
-        <item>Plum</item>
-        <item>Mauve</item>
+    <string-array name="strategy_flowers">
+        <item>Rose</item>
+        <item>Carnation</item>
+        <item>Geranium</item>
+        <item>Tulip</item>
+        <item>Chrysanthemum</item>
+        <item>Lily</item>
         <item>Orchid</item>
-        <item>Amethyst</item>
-        <item>Sky blue</item>
-        <item>Azure</item>
-        <item>Cobalt</item>
-        <item>Sapphire</item>
-        <item>Ultramarine</item>
-        <item>Denim</item>
+        <item>Sunflower</item>
+        <item>Daisy</item>
+        <item>Peony</item>
+        <item>Gerbera</item>
+        <item>Hydrangea</item>
+        <item>Daffodil</item>
+        <item>Lavender</item>
+        <item>Iris</item>
+        <item>Gladiolus</item>
+        <item>Freesia</item>
+        <item>Lotus</item>
+        <item>Marigold</item>
+        <item>Poppy</item>
+        <item>Jasmine</item>
+        <item>Violet</item>
+        <item>Pansy</item>
+        <item>Petunia</item>
+        <item>Begonia</item>
+        <item>Dahlia</item>
+        <item>Zinnia</item>
+        <item>Hyacinth</item>
+        <item>Anemone</item>
+        <item>Camellia</item>
+        <item>Magnolia</item>
+        <item>Cherry blossom</item>
+        <item>Lilac</item>
+        <item>Primrose</item>
         <item>Cornflower</item>
-        <item>Aqua</item>
-        <item>Aquamarine</item>
-        <item>Mint</item>
-        <item>Emerald</item>
-        <item>Jade</item>
-        <item>Forest</item>
-        <item>Moss</item>
-        <item>Sage</item>
-        <item>Pistachio</item>
-        <item>Avocado</item>
-        <item>Chartreuse</item>
-        <item>Seafoam</item>
-        <item>Charcoal</item>
-        <item>Graphite</item>
-        <item>Slate</item>
-        <item>Ash</item>
-        <item>Steel</item>
-        <item>Pearl</item>
-        <item>Snow</item>
-        <item>Ebony</item>
-        <item>Onyx</item>
-        <item>Midnight</item>
-        <item>Saffron</item>
-        <item>Tangerine</item>
-        <item>Pumpkin</item>
-        <item>Honey</item>
-        <item>Caramel</item>
-        <item>Vanilla</item>
-        <item>Banana</item>
-        <item>Canary</item>
-        <item>Wheat</item>
-        <item>Cocoa</item>
-        <item>Mahogany</item>
-        <item>Terracotta</item>
-        <item>Burgundy</item>
+        <item>Forget-me-not</item>
+        <item>Snowdrop</item>
+        <item>Lily of the valley</item>
+        <item>Hibiscus</item>
+        <item>Bluebell</item>
+        <item>Buttercup</item>
+        <item>Crocus</item>
+        <item>Foxglove</item>
+        <item>Fuchsia</item>
+        <item>Gardenia</item>
+        <item>Honeysuckle</item>
+        <item>Lupine</item>
+        <item>Mimosa</item>
+        <item>Nasturtium</item>
+        <item>Oleander</item>
+        <item>Phlox</item>
+        <item>Ranunculus</item>
+        <item>Snapdragon</item>
+        <item>Sweet pea</item>
+        <item>Verbena</item>
+        <item>Wisteria</item>
+        <item>Amaryllis</item>
+        <item>Aster</item>
+        <item>Azalea</item>
+        <item>Bougainvillea</item>
+        <item>Clematis</item>
+        <item>Cosmos</item>
+        <item>Delphinium</item>
+        <item>Edelweiss</item>
+        <item>Gypsophila</item>
+        <item>Heather</item>
+        <item>Hollyhock</item>
+        <item>Lisianthus</item>
+        <item>Plumeria</item>
+        <item>Protea</item>
+        <item>Rhododendron</item>
+        <item>Water lily</item>
+        <item>Statice</item>
+        <item>Tuberose</item>
+        <item>Yarrow</item>
+        <item>Calla lily</item>
+        <item>Cyclamen</item>
+        <item>Acacia</item>
+        <item>Anthurium</item>
+        <item>Celosia</item>
+        <item>Columbine</item>
+        <item>Coneflower</item>
+        <item>Gloxinia</item>
+        <item>Hellebore</item>
+        <item>Jacaranda</item>
+        <item>Kalanchoe</item>
+        <item>Lobelia</item>
+        <item>Passionflower</item>
         <item>Periwinkle</item>
-        <item>Eggplant</item>
+        <item>Poinsettia</item>
+        <item>Rudbeckia</item>
+        <item>Salvia</item>
+        <item>Scabiosa</item>
+        <item>Stock</item>
+        <item>Tansy</item>
+        <item>Thistle</item>
+        <item>Veronica</item>
+        <item>Viburnum</item>
+        <item>Wallflower</item>
+        <item>Yucca</item>
     </string-array>
     <string name="dash_headline_first_run">Please wait while we update the strategies.</string>
     <string name="dash_sub_first_run">This runs once after installation and cannot be skipped. It can take a few minutes.</string>

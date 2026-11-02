@@ -221,7 +221,7 @@ object DpiPrefs {
         synchronized(writeLock) {
             val primary = prefs(context).getString(key(KEY_VERIFIED_STRATEGY, cls), null) ?: return
             val chain = (listOf(primary) + verifiedFallbacks(context, cls)).distinct()
-            val ordered = ChainPlanner.byScore(chain, StrategyRouter.scorer(ratings(context, cls, now)))
+            val ordered = ChainPlanner.byScore(chain, StrategyRouter.scorer(ratings(context, cls, now), StrategyPriority.forClass(cls)))
             val pin = pinned(context, cls)
             val result = if (pin != null && pin in ordered) listOf(pin) + ordered.filter { it != pin } else ordered
             if (result != chain) writeChain(context, cls, result)
@@ -305,7 +305,7 @@ object DpiPrefs {
             recordOutcome(context, cls, line, StrategyOutcome.REAL_BAD, now)
             val primary = prefs(context).getString(key(KEY_VERIFIED_STRATEGY, cls), null) ?: return
             val chain = (listOf(primary) + verifiedFallbacks(context, cls)).distinct()
-            val ordered = StrategyRouter.afterFailure(chain, line, ratings(context, cls, now))
+            val ordered = StrategyRouter.afterFailure(chain, line, ratings(context, cls, now), StrategyPriority.forClass(cls))
             if (ordered != chain) writeChain(context, cls, ordered)
         }
     }
@@ -385,7 +385,13 @@ object DpiPrefs {
             val primary = store.getString(key(KEY_VERIFIED_STRATEGY, cls), null) ?: return
             val chain = (listOf(primary) + verifiedFallbacks(context, cls)).distinct()
             // Patch 46: the winner leads, the others follow by their score instead of staying in the order of the last search.
-            val ordered = StrategyRouter.afterSuccess(chain, line, ratings(context, cls, now), MAX_FALLBACKS + 1)
+            val ordered = StrategyRouter.afterSuccess(
+                chain,
+                line,
+                ratings(context, cls, now),
+                MAX_FALLBACKS + 1,
+                StrategyPriority.forClass(cls)
+            )
             if (ordered != chain) writeChain(context, cls, ordered)
         }
     }
@@ -435,14 +441,16 @@ object DpiStrategyStore {
      * the app show 76 strategies for a source of 60), so the app now mirrors the source: built-ins + the source's list.
      */
     fun candidates(context: Context): List<String> =
-        mergeStrategyLists(DpiBuiltInStrategies.lines, bundled(context), downloaded(context))
+        // Patch 59: the Wi-Fi priority strategies are always on offer, and first (they are on the community list already).
+        StrategyPriority.withPriority(mergeStrategyLists(DpiBuiltInStrategies.lines, bundled(context), downloaded(context)))
 
     /**
-     * Patch 51: the colour names of the strategies on offer, in the language of the device (the rule is in
-     * [StrategyNames]). Strategies in the chain or pinned keep a name even when the list dropped them.
+     * Patch 51: the names of the strategies on offer, in the language of the device (the rule is in [StrategyNames]).
+     * Patch 59: the names are flowers now (colours before), the same palette positions. Strategies in the chain or pinned keep
+     * a name even when the list dropped them.
      */
     internal fun names(context: Context): StrategyNameBook {
-        val palette = context.applicationContext.resources.getStringArray(R.array.strategy_colors).toList()
+        val palette = context.applicationContext.resources.getStringArray(R.array.strategy_flowers).toList()
         val keep = NetClass.entries.flatMap { cls -> verifiedChain(context, cls) + listOfNotNull(DpiPrefs.pinned(context, cls)) }.toSet()
         return DpiPrefs.nameBook(context, palette, candidates(context), keep)
     }

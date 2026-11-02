@@ -206,7 +206,8 @@ object DpiBypass {
             keepProven = keepProven,
             // A search that was stopped early only saw part of the list: keep the old chain behind what it found.
             fill = if (partial) DpiStrategyStore.verifiedChain(context, cls) else emptyList(),
-            max = MAX_VERIFIED_STRATEGIES
+            max = MAX_VERIFIED_STRATEGIES,
+            priority = StrategyPriority.forClass(cls)
         )
         val primary = merged.firstOrNull() ?: return false
         DpiPrefs.markStrategiesVerified(context, cls, primary, merged.drop(1))
@@ -299,7 +300,8 @@ object DpiBypass {
         val order = StrategyRank.order(
             DpiStrategyStore.candidates(context),
             DpiPrefs.ratings(context, cls, now),
-            DpiResultsStore.load(context, cls)
+            DpiResultsStore.load(context, cls),
+            StrategyPriority.forClass(cls)
         )
         return (DpiStrategyStore.verifiedChain(context, cls) + order).distinct()
     }

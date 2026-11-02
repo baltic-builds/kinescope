@@ -135,6 +135,15 @@ class BypassVpnService : VpnService() {
     private val randomRunning = AtomicBoolean(false)
     @Volatile private var nextUpkeepAt = 0L
 
+    // Patch 59: the seven-second rule (see TunnelStall): the monitor thread reads the bridge counters once a second and a
+    // strategy that has left the app waiting for about seven seconds is switched. `spareSearchDone`: a chain with nothing left
+    // to switch to gets ONE short search for spare strategies per tunnel run (see rotateStrategy).
+    @Volatile private var nextStallSampleAt = 0L
+    @Volatile private var stallPrevious = TunnelCounters.ZERO
+    @Volatile private var stallPreviousAt = 0L
+    @Volatile private var stallState = StallState()
+    @Volatile private var spareSearchDone = false
+
     // Patch 53: the connection class (Wi-Fi, mobile data) the tunnel's strategies were chosen for, and for how many monitor
     // ticks in a row the system has reported another one (see followConnection).
     @Volatile private var tunnelClass: NetClass = NetClass.WIFI
@@ -155,6 +164,7 @@ class BypassVpnService : VpnService() {
                 if (!BypassVpnController.state.value.active && !BypassVpnController.state.value.starting) {
                     stopRequested.set(false)
                     earlyDeaths.clear()
+                    spareSearchDone = false
                     BypassVpnController.starting()
                     startForegroundCompat(buildNotification(active = false))
                     executor.execute { startTunnel() }
@@ -293,6 +303,11 @@ class BypassVpnService : VpnService() {
             oneWayStreak = 0
             flowWindows = 0
             provedLine = null
+            // Patch 59: the bridge's counters start from zero again; so does the seven-second watch.
+            stallPrevious = TunnelCounters.ZERO
+            stallPreviousAt = startedNow
+            stallState = StallState()
+            nextStallSampleAt = startedNow + TunnelStall.SAMPLE_MS
             engine = null
             tun = null
             hevStarted = false
@@ -493,6 +508,10 @@ class BypassVpnService : VpnService() {
                     startRandomCheck(tunnelClass, currentLine)
                 }
                 if (!updating && !restarting) followConnection()
+                if (!updating && !restarting && SystemClock.elapsedRealtime() >= nextStallSampleAt) {
+                    checkTunnelStall()
+                    if (stopRequested.get()) return
+                }
                 if (!updating && !restarting && SystemClock.elapsedRealtime() >= nextFlowCheckAt) checkTunnelFlow()
                 if (!updating && !restarting && SystemClock.elapsedRealtime() >= nextProbeAt) probeTunnel()
             }
@@ -663,6 +682,34 @@ class BypassVpnService : VpnService() {
         }
     }
 
+    /**
+     * Patch 59: the seven-second rule ([TunnelStall]). Once a second the bridge counters are compared with the last reading; an
+     * app that has been waiting about seven seconds for an answer that does not come moves the tunnel to the next strategy, through
+     * the same path as a failed probe ([rotateStrategy]: the strategy is quarantined and the restart excludes it). A phone with no
+     * connection at all is not the strategy's fault: nothing is switched then.
+     */
+    private fun checkTunnelStall() {
+        val now = SystemClock.elapsedRealtime()
+        nextStallSampleAt = now + TunnelStall.SAMPLE_MS
+        val line = currentLine ?: return
+        val current = TunnelCounters.fromStats(runCatching { TProxyService.TProxyGetStats() }.getOrNull()) ?: return
+        val step = TunnelStall.step(stallState, stallPrevious, current, stallPreviousAt, now)
+        stallPrevious = current
+        stallPreviousAt = now
+        stallState = step.state
+        val report = step.report
+        if (step.verdict != StallVerdict.STALLED || report == null) return
+        if (NetworkState.snapshot(this).kind == "none") {
+            AppLog.i("BypassVpnService", "stall ignored: no connection")
+            return
+        }
+        AppLog.w(
+            "BypassVpnService",
+            "stall net=${tunnelClass.key} wait=${report.ms / 1000L}s tx=${report.txPackets}p/${report.txBytes}B rx=${report.rxBytes}B"
+        )
+        rotateStrategy(line, RouterEventKind.ONE_WAY, "stall")
+    }
+
     /** Patch 44: one line with the whole session's traffic, written when the tunnel is stopped. */
     private fun logTunnelTotals() {
         val totals = TunnelCounters.fromStats(runCatching { TProxyService.TProxyGetStats() }.getOrNull()) ?: return
@@ -677,28 +724,36 @@ class BypassVpnService : VpnService() {
      * Quarantines the failing strategy and reconnects on the next one; rate-limited so a dead network cannot thrash it. [kind] is why,
      * for the dashboard (`BypassVpnController.lastEvent`). Patch 56: nothing happens once a stop was asked for.
      */
-    private fun rotateStrategy(line: String, kind: RouterEventKind) {
+    private fun rotateStrategy(line: String, kind: RouterEventKind, why: String = kind.name.lowercase()) {
         if (stopRequested.get()) return
-        val now = SystemClock.elapsedRealtime()
-        while (rotations.isNotEmpty() && now - rotations.first() > ROTATION_WINDOW_MS) rotations.removeFirst()
-        val tooSoon = rotations.isNotEmpty() && now - rotations.last() < MIN_ROTATION_GAP_MS
-        val tooMany = rotations.size >= MAX_ROTATIONS
         val cls = tunnelClass
-        val alternatives = DpiStrategyStore.chain(this, cls).filter { it != line }
-        if (tooMany || alternatives.isEmpty()) {
-            AppLog.w("BypassVpnService", "all recovery routes exhausted; stopping unusable VPN")
-            BypassVpnController.failed(R.string.bypass_vpn_engine_failed)
-            requestStop()
-            return
+        var chain = DpiStrategyStore.chain(this, cls)
+        var alternatives = chain.count { it != line }
+        // Patch 59: a chain with nothing left to switch to gets one short search for spare strategies per tunnel run.
+        if (alternatives == 0 && !spareSearchDone) {
+            spareSearchDone = true
+            chain = searchOnDemand(cls).ifEmpty { chain }
+            if (stopRequested.get()) return
+            alternatives = chain.count { it != line }
         }
-        if (tooSoon) {
-            nextProbeAt = now + MIN_ROTATION_GAP_MS
-            failStreak = 0
-            return
+        val now = SystemClock.elapsedRealtime()
+        while (rotations.isNotEmpty() && now - rotations.first() > RotationLimits.WINDOW_MS) rotations.removeFirst()
+        when (RotationLimits.decide(rotations, now, chain.size, alternatives)) {
+            RotationDecision.EXHAUSTED -> {
+                AppLog.w("BypassVpnService", "all recovery routes exhausted; stopping unusable VPN")
+                BypassVpnController.failed(R.string.bypass_vpn_engine_failed)
+                requestStop()
+                return
+            }
+            RotationDecision.TOO_SOON -> {
+                failStreak = 0
+                return
+            }
+            RotationDecision.GO -> Unit
         }
         rotations.addLast(now)
         DpiPrefs.quarantine(this, cls, line)
-        AppLog.w("BypassVpnService", "rotate net=${cls.key} why=${kind.name.lowercase()} quarantined=1 alternatives=${alternatives.size}")
+        AppLog.w("BypassVpnService", "rotate net=${cls.key} why=$why quarantined=1 alternatives=$alternatives")
         failStreak = 0
         BypassVpnController.publishEvent(kind)
         restartTunnel(avoidLine = line)
@@ -895,9 +950,9 @@ class BypassVpnService : VpnService() {
         private const val UPKEEP_INTERVAL_MS = 10L * 60L * 1000L
         private const val PROBE_CONNECTIONS = 3
         private const val FAILS_BEFORE_ROTATE = 2
-        private const val MIN_ROTATION_GAP_MS = 90_000L
-        private const val ROTATION_WINDOW_MS = 10L * 60L * 1000L
-        private const val MAX_ROTATIONS = 3
+
+        // Patch 59: how often strategies may be switched is `RotationLimits`; what makes one switch is `TunnelStall` (7 s of
+        // the app's traffic), the failed probe above and the one-way windows below.
 
         // Patch 44: the traffic of the YouTube app through the tunnel (see checkTunnelFlow).
         private const val FLOW_INTERVAL_MS = 10_000L
