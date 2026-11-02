@@ -1,6 +1,6 @@
 # Roadmap
 
-State after patch 59 (2026-11-01). This file tracks only what is still open: device verification gates,
+State after patch 60 (2026-11-02). This file tracks only what is still open: device verification gates,
 technical debt and what is out of scope. How each item was closed lives in `CHANGELOG.md`; the state a new
 session needs is in `HANDOFF.md`.
 
@@ -78,6 +78,9 @@ session needs is in `HANDOFF.md`.
   reads the YouTube app's traffic once a second (`TunnelStall`) and leaves a strategy that has had the app waiting about 7 s with nothing back; switches are limited per
   chain (`RotationLimits`), not 3 per 10 minutes 90 s apart. Two Wi-Fi strategies lead by default (`StrategyPriority`, a prior that evidence beats). Names are flowers.
   Nothing of it is confirmed on a device; `BypassVpnService` was compiled against the Android API with stubs, not in Gradle.
+- **Patch 60 (2026-11-02) makes the tunnel stay up and come back by itself.** A start that fails because the connection is away or the engine is slow is retried (about three minutes); an exhausted
+  tunnel cools down and reconnects (1, 2, 5 minutes); the monitor can no longer die silently; a stop followed quickly by a start is no longer lost; a leaked engine session no longer blocks every
+  later start; the service resumes after Android kills the app while the user wants the bypass on (`TunnelLifecycle.kt`). Found by reading the code, not reproduced; open gates below.
 
 ## Decisions that remain unchanged
 
@@ -96,6 +99,15 @@ session needs is in `HANDOFF.md`.
 Patches 54 and 55 are applied together and share the first gate. Gates below that name things patch 54/55 or the October out-of-band change
 removed (the Home drop-down, stars, the speed line, the update notice, the 25-day upkeep, "Unblock YouTube") are superseded by the first two
 sections; tick or delete them against the new behaviour, not the old.
+
+### A tunnel that stays up (patch 60)
+- [ ] `./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug` is green.
+- [ ] Switch the bypass off and on again within a second, five times in a row: it ends ON with exactly one tunnel (`tun up` once per round), never OFF with the switch ON, and a later stop still stops it. The log shows `start request begin` or `start request after_stop` (and, rarely, `sending it again`).
+- [ ] Airplane mode on, switch the bypass on: Home stays "starting" (no error), the log shows `start failed res=... retry n in Ns`; airplane mode off: the tunnel comes up within about ten seconds without touching the switch. Switch it off during the wait: it stops at once.
+- [ ] With the tunnel up and YouTube open, airplane mode on for several minutes, then off: `stall ignored: no connection` or `all recovery routes exhausted; reconnecting in 60s (try 1)`, and the tunnel is back after the connection is. After three cool-downs without a working strategy it stops with the error, as before.
+- [ ] Kill the app (recents swipe, or `adb shell am kill com.kinescope.app`) with the tunnel up: on Android 11 and older `resuming after the app was killed` and the tunnel returns; on Android 12+ it may log `startForeground refused` and stay off (expected). A stop through the switch or the notification is never resumed.
+- [ ] No `monitor tick failed` line in a normal run; if one appears, copy the report (it names the exception).
+- [ ] After a day of use with the bypass on: the switch still turns it on and off, and `Copy report` shows no `engine failed` repeated start after start.
 
 ### Seven-second switch, Wi-Fi priority, flower names (patch 59)
 - [ ] `./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug` is green.

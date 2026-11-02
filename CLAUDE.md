@@ -181,3 +181,6 @@ future sessions don't lose them.)
   strategy that has had the YouTube app waiting about 7 s for an answer (`TunnelStall`); do not slow it back down without a device report showing false switches, and do
   not bring back the 90 s / 3-per-10-minutes limits (`RotationLimits`). (3) `StrategyPriority.WIFI` leads the Wi-Fi group by default as a prior, never as a pin and never
   written into a chain without a test. Result: `CHANGELOG.md`, "Patch 59"; `STRATEGY_ROUTER.md` section 7a.
+- **Decision (patch 60): the tunnel heals itself, within limits.** A start that failed only because the connection was away or the engine was slow is retried, an exhausted tunnel reconnects after a
+  cool-down, a dead monitor is impossible, and the service resumes after the app is killed while the user wants it on. Every retry, wait and resume is bounded (see `STRATEGY_ROUTER.md` section 7b) and a stop
+  always wins; do not make any of them unbounded, and do not let a late thread of an older service instance publish the shared state. Result: `CHANGELOG.md`, "Patch 60".

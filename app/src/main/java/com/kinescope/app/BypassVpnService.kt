@@ -18,7 +18,9 @@ import androidx.core.content.ContextCompat
 import hev.htproxy.TProxyService
 import java.io.File
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -98,6 +100,19 @@ class BypassVpnService : VpnService() {
     private val stopRequested = AtomicBoolean(false)
     private val stopCleanupStarted = AtomicBoolean(false)
 
+    // Patch 60 (see TunnelLifecycle): `myGeneration` tells this instance's threads whether a newer instance has taken over the shared
+    // UI state (a late thread of a dying instance must not overwrite it); `startInProgress` and `startAfterStop` are the instance's own
+    // facts a start request is judged by; `exhaustRetries` counts the cool-down restarts of an exhausted tunnel; the monitor counters
+    // are touched by the monitor thread only.
+    private val myGeneration = generation.incrementAndGet()
+    private val startInProgress = AtomicBoolean(false)
+    @Volatile private var startAfterStop = false
+    private val lifecycleLock = Any()
+    private var stopDecided = false
+    @Volatile private var exhaustRetries = 0
+    private var monitorErrors = 0
+    private val monitorRebuilds = ArrayDeque<Long>()
+
     @Volatile private var engineSession: DpiEngineSession? = null
     @Volatile private var tunInterface: ParcelFileDescriptor? = null
     @Volatile private var tunnelRunning = false
@@ -160,16 +175,7 @@ class BypassVpnService : VpnService() {
             ACTION_STOP -> {
                 requestStop()
             }
-            ACTION_START -> {
-                if (!BypassVpnController.state.value.active && !BypassVpnController.state.value.starting) {
-                    stopRequested.set(false)
-                    earlyDeaths.clear()
-                    spareSearchDone = false
-                    BypassVpnController.starting()
-                    startForegroundCompat(buildNotification(active = false))
-                    executor.execute { startTunnel() }
-                }
-            }
+            ACTION_START -> beginStart(resumed = false)
             ACTION_UPDATE -> {
                 val state = BypassVpnController.state.value
                 when {
@@ -192,8 +198,98 @@ class BypassVpnService : VpnService() {
                 val state = BypassVpnController.state.value
                 if (state.active || state.starting) postNotification() else stopSelf()
             }
+            null -> {
+                // Patch 60: Android restarted the service after it had killed the app (START_STICKY). The tunnel is resumed when the user
+                // still wanted it on, a few times an hour at most; otherwise there is nothing to do.
+                if (intent == null && BypassResume.shouldResume(this)) {
+                    AppLog.i("BypassVpnService", "resuming after the app was killed")
+                    beginStart(resumed = true)
+                } else {
+                    stopSelf()
+                }
+            }
         }
-        return START_NOT_STICKY
+        // Patch 60: while the user wants the bypass on, Android is asked to bring the service back if it kills the app.
+        return if (BypassResume.isDesired(this)) START_STICKY else START_NOT_STICKY
+    }
+
+    /**
+     * Patch 60: a request to start the tunnel, judged from this instance's own facts ([TunnelLifecycle.onStartRequest]) and not from the
+     * shared UI state, which can be stale: an "already active" that is not, or a start that arrives while the previous run is still being
+     * stopped (the old code handed it to the instance that was shutting down and the start was lost).
+     */
+    private fun beginStart(resumed: Boolean) {
+        val action = TunnelLifecycle.onStartRequest(
+            tunnelRunning = tunnelRunning,
+            startOrRestartInProgress = startInProgress.get() || restarting,
+            stopInFlight = stopCleanupStarted.get()
+        )
+        AppLog.i("BypassVpnService", "start request ${action.name.lowercase()} resumed=$resumed")
+        when (action) {
+            StartAction.ALREADY_UP -> {
+                if (!BypassVpnController.state.value.active) {
+                    BypassVpnController.active()
+                    BypassVpnController.publishLine(currentLine)
+                }
+                postNotification()
+            }
+            StartAction.ALREADY_STARTING -> Unit
+            StartAction.AFTER_STOP -> {
+                // The stop thread decides under the same lock whether this instance is reused or ends: a request that comes after that
+                // decision is handed to Android again and is served by the next instance.
+                val tooLate = synchronized(lifecycleLock) {
+                    if (stopDecided) true else { startAfterStop = true; false }
+                }
+                if (tooLate) {
+                    AppLog.i("BypassVpnService", "start request came after the stop was decided; sending it again")
+                    start(applicationContext)
+                    return
+                }
+                BypassResume.setDesired(this, true)
+                BypassVpnController.starting()
+                if (!startForegroundCompat(buildNotification(active = false))) giveUpForeground()
+            }
+            StartAction.BEGIN -> {
+                stopRequested.set(false)
+                earlyDeaths.clear()
+                spareSearchDone = false
+                exhaustRetries = 0
+                BypassResume.setDesired(this, true)
+                BypassVpnController.starting()
+                if (!startForegroundCompat(buildNotification(active = false))) {
+                    giveUpForeground()
+                    return
+                }
+                startInProgress.set(true)
+                val queued = runCatching {
+                    // A session left behind by an earlier run would keep the one VPN engine gate taken: nothing runs now, so none is wanted.
+                    executor.execute {
+                        DpiEngine.reclaimVpn()
+                        startTunnel()
+                    }
+                }
+                if (queued.isFailure) {
+                    startInProgress.set(false)
+                    AppLog.e("BypassVpnService", "Could not queue the start", queued.exceptionOrNull())
+                    fail(R.string.bypass_vpn_tunnel_failed)
+                }
+            }
+        }
+    }
+
+    /** Patch 60: the system refused to make the service a foreground service (a start from the background on a recent Android). */
+    private fun giveUpForeground() {
+        AppLog.w("BypassVpnService", "could not start in the foreground")
+        BypassResume.setDesired(this, false)
+        if (isCurrent()) BypassVpnController.failed(R.string.bypass_vpn_tunnel_failed)
+        stopSelf()
+    }
+
+    /** Patch 60: whether this instance is the newest one, the only one that may publish the shared UI state. */
+    private fun isCurrent(): Boolean = generation.get() == myGeneration
+
+    private fun publishStopped() {
+        if (isCurrent()) BypassVpnController.stopped()
     }
 
     override fun onRevoke() {
@@ -204,11 +300,56 @@ class BypassVpnService : VpnService() {
     /** Stop is never queued behind monitorTunnel: it may be performing a blocking health probe. */
     private fun requestStop() {
         stopRequested.set(true)
+        BypassResume.setDesired(this, false)
         runCatching { tunInterface?.close() }
         if (stopCleanupStarted.compareAndSet(false, true)) {
             Thread({
-                try { stopTunnelInternal() } finally { stopSelf() }
+                try { stopTunnelInternal() } finally { finishStop() }
             }, "kinescope-bypass-stop").apply { isDaemon = true; start() }
+        }
+    }
+
+    /**
+     * Patch 60: the end of a stop. Normally the service ends. When the user asked for the bypass again while the stop was being carried
+     * out ([startAfterStop]), this instance is reused: the start thread is let finish first (the stop flag is still set, so whatever it is
+     * doing ends quickly), then everything is made ready again and the start runs.
+     */
+    private fun finishStop() {
+        val reuse = synchronized(lifecycleLock) {
+            if (startAfterStop) true else { stopDecided = true; false }
+        }
+        if (!reuse) {
+            stopSelf()
+            return
+        }
+        val drained = runCatching { executor.submit { }.get(DRAIN_TIMEOUT_S, TimeUnit.SECONDS) }.isSuccess
+        if (!drained) {
+            AppLog.w("BypassVpnService", "the previous run did not end in time; not restarting")
+            startAfterStop = false
+            BypassResume.setDesired(this, false)
+            if (isCurrent()) BypassVpnController.failed(R.string.bypass_vpn_tunnel_failed)
+            stopSelf()
+            return
+        }
+        startAfterStop = false
+        stopRequested.set(false)
+        stopCleanupStarted.set(false)
+        earlyDeaths.clear()
+        spareSearchDone = false
+        exhaustRetries = 0
+        BypassResume.setDesired(this, true)
+        BypassVpnController.starting()
+        postNotification()
+        startInProgress.set(true)
+        val queued = runCatching {
+            executor.execute {
+                DpiEngine.reclaimVpn()
+                startTunnel()
+            }
+        }
+        if (queued.isFailure) {
+            startInProgress.set(false)
+            fail(R.string.bypass_vpn_tunnel_failed)
         }
     }
 
@@ -221,12 +362,77 @@ class BypassVpnService : VpnService() {
         tunInterface = null
         runCatching { engineSession?.close() }
         engineSession = null
-        if (!preserveError) BypassVpnController.stopped()
+        if (!preserveError && isCurrent()) BypassVpnController.stopped()
         executor.shutdownNow()
         super.onDestroy()
     }
 
+    /** Patch 60: how one start attempt ended (see [startTunnel]). */
+    private sealed class StartOutcome {
+        object Up : StartOutcome()
+        object Stopped : StartOutcome()
+        class Failed(@StringRes val errorRes: Int) : StartOutcome()
+    }
+
+    /**
+     * Patch 60: a start, with retries. A start that failed only because the connection was away or the engine did not come up
+     * ([failureKind]) is tried again after 5, 10, 20, 40 and 60 s ([StartRetry]) while the state stays "starting" and the service stays
+     * up; the wait ends early when the connection is back and at once when a stop is asked for. Any other failure, and the last retry,
+     * ends the service as before. Before, the first failed start stopped the service, so a tunnel switched on a moment before the
+     * connection came back never came up and the user had to notice and switch it on again.
+     */
     private fun startTunnel(avoidLine: String? = null) {
+        startInProgress.set(true)
+        try {
+            var retry = 0
+            while (true) {
+                val outcome = startTunnelOnce(avoidLine)
+                if (outcome !is StartOutcome.Failed) return
+                val delay = if (failureKind(outcome.errorRes) == StartFailure.TRANSIENT && !stopRequested.get()) {
+                    StartRetry.delayBeforeRetry(retry + 1)
+                } else {
+                    null
+                }
+                if (delay == null) {
+                    fail(outcome.errorRes)
+                    return
+                }
+                retry++
+                AppLog.i("BypassVpnService", "start failed res=${outcome.errorRes}; retry $retry in ${delay / 1000L}s")
+                BypassVpnController.starting()
+                postNotification()
+                if (!waitOrStop(delay)) return
+            }
+        } finally {
+            startInProgress.set(false)
+        }
+    }
+
+    /** Patch 60: the start failures that a moment may cure: no connection, or an engine that did not come up. */
+    private fun failureKind(@StringRes errorRes: Int): StartFailure = when (errorRes) {
+        R.string.bypass_vpn_no_route, R.string.bypass_vpn_engine_failed -> StartFailure.TRANSIENT
+        else -> StartFailure.PERMANENT
+    }
+
+    /** Patch 60: waits [ms], ending early when the connection returns after having been away; false when a stop was asked for. */
+    private fun waitOrStop(ms: Long): Boolean {
+        val begun = SystemClock.elapsedRealtime()
+        val offline = NetClassWatcher.state.value == null
+        while (true) {
+            if (stopRequested.get()) return false
+            val waited = SystemClock.elapsedRealtime() - begun
+            if (waited >= ms) return true
+            if (offline && waited >= CONNECTION_BACK_MIN_WAIT_MS && NetClassWatcher.state.value != null) return true
+            try {
+                Thread.sleep(minOf(500L, ms - waited))
+            } catch (e: InterruptedException) {
+                Thread.currentThread().interrupt()
+                return false
+            }
+        }
+    }
+
+    private fun startTunnelOnce(avoidLine: String?): StartOutcome {
         var engine: DpiEngineSession? = null
         var tun: ParcelFileDescriptor? = null
         var hevStarted = false
@@ -235,14 +441,12 @@ class BypassVpnService : VpnService() {
             val cls = NetClassWatcher.current(this)
             var chain = DpiStrategyStore.chain(this, cls)
             if (chain.isEmpty()) {
-                fail(R.string.bypass_vpn_no_verified_strategy)
-                return
+                return StartOutcome.Failed(R.string.bypass_vpn_no_verified_strategy)
             }
             // Patch 51: the tunnel carries the chosen app (Settings), not always the official YouTube app.
             val appPackage = YoutubeApps.chosenPackage(this)
             if (appPackage == null) {
-                fail(R.string.bypass_vpn_youtube_missing)
-                return
+                return StartOutcome.Failed(R.string.bypass_vpn_youtube_missing)
             }
 
             // Select the first live, healthy route on this network class. Merely starting a
@@ -252,9 +456,12 @@ class BypassVpnService : VpnService() {
             // Patch 54: see selectRoute -- a connection the engine cannot reach is told from a blocked strategy, and a class that
             // was never tested gets a short search of its own when its borrowed strategies are blocked.
             val route = selectRoute(cls, chain, avoidLine)
-            if (stopRequested.get()) return
+            // Patch 60: a session the choice returned is owned from here on, so every way out below closes it (a stop that came in
+            // between used to leave it open, and an open session keeps the one VPN engine gate taken until the app process dies).
+            engine = route.engine
+            if (stopRequested.get()) return StartOutcome.Stopped
             if (route.noRoute) throw BypassStartException(R.string.bypass_vpn_no_route)
-            engine = route.engine ?: throw BypassStartException(R.string.bypass_vpn_engine_failed)
+            if (engine == null) throw BypassStartException(R.string.bypass_vpn_engine_failed)
             val chosenLine: String? = route.line
             chain = route.chain
 
@@ -282,7 +489,7 @@ class BypassVpnService : VpnService() {
                 Thread.sleep(BRIDGE_SETTLE_MS)
                 running = TProxyService.TProxyIsRunning()
             }
-            if (stopRequested.get()) return
+            if (stopRequested.get()) return StartOutcome.Stopped
             if (!running) {
                 AppLog.w("BypassVpnService", "tun bridge is not running after start")
                 throw BypassStartException(R.string.bypass_vpn_tunnel_failed)
@@ -325,16 +532,22 @@ class BypassVpnService : VpnService() {
             AppLog.i("BypassVpnService", "YouTube-only bypass active")
             if (monitorRunning.compareAndSet(false, true)) executor.execute { monitorTunnel() }
             startRandomCheck(cls, chosenLine)
+            return StartOutcome.Up
         } catch (e: BypassStartException) {
-            fail(e.errorRes)
+            return StartOutcome.Failed(e.errorRes)
         } catch (e: InterruptedException) {
             Thread.currentThread().interrupt()
-            if (!stopRequested.get()) fail(R.string.bypass_vpn_tunnel_failed)
+            return if (stopRequested.get()) StartOutcome.Stopped else StartOutcome.Failed(R.string.bypass_vpn_tunnel_failed)
         } catch (e: PackageManager.NameNotFoundException) {
-            fail(R.string.bypass_vpn_youtube_missing)
+            return StartOutcome.Failed(R.string.bypass_vpn_youtube_missing)
         } catch (e: Exception) {
             AppLog.e("BypassVpnService", "Could not start YouTube bypass", e)
-            fail(R.string.bypass_vpn_tunnel_failed)
+            return StartOutcome.Failed(R.string.bypass_vpn_tunnel_failed)
+        } catch (e: Throwable) {
+            // Patch 60: an Error (out of memory, a native library that did not load) used to end the start thread silently and leave the
+            // state at "starting" for ever, which the Home switch treats as "already on".
+            AppLog.e("BypassVpnService", "Could not start YouTube bypass (error)", e)
+            return StartOutcome.Failed(R.string.bypass_vpn_tunnel_failed)
         } finally {
             if (engine != null || tun != null || hevStarted) {
                 if (hevStarted) runCatching { TProxyService.TProxyStopService() }
@@ -342,8 +555,8 @@ class BypassVpnService : VpnService() {
                 runCatching { engine?.close() }
             }
             if (stopRequested.get() && !BypassVpnController.state.value.active) {
-                BypassVpnController.stopped()
-                stopSelf()
+                publishStopped()
+                if (!startAfterStop) stopSelf()
             }
         }
     }
@@ -397,7 +610,13 @@ class BypassVpnService : VpnService() {
                 val parsed = DpiStrategyParser.parse(line) as? DpiStrategyParser.Parsed.Ok ?: continue
                 if (stopRequested.get()) return RouteChoice(null, null, chain, false)
                 val candidate = DpiEngine.startForVpn(this, parsed.args) ?: continue
-                val health = DpiBypass.checkHealth(candidate.port)
+                val health = try {
+                    DpiBypass.checkHealth(candidate.port)
+                } catch (e: Throwable) {
+                    // Patch 60: an open session keeps the one VPN engine gate taken until the app process dies.
+                    candidate.close()
+                    throw e
+                }
                 AppLog.i(
                     "BypassVpnService",
                     "chk s=${position + 1}/${chain.size} ok=${health.ok} st=${health.stage} why=${health.why} " +
@@ -487,39 +706,89 @@ class BypassVpnService : VpnService() {
             var ticks = 0
             while (!stopRequested.get()) {
                 Thread.sleep(500L)
-                if (restarting) continue
-                // Patch 56: a stop closes the TUN and the bridge at once; waking up in the middle of it, the old code took the dead
-                // transport for a failure and blamed the strategy that was carrying the traffic. A stop is never a failure.
-                if (stopRequested.get()) return
-                val engineAlive = engineSession?.isAlive == true
-                val bridgeAlive = runCatching { TProxyService.TProxyIsRunning() }.getOrDefault(false)
-                if (!engineAlive || !bridgeAlive) {
-                    // `restarting` is set before the old engine is closed, so seeing a closed
-                    // engine here means this flag is already visible: an update-triggered
-                    // reconnect is not a failure.
-                    if (restarting) continue
-                    handleTransportDeath(engineAlive, bridgeAlive)
-                    if (stopRequested.get()) return
-                    continue
+                try {
+                    if (!monitorTick(++ticks)) return
+                    monitorErrors = 0
+                } catch (e: InterruptedException) {
+                    throw e
+                } catch (e: Exception) {
+                    // Patch 60: one failed look used to end the monitor for good, silently: the tunnel then looked up while nothing watched
+                    // it, so a dead engine or a stalled strategy was never noticed and the Home switch (which ignores "on" while the
+                    // state says active) could not bring it back.
+                    monitorErrors++
+                    if (MonitorErrors.shouldLog(monitorErrors)) {
+                        AppLog.e("BypassVpnService", "monitor tick failed ($monitorErrors in a row)", e)
+                    }
+                    if (MonitorErrors.after(monitorErrors) == MonitorFault.REBUILD) {
+                        monitorErrors = 0
+                        rebuildAfterMonitorFault()
+                    }
                 }
-                if (++ticks % NOTIFICATION_CHECK_TICKS == 0) ensureNotificationVisible()
-                if (!updating && !restarting && SystemClock.elapsedRealtime() >= nextUpkeepAt) {
-                    nextUpkeepAt = SystemClock.elapsedRealtime() + UPKEEP_INTERVAL_MS
-                    startRandomCheck(tunnelClass, currentLine)
-                }
-                if (!updating && !restarting) followConnection()
-                if (!updating && !restarting && SystemClock.elapsedRealtime() >= nextStallSampleAt) {
-                    checkTunnelStall()
-                    if (stopRequested.get()) return
-                }
-                if (!updating && !restarting && SystemClock.elapsedRealtime() >= nextFlowCheckAt) checkTunnelFlow()
-                if (!updating && !restarting && SystemClock.elapsedRealtime() >= nextProbeAt) probeTunnel()
             }
         } catch (e: InterruptedException) {
             Thread.currentThread().interrupt()
         } finally {
             monitorRunning.set(false)
+            // Patch 60: the watch is never left dead while the tunnel is up (an exit through an Error, or a stop that was withdrawn at
+            // that very moment).
+            if (!stopRequested.get() && tunnelRunning && monitorRunning.compareAndSet(false, true)) {
+                runCatching { executor.execute { monitorTunnel() } }.onFailure { monitorRunning.set(false) }
+            }
         }
+    }
+
+    /** Patch 60: one look at the tunnel (every half second). False: the monitor ends because a stop was asked for. */
+    private fun monitorTick(tick: Int): Boolean {
+        if (restarting) return true
+        // Patch 56: a stop closes the TUN and the bridge at once; waking up in the middle of it, the old code took the dead
+        // transport for a failure and blamed the strategy that was carrying the traffic. A stop is never a failure.
+        if (stopRequested.get()) return false
+        val engineAlive = engineSession?.isAlive == true
+        val bridgeAlive = runCatching { TProxyService.TProxyIsRunning() }.getOrDefault(false)
+        if (!engineAlive || !bridgeAlive) {
+            // `restarting` is set before the old engine is closed, so seeing a closed
+            // engine here means this flag is already visible: an update-triggered
+            // reconnect is not a failure.
+            if (restarting) return true
+            handleTransportDeath(engineAlive, bridgeAlive)
+            return !stopRequested.get()
+        }
+        if (tick % NOTIFICATION_CHECK_TICKS == 0) ensureNotificationVisible()
+        if (!updating && !restarting && SystemClock.elapsedRealtime() >= nextUpkeepAt) {
+            nextUpkeepAt = SystemClock.elapsedRealtime() + UPKEEP_INTERVAL_MS
+            startRandomCheck(tunnelClass, currentLine)
+        }
+        if (!updating && !restarting) followConnection()
+        if (!updating && !restarting && SystemClock.elapsedRealtime() >= nextStallSampleAt) {
+            checkTunnelStall()
+            if (stopRequested.get()) return false
+        }
+        if (!updating && !restarting && SystemClock.elapsedRealtime() >= nextFlowCheckAt) checkTunnelFlow()
+        if (!updating && !restarting && SystemClock.elapsedRealtime() >= nextProbeAt) probeTunnel()
+        return true
+    }
+
+    /**
+     * Patch 60: the monitor failed ten ticks in a row. The tunnel is rebuilt from nothing (the same path as a reconnect); if that does
+     * not help either, the third rebuild within ten minutes gives up and says so instead of looping.
+     */
+    private fun rebuildAfterMonitorFault() {
+        val now = SystemClock.elapsedRealtime()
+        while (monitorRebuilds.isNotEmpty() && now - monitorRebuilds.first() > RotationLimits.WINDOW_MS) monitorRebuilds.removeFirst()
+        when (RotationLimits.decide(monitorRebuilds, now, chainSize = MONITOR_REBUILDS, alternatives = 1)) {
+            RotationDecision.TOO_SOON -> return
+            RotationDecision.EXHAUSTED -> {
+                AppLog.w("BypassVpnService", "the monitor keeps failing; giving up")
+                BypassVpnController.failed(R.string.bypass_vpn_tunnel_failed)
+                requestStop()
+                return
+            }
+            RotationDecision.GO -> Unit
+        }
+        monitorRebuilds.addLast(now)
+        AppLog.w("BypassVpnService", "the monitor keeps failing; rebuilding the tunnel")
+        BypassVpnController.publishEvent(RouterEventKind.RECONNECTED)
+        restartTunnel()
     }
 
     /**
@@ -670,6 +939,7 @@ class BypassVpnService : VpnService() {
         if (provedLine != line && TunnelFlow.proves(previous, current)) {
             provedLine = line
             earlyDeaths.remove(line)
+            exhaustRetries = 0
             DpiPrefs.promoteVerified(this, tunnelClass, line)
             val chain = DpiStrategyStore.chain(this, tunnelClass)
             BypassVpnController.publishPosition(chain.indexOf(line) + 1, chain.size)
@@ -740,6 +1010,19 @@ class BypassVpnService : VpnService() {
         while (rotations.isNotEmpty() && now - rotations.first() > RotationLimits.WINDOW_MS) rotations.removeFirst()
         when (RotationLimits.decide(rotations, now, chain.size, alternatives)) {
             RotationDecision.EXHAUSTED -> {
+                // Patch 60: every strategy of the chain was used up. That is most often the network (a lift, a tunnel, a Wi-Fi that lost its
+                // uplink), not the strategies, and it used to end the bypass for good. Now the tunnel is taken down (the app goes direct
+                // meanwhile), the history is cleared and it reconnects after 1, 2 and 5 minutes before it gives up.
+                val cooldown = StartRetry.exhaustedCooldown(exhaustRetries + 1)
+                if (cooldown != null) {
+                    exhaustRetries++
+                    AppLog.w("BypassVpnService", "all recovery routes exhausted; reconnecting in ${cooldown / 1000L}s (try $exhaustRetries)")
+                    rotations.clear()
+                    spareSearchDone = false
+                    failStreak = 0
+                    restartAfterCooldown(cooldown)
+                    return
+                }
                 AppLog.w("BypassVpnService", "all recovery routes exhausted; stopping unusable VPN")
                 BypassVpnController.failed(R.string.bypass_vpn_engine_failed)
                 requestStop()
@@ -759,13 +1042,32 @@ class BypassVpnService : VpnService() {
         restartTunnel(avoidLine = line)
     }
 
+    /** Patch 60: takes the tunnel down, waits [delayMs] (a stop ends the wait), and starts it again. */
+    private fun restartAfterCooldown(delayMs: Long) {
+        restarting = true
+        try {
+            stopTunnelInternal(publishStopped = false)
+            if (stopRequested.get()) {
+                publishStopped()
+                if (!startAfterStop) stopSelf()
+                return
+            }
+            BypassVpnController.starting()
+            postNotification()
+            if (!waitOrStop(delayMs)) return
+            startTunnel()
+        } finally {
+            restarting = false
+        }
+    }
+
     private fun restartTunnel(avoidLine: String? = null) {
         restarting = true
         try {
             stopTunnelInternal(publishStopped = false)
             if (stopRequested.get()) {
-                BypassVpnController.stopped()
-                stopSelf()
+                publishStopped()
+                if (!startAfterStop) stopSelf()
                 return
             }
             BypassVpnController.starting()
@@ -836,17 +1138,19 @@ class BypassVpnService : VpnService() {
         engineSession = null
         // A reconnect (Update) publishes "starting" itself right after, so it must not flash
         // "stopped" to the UI in between.
-        if (publishStopped && BypassVpnController.state.value.errorRes == null) BypassVpnController.stopped()
+        if (publishStopped && !startAfterStop && BypassVpnController.state.value.errorRes == null) publishStopped()
         AppLog.i("BypassVpnService", "YouTube-only bypass stopped")
     }
 
     private fun fail(@StringRes errorRes: Int) {
         AppLog.w("BypassVpnService", "Bypass start failed errorRes=$errorRes")
-        BypassVpnController.failed(errorRes)
+        BypassResume.setDesired(this, false)
+        if (isCurrent()) BypassVpnController.failed(errorRes)
         stopSelf()
     }
 
-    private fun startForegroundCompat(notification: Notification) {
+    /** Patch 60: false when the system refuses (a foreground service may not be started from the background on a recent Android). */
+    private fun startForegroundCompat(notification: Notification): Boolean = try {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             startForeground(
                 NOTIFICATION_ID,
@@ -856,6 +1160,10 @@ class BypassVpnService : VpnService() {
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }
+        true
+    } catch (e: Exception) {
+        AppLog.w("BypassVpnService", "startForeground refused: ${e.javaClass.simpleName}")
+        false
     }
 
     private fun buildNotification(
@@ -931,6 +1239,18 @@ class BypassVpnService : VpnService() {
 
     companion object {
         const val YOUTUBE_PACKAGE = "com.google.android.youtube"
+
+        /** Patch 60: counts the service instances; only the newest one may publish the shared UI state. */
+        private val generation = AtomicInteger(0)
+
+        /** Patch 60: how long a start that came in during a stop waits for the previous run to end. */
+        private const val DRAIN_TIMEOUT_S = 20L
+
+        /** Patch 60: the connection must have been back this long before a retry wait is cut short (a handover flickers). */
+        private const val CONNECTION_BACK_MIN_WAIT_MS = 2_000L
+
+        /** Patch 60: rebuilds of the tunnel because the monitor kept failing, allowed per ten minutes. */
+        private const val MONITOR_REBUILDS = 3
         private const val ACTION_START = "com.kinescope.app.ACTION_START_BYPASS_VPN"
         private const val ACTION_STOP = "com.kinescope.app.ACTION_STOP_BYPASS_VPN"
         private const val ACTION_UPDATE = "com.kinescope.app.ACTION_UPDATE_BYPASS_VPN"

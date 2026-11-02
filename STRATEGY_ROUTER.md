@@ -1,4 +1,4 @@
-# Strategy router (patches 53-59)
+# Strategy router (patches 53-60)
 
 How Kinescope decides which bypass strategy to use, on which kind of connection, and when to change it. This is the one
 place that describes the mechanism end to end; `HANDOFF.md` has the short version and the file map, `CHANGELOG.md` the
@@ -218,6 +218,24 @@ first; then the tunnel is stopped as unusable, as before.
 lines of the community list); mobile has none. They are first in `DpiStrategyStore.candidates`, first in a search of the class and first among never-tested strategies; among
 strategies rated 50 or more they count +10 when a chain (`StrategyRouter.scorer`) or the ranking (`StrategyRank.order`) is ordered. The displayed rating is not changed;
 a strategy rated below 50 gets no bonus. A priority is a prior: it is never written into a chain without a test, and a failed priority strategy sinks like any other.
+
+## 7b. Staying up (patch 60)
+
+The router decides WHICH strategy; this is what keeps a tunnel running at all (`TunnelLifecycle.kt`, `BypassVpnService.kt`, `DpiEngine.kt`). Every wait and retry here ends at once when a stop is asked for.
+
+| Situation | What happens | Limit |
+|---|---|---|
+| A start fails with `no route` (no connection) or `engine failed` | state stays "starting", the service stays up; retry after 5, 10, 20, 40, 60, 60 s; the wait ends early when the connection returns | 6 retries, about 3 min, then the error as before |
+| A start fails for any other reason (no strategy, app missing, VPN permission gone, an Error) | the error is shown and the service ends | no retry |
+| Every strategy of the chain was used up (`RotationLimits`) | the tunnel is taken down, the history cleared, it reconnects after 1, 2, 5 min (a strategy that carries real traffic resets the count) | 3 cool-downs, then stops as before |
+| One look of the monitor throws | logged (first and every tenth), the monitor goes on; 10 in a row rebuild the tunnel | 3 rebuilds per 10 min, then it gives up; the monitor re-arms itself if its thread ever ends while the tunnel is up |
+| A start arrives while a stop is being carried out | the instance is reused: the stop finishes, the start thread is drained, the start runs; if the stop was already decided, the request is sent again to the next instance | drain wait 20 s |
+| A start arrives while a tunnel is up or starting | judged from the instance's own facts (`TunnelLifecycle.onStartRequest`), not the shared UI state; nothing is started twice | |
+| An engine session nobody owns still holds the VPN engine gate | closed at the beginning of the next run (`DpiEngine.reclaimVpn`); the gate is waited for up to 3 s | |
+| Android kills the app while the user wants the bypass on | `START_STICKY`: the service is restarted and resumes (`BypassResume`) | 3 per hour; on Android 12+ the system may refuse a foreground start from the background (logged) |
+
+The "wanted" flag is set when the user switches the bypass on and cleared by every stop that is not Android killing the app. Threads of an older service instance never publish the shared UI state once a
+newer instance exists (`isCurrent`). The Home switch itself still ignores "on" while the state says active or starting (`MainActivity.startBypass`); the point of the above is that the state is then true.
 
 ## 8. Reachability (patch 54)
 

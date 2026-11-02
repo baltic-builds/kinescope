@@ -13,6 +13,53 @@ patch's own `.py` script for the exact, idempotent, exact-match-guarded
 edits it makes.
 
 
+## Patch 60 — a tunnel that stays up: self-healing start, monitor and resume
+
+Request (2026-11-02, patch 59 not applied yet, so this is built on top of it): the bypass "every once in a while just stops working, not reconnecting even when I toggle
+it on"; check the app for stability and make the connection more persistent and self-healing.
+
+### What the audit found (code reading only: no device log of a stuck run exists, nothing here is reproduced)
+- **The Home switch is dead whenever the shared state is stale.** `MainActivity.startBypass` returns at once when the controller says `active` or `starting`; so any state
+  that stays `active`/`starting` while nothing works makes "toggle it on" do nothing. Four ways in the code could leave it so:
+  1. `monitorTunnel` ended for good on the first exception that was not an `InterruptedException` (the executor swallows it): the tunnel stayed `active` with nothing watching
+     it, so a dead engine process, a dead bridge or a stalled strategy was never noticed.
+  2. `startTunnel` ran on a thread that caught `Exception` only; an `Error` (out of memory, a native library that did not load) ended the thread silently and left the state at
+     `starting` for ever.
+  3. A stop followed within about two seconds by a start (the switch off and on) delivered the start to the instance that was shutting down: the start was lost, the instance's
+     `stopSelf()` and `onDestroy` then wiped the state, and a late thread of the old instance could overwrite the new instance's state. An instance that did accept the start also kept
+     its one-shot stop flag, so a later stop did nothing.
+  4. A start request was judged from the shared state only; with that state stale, a second start could begin on a running tunnel and take down the working one.
+- **One failed start ended the service.** A start that failed only because the connection was away (`no route`) or the engine did not come up in time stopped everything; a tunnel
+  whose strategies were all used up was stopped for good. Nothing came back when the network did.
+- **An engine session could stay open for ever.** A stop that arrived between the end of the route choice and the hand-over left the session unclosed, and an unclosed session keeps the
+  one VPN engine gate taken until the app process dies: every later start then failed at once with "engine failed". The same for an exception in the health check.
+- **Nothing came back after Android killed the app** (`START_NOT_STICKY`), and `startForeground` was unguarded (a refusal on a recent Android would have crashed the service).
+
+### What changed
+- `TunnelLifecycle.kt` (new, pure, tested): `TunnelLifecycle.onStartRequest` (begin / already up / already starting / after the stop), `StartRetry` (5, 10, 20, 40, 60, 60 s;
+  cool-downs 1, 2, 5 min), `MonitorErrors` (rebuild after 10 failed ticks), `ResumePolicy` (3 resumes per hour) and `BypassResume` (the "user wants it on" flag, kept in preferences).
+- `BypassVpnService`: a start request is judged from the instance's own facts (`beginStart`); a start during a stop waits for the stop and reuses the instance (`finishStop`, the stop
+  thread and the start decide under one lock; a request that comes after the stop was decided is sent again to the next instance); late threads of an older instance no longer publish the
+  shared state (`isCurrent`). `startTunnel` retries transient failures with the state kept at `starting` and the service up (the wait ends when the connection is back, and at once on a
+  stop); `Error`s are caught. The monitor catches every exception per tick, rebuilds the tunnel after ten in a row, gives up after three rebuilds in ten minutes, and re-arms itself if its
+  thread ever ends while the tunnel is up. An exhausted tunnel (every strategy used up) now cools down and reconnects after 1, 2 and 5 minutes (a proven strategy resets the count) before
+  it stops as before. While the user wants the bypass on the service is `START_STICKY` and resumes after a kill, at most three times an hour; every stop that is not Android killing the app
+  clears the flag. `startForeground` is guarded. A session is owned from the moment the route choice returns it, and a failed health check closes its candidate.
+- `DpiEngine`: a start of the VPN engine waits up to 3 s for the gate (a session being closed holds it for up to two seconds), and a session still held when a new run begins belongs to
+  nobody and is closed (`reclaimVpn`).
+- Not changed: strategies, probes, the 7 s rule, rotation limits, the parser, extraction, the download path, the UI. A stop always wins over every retry and wait.
+
+### Reading of the brief
+"Persistent and self-healing" is bounded on purpose, so a dead network cannot make the app loop for ever: 6 start retries (about three minutes), 3 cool-down restarts (1, 2, 5 minutes),
+3 resumes after a kill per hour, 3 monitor rebuilds per ten minutes. After that it stops and says so, as before. The resume after a kill depends on Android: from Android 12 the system may refuse
+a foreground service started from the background; that is logged (`startForeground refused`) and the bypass then stays off until the user switches it on.
+
+### Regression coverage and verification
+`TunnelLifecycleTest`. The whole non-Compose source set (including `BypassVpnService` and `DpiEngine`) was compiled with kotlinc 2.1.0 against an API 35 `android.jar` with stubs for androidx,
+yt-dlp and the download classes, and the pure unit tests ran green. This is not a Gradle run and none of the race handling was run on a device; the user's
+`testDebugUnitTest lintDebug assembleDebug` and the gates in `ROADMAP.md` are the real checks. New log lines for the next stuck run: `start request <action>`, `start failed res= ... retry n`,
+`monitor tick failed (n in a row)`, `the monitor keeps failing`, `all recovery routes exhausted; reconnecting in`, `resuming after the app was killed`, `startForeground refused`.
+
 ## Patch 59 — the seven-second switch, Wi-Fi priority strategies, flower names
 
 Request (2026-11-01, applied on top of the user's own edits after patch 58, repomix as the source of truth): (1) automatic switching between strategies does not

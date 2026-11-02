@@ -42,6 +42,7 @@ class DpiEngineSession internal constructor(
         try {
             DpiEngine.release(context, connection, port)
         } finally {
+            DpiEngine.forget(this)
             gate.release()
         }
     }
@@ -58,6 +59,23 @@ object DpiEngine {
 
     private val regularGate = Semaphore(1, true)
     private val vpnGate = Semaphore(1, true)
+
+    /** Patch 60: how long a VPN engine start waits for the gate (a session being closed takes up to two seconds to let go of it). */
+    private const val VPN_GATE_WAIT_MS = 3_000L
+
+    // Patch 60: the session that holds the VPN engine gate. Only the tunnel service uses it and only one tunnel runs, so a session that is
+    // still held when a new run begins belongs to nobody (a stop raced the end of a route choice) and is closed by [reclaimVpn]; before,
+    // it kept the gate taken until the app process died and every later start failed at once.
+    private val vpnHolder = java.util.concurrent.atomic.AtomicReference<DpiEngineSession?>(null)
+
+    /** Closes a VPN engine session that nobody owns. Blocks like [DpiEngineSession.close]: call it from a background thread. */
+    fun reclaimVpn() {
+        vpnHolder.getAndSet(null)?.close()
+    }
+
+    internal fun forget(session: DpiEngineSession) {
+        vpnHolder.compareAndSet(session, null)
+    }
 
     /**
      * Regular short-lived engine used by strategy tests and Kinescope downloads. Patch 54: [ipv4Only] null means "as the
@@ -89,8 +107,9 @@ object DpiEngine {
         readyTimeoutMs,
         DpiVpnEngineService::class.java,
         vpnGate,
-        ipv4Only
-    )
+        ipv4Only,
+        VPN_GATE_WAIT_MS
+    )?.also { vpnHolder.set(it) }
 
     fun regularBusy(): Boolean = regularGate.availablePermits() == 0
 
@@ -100,9 +119,10 @@ object DpiEngine {
         readyTimeoutMs: Long,
         serviceClass: Class<out Service>,
         gate: Semaphore,
-        ipv4Only: Boolean?
+        ipv4Only: Boolean?,
+        gateWaitMs: Long = 0L
     ): DpiEngineSession? {
-        if (!gate.tryAcquire()) return null
+        if (!gate.tryAcquire(gateWaitMs, TimeUnit.MILLISECONDS)) return null
         var handedOff = false
         try {
             val appContext = context.applicationContext

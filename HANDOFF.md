@@ -4,7 +4,7 @@ The current state of Kinescope for anyone (human or AI agent) resuming work. It 
 appended to: per-patch history lives in `CHANGELOG.md`, open work in `ROADMAP.md`, process rules in `AGENTS.md`,
 product constraints in `CLAUDE.md`. Where this file and the code disagree, the code wins; fix this file.
 
-State as of patch 59 (2026-11-01). Patches 53-57 and the October 2026 v.3 fixes are described below and in `CHANGELOG.md`.
+State as of patch 60 (2026-11-02). Patches 53-57 and the October 2026 v.3 fixes are described below and in `CHANGELOG.md`.
 
 ## What Kinescope is
 
@@ -43,6 +43,9 @@ hosts (11 site names and 19 real video-server nodes) arrive in full through it (
 under a Private DNS host name. The exact checklist is `ROADMAP.md`.
 **Patch 58 (not yet confirmed on a device):** automatic off on Home reveals the current class's five best manual strategies; automatic off while the tunnel runs pins the actual active line;
 a failure-driven tunnel restart excludes the line that just failed even if every route is quarantined. The exact checklist is `ROADMAP.md`.
+**Patch 60 (not yet confirmed on a device):** the tunnel retries a start that failed only because the connection was away or the engine was slow (about three minutes), cools down and reconnects after
+every strategy was used up (1, 2, 5 minutes), cannot lose its monitor to one exception, handles a stop followed quickly by a start, no longer lets a leaked engine session block later starts, and resumes after Android
+kills the app while the user wants it on (`TunnelLifecycle.kt`; the mechanism is `STRATEGY_ROUTER.md` section 7b). Found by reading the code; no stuck run was captured, so the first stuck run's report decides what is next.
 **Patch 59 (not yet confirmed on a device):** the tunnel switches strategy about 7 s after the YouTube app starts waiting for an answer that does not come (`TunnelStall`, once-a-second bridge
 counters; the old 10 s windows and 30 s probe stay as the slow net); switches are limited per chain (`RotationLimits`); two strategies lead the Wi-Fi group by default (`StrategyPriority`); strategy names are flowers.
 The exact checklist is `ROADMAP.md`; the mechanism is `STRATEGY_ROUTER.md` section 7a.
@@ -247,6 +250,7 @@ Network bypass
 - `TunnelStartupPolicy.kt` -- checks verified route health before activation and only learns failed candidates after a successful fallback.
 - `TunnelRecovery.kt` -- pure transport recovery (`TransportRecovery`), failure-restart candidate exclusion (`TunnelRotation`, patch 58), the limits on strategy switches (`RotationLimits`, patch 59) and the router event Home shows (`RouterEvent`).
 - `BypassVpnService.kt` -- `BypassVpnController` and the YouTube-only `VpnService` (`:dpi_vpn`).
+- `TunnelLifecycle.kt` -- patch 60: the pure rules that keep the tunnel up (`TunnelLifecycle.onStartRequest`, `StartRetry`, `MonitorErrors`, `ResumePolicy`) and `BypassResume`, the "the user wants the bypass on" flag that survives a kill of the app process.
 - `TunnelStall.kt` -- patch 59: the seven-second rule, a pure judge of the YouTube app's traffic read once a second from the bridge counters (`TunnelStall.step`: an episode opens when the app sent and nothing came back, closes as working at 16 KB, is stalled at 7 s).
 - `TunnelFlow.kt` -- pure judge of the YouTube app's traffic through the tunnel (idle / flowing / one-way, from the bridge counters) and the snapshot the dashboard reads (`TunnelTraffic`: verdict and place in the chain; no speed since patch 55).
 - `app/src/main/java/hev/htproxy/TProxyService.java` -- JNI contract of the vendored `hev-socks5-tunnel`; `app/src/main/cpp/` -- ByeDPI sources, `dpi_jni.c`, `CMakeLists.txt`; `app/src/main/jniLibs/` -- the tunnel library with its license and provenance.
