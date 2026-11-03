@@ -101,6 +101,9 @@ internal data class SearchProgress(
 ) {
     /** Patch 55: how many of the strategies tried so far carry real traffic. */
     val working: Int get() = results.count { it.works }
+
+    /** Patch 62: how many of them are good ones (real traffic and a score of [SearchGoal.GOOD_SCORE] or more). */
+    val good: Int get() = results.count { it.works && it.score() >= SearchGoal.GOOD_SCORE }
 }
 
 /**
@@ -108,13 +111,23 @@ internal data class SearchProgress(
  * strategies carry real traffic and at least [perfect] of those do so at 100% (see [StrategyResult.perfect]); a list that runs
  * out first ends it with what it found. Pure, unit-tested in `SearchGoalTest`.
  */
-internal data class SearchGoal(val working: Int, val perfect: Int) {
+internal data class SearchGoal(val working: Int, val perfect: Int, val minScore: Int = 0) {
+    /** Patch 62: only strategies that carry real traffic AND score [minScore] or more count towards [working]. */
     fun reached(results: List<StrategyResult>): Boolean =
-        results.count { it.works } >= working && results.count { it.perfect } >= perfect
+        results.count { it.works && it.score() >= minScore } >= working && results.count { it.perfect } >= perfect
 
     companion object {
-        /** The goal of the first-run check, of the check of a connection after an install or an update, and of Settings -> Test. */
+        /** Patch 55's goal (5 working, 3 perfect). Since patch 62 no check uses it: [GOOD] replaced it. Kept for its tests. */
         val STANDARD = SearchGoal(working = 5, perfect = 3)
+
+        /** Patch 62: a strategy is "good" when it carries real traffic and scores at least this (see [StrategyResult.score]). */
+        const val GOOD_SCORE = 80
+
+        /**
+         * Patch 62: the goal of the Home check, of the first-run check and of the check after an install or an update: three good strategies.
+         * Settings -> Test strategies has no goal (a full scan, `DpiSearchService.MODE_FULL`).
+         */
+        val GOOD = SearchGoal(working = 3, perfect = 0, minScore = GOOD_SCORE)
 
         /** What a tunnel that is starting and has nothing that works waits for: just enough to start. */
         val QUICK = SearchGoal(working = 2, perfect = 0)

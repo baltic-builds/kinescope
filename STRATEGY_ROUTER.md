@@ -31,7 +31,7 @@ The router keeps a separate record per **connection class** and chooses, orders 
 | Pin | A strategy the user chose; it leads its class's chain. Per class. |
 | Seeded chain | A chain borrowed from the other class because this one has never been tested. Marked, and its time stays 0. |
 | Quarantine | Ten minutes at the back of the chain after a real failure. Per class. |
-| Goal (`SearchGoal`) | When a check has found enough: `STANDARD` = 5 working strategies, at least 3 of them perfect; `QUICK` = 2 working. |
+| Goal (`SearchGoal`) | When a check has found enough: `GOOD` (patch 62) = 3 working strategies that each score 80 or more; `QUICK` = 2 working; none = scan everything (Settings). `STANDARD` (patch 55: 5 working, 3 perfect) is retired. |
 | Working / perfect | Working (`StrategyResult.works`): every required host answered and a real transfer completed. Perfect (`perfect`, "100%"): every probed host, the transfer and every simultaneous connection completed. |
 | Ranking (`StrategyRank`) | ALL the strategies of a class in order: good evidence first, never tested next, did badly last with the newest failure at the very bottom. Derived, not stored. |
 | Frozen | Among the last 15 of the ranking, the ones that did badly and were tested less than 75 days ago: left alone until the 75 days pass. |
@@ -173,9 +173,9 @@ last) and stops when its goal is reached or the list runs out.
 
 | Check | When | Goal | Mode |
 |---|---|---|---|
-| First check of a fresh install | the first launch; mandatory, no Stop | `STANDARD` (5 working, 3 perfect) | `initial` |
-| Check of a class after an install or an update | the first launch (the class the phone is on) and the first time the phone is on the other class with the app open; once per app version and class (`ClassCheckPolicy`, `DpiPrefs.checkedVersion`); a check that did not finish waits 6 hours | `STANDARD` | `check` (quiet) |
-| Settings -> Test strategies | by hand | `STANDARD` | `manual` |
+| First check of a fresh install | the first launch; mandatory, no Stop | `GOOD` (3 working, score 80+) | `initial` |
+| Check of a class after an install or an update | the first launch (the class the phone is on) and the first time the phone is on the other class with the app open; once per app version and class (`ClassCheckPolicy`, `DpiPrefs.checkedVersion`); a check that did not finish waits 6 hours | `GOOD` | `check` (quiet) |
+| Home check button | by hand | `GOOD` | `manual` |\n| Settings -> Test strategies | by hand | none: every strategy of the list (patch 62) | `full` |
 | Test of one strategy | by hand | that strategy | `test` |
 | Start-up search | the tunnel is starting and every strategy of its chain was blocked | `QUICK` (2 working) | in `BypassVpnService` |
 | Random check | at most once in twelve hours, per class (`RandomCheckPolicy`): when the tunnel comes up (own thread), every ten minutes while the tunnel runs (it asks the calendar), and when the app is opened with no class check needed (`DpiSearchService.startRandom(force=false)`; patch 56) | two random strategies | `RandomCheck` |
@@ -237,6 +237,23 @@ The router decides WHICH strategy; this is what keeps a tunnel running at all (`
 The "wanted" flag is set when the user switches the bypass on and cleared by every stop that is not Android killing the app. Threads of an older service instance never publish the shared UI state once a
 newer instance exists (`isCurrent`). The Home switch itself still ignores "on" while the state says active or starting (`MainActivity.startBypass`); the point of the above is that the state is then true.
 
+## 7d. The long record and the cold start (patch 62)\n\nRatings fade and the last results are replaced; the ledger does not. `StrategyLedger` / `DpiLedgerStore` (preferences `kinescope_dpi_ledger`) keep per class and strategy, from the first launch of this build:\ntests and how many worked, the sum, best and last score, real successes (`REAL_OK`), real failures (`REAL_BAD`), weak failures (`SOFT_BAD`), the time the tunnel ran on it, the first and the latest day.\n`history` (0-100) = 70% `(successes + 1) / (successes + failures + 2)` (a weak failure counts 0.4) + 30% the mean test score (a failed test is 0).\n\n| Where the record is used | How |\n|---|---|\n| `StrategyRank.order` | strategies with equal ratings: the better record first; strategies never rated on the class: the better record first, then the list order |\n| `DpiBypass.searchOrder` | the chain without the strategies quarantined in the last ten minutes, then the ranked list, the quarantined ones last |\n| `DpiStrategyStore.ensureSeeded` | a class with no chain starts from `StrategyLedger.best` (a success, history 60+, still on offer), then from the other class's chain |\n| Logs -> Strategies (`StrategyReport`) | one line per class and strategy, best first, with the whole strategy at the end |\n\nChecks: the Home check, the first-run check and the check after an update stop at three good strategies (works and scores 80+); Settings -> Test strategies scans the whole list. The random check and the one-strategy test are as before.\n\n## 7c. The proven strategy leads (patch 61)
+
+A test says how a strategy did at one moment against a few hosts; the YouTube app's own traffic through the tunnel (`tun proven`, a finished download) says whether it carries what the user watches. So real proof is a leader
+in every place the chain is ordered, not one more term in a rating:
+
+| Where | Order |
+|---|---|
+| `DpiStrategyStore.chain` (what a tunnel start and the ladder read) | pin, then the proven strategy (`DpiPrefs.provenLine`, 14 days), then the stored order; strategies quarantined in the last ten minutes last |
+| `DpiPrefs.reorderByRating` (after a random check or a refresh) | pin, then the proven strategy unless quarantined, then by rating (with the Wi-Fi priority bonus) |
+| `ChainPlanner.merge` after a background search (`keepProven`) | unchanged: the proven strategy leads unless that search tested it and it failed |
+| `RandomCheckPolicy.pool` | never the active strategy, the frozen ones or the proven one: a synthetic failure cannot remove the strategy the app really uses |
+
+Evidence has two weights since patch 61. A failed probe, a one-way window, a dead transport and a failed download are `REAL_BAD` (1.0, counted double in the score). A stall (`TunnelStall`) and a failed one-host start-up check are
+`SOFT_BAD` (0.4): they may be a bad moment of the network. A stall on a strategy that already carried data in this run is ignored (`stall ignored: proved in this run`); the 30 s probe and the one-way windows remain for a strategy that
+really died. Why: the tunnel starts on the first strategy that passes a one-host check, so a leader chosen on stale tests could start the tunnel on a strategy the app cannot use, and every seven-second switch then cost the good
+strategies a double-weight failure.
+
 ## 8. Reachability (patch 54)
 
 A strategy only changes what is done to the TLS ClientHello after the TCP connection exists. A failure at the CONNECT stage with SOCKS reply
@@ -271,6 +288,7 @@ does not reach YouTube at all it says so (section 8).
 | Evidence at which real use weighs as much as the test | 3 units | `StrategyRating.REAL_EVIDENCE_HALF` |
 | A failure counts | double | `StrategyMemory.BAD_FACTOR` |
 | Quarantine | 10 minutes | `DpiPrefs.QUARANTINE_MS` |
+| A stall or a failed start-up check counts | 0.4 of a real failure | `StrategyOutcome.SOFT_BAD` |
 | "Recently carried a download" | 14 days (chain), 10 minutes (route) | `DpiPrefs.PROVEN_MAX_AGE_MS`, `RouteScoreboard` |
 | Class change must hold | 4 ticks of 500 ms = 2 s | `NetSwitch.STABLE_TICKS` |
 | Tunnel probe / flow window / first probe | 30 s / 10 s / 45 s | `BypassVpnService` |
@@ -278,7 +296,7 @@ does not reach YouTube at all it says so (section 8).
 | Stall rule | read every 1 s; 7 s; 8 packets / 3000 B sent; 16 KB back = working; ratio 3 | `TunnelStall` |
 | Priority bonus (Wi-Fi: 2 strategies) | +10 rating points when ordering, rated 50 or more only | `StrategyPriority.BONUS` |
 | Home manual choices | 5 best of the current class's canonical ranking | `StrategyRank.MANUAL_CHOICES` |
-| Check goal (first, class, manual) | 5 working, 3 perfect | `SearchGoal.STANDARD` |
+| Check goal (Home, first, class) | 3 working, each scoring 80 or more | `SearchGoal.GOOD`, `SearchGoal.GOOD_SCORE` |\n| Settings -> Test strategies | every strategy of the list | mode `full` |\n| Cold-start record | `StrategyLedger.history` 60 or more and a success | `StrategyLedger.MIN_HISTORY` |\n| Ledger size | 400 (class, strategy) pairs | `StrategyLedger.MAX_ENTRIES` |
 | Start-up search goal | 2 working | `SearchGoal.QUICK` |
 | Random check | 2 strategies, 12 h apart per class | `RandomCheckPolicy.PICKS`, `INTERVAL_MS` |
 | Frozen bottom | 15 strategies, 75 days | `StrategyRank.BOTTOM_COUNT`, `FREEZE_MS` |

@@ -1,6 +1,6 @@
 # Roadmap
 
-State after patch 60 (2026-11-02). This file tracks only what is still open: device verification gates,
+State after patch 62 (2026-11-03). This file tracks only what is still open: device verification gates,
 technical debt and what is out of scope. How each item was closed lives in `CHANGELOG.md`; the state a new
 session needs is in `HANDOFF.md`.
 
@@ -82,6 +82,10 @@ session needs is in `HANDOFF.md`.
   tunnel cools down and reconnects (1, 2, 5 minutes); the monitor can no longer die silently; a stop followed quickly by a start is no longer lost; a leaked engine session no longer blocks every
   later start; the service resumes after Android kills the app while the user wants the bypass on (`TunnelLifecycle.kt`). Found by reading the code, not reproduced; open gates below.
 
+- **Patch 62 (2026-11-03) changes what a check looks for and keeps a long record.** The Home check stops at three good strategies (score 80+); Settings -> Test strategies scans everything; every strategy's tests,\n  scores, real successes and failures and time in use are kept per device for good (`StrategyLedger`), start a class with no chain and order a search after trouble, and are shown in a new Strategies section of the\n  Logs screen for copying, so the best can be compiled into defaults from several devices. Not run on a device.\n- **Patch 61 (2026-11-03) puts the strategy that carried the app back in front.** Reported after patches 59-60: "the strategies stopped working". The code showed the chain being re-ordered by synthetic rating alone after every
+  random check, so the proven strategy sat last (`proven=s6`) while a stale-test leader started the tunnel. Now the pin and then the proven strategy lead; a stall and a failed start-up check are weak evidence;
+  the random check never tests the proven strategy; the bundled list is upstream's of 2026-10-30. Not reproduced, not confirmed on a device.
+
 ## Decisions that remain unchanged
 
 - `applicationId` / namespace: `com.kinescope.app`.
@@ -99,6 +103,14 @@ session needs is in `HANDOFF.md`.
 Patches 54 and 55 are applied together and share the first gate. Gates below that name things patch 54/55 or the October out-of-band change
 removed (the Home drop-down, stars, the speed line, the update notice, the 25-day upkeep, "Unblock YouTube") are superseded by the first two
 sections; tick or delete them against the new behaviour, not the old.
+
+### Three good strategies, a full test, the long record (patch 62)\n- [ ] `./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug` is green (the Compose edits of `LogsScreen.kt` and `BypassDashboard.kt` were not compiled when the patch was written).\n- [ ] Home check (the check button, or a fresh install): the strip reads "Checked N ways - X of 3 good ones found" and the check ends as soon as three `pass` lines with `sc=80` or more are in the log; the log's `srch done n=` is far below the list size.\n- [ ] Settings -> Test strategies: the progress runs "Trying strategy N of M" through the whole list (M about 72), Home's strip (if open) reads "Full test", the check ends only at the end or at Stop.\n- [ ] Logs -> Strategies: after a check, a line per tested strategy appears (`test=` counts, `avg`, `best`, `first`/`seen` today); after using the bypass, `used=` grows for the strategy in use and `real=` shows its successes. Copy puts the whole report on the clipboard; Refresh rebuilds it.\n- [ ] Clear app data on a spare device or use a class with no chain: after a few days of use, switching to the other connection class starts from that class's best record (`seeded=1` in the report, `#s1` is a strategy with a good `rate` in Strategies).\n- [ ] After a failed start (every strategy blocked for a minute), the next check or the tunnel's short search does not begin with the strategies that just failed.\n- [ ] After weeks: collect the Strategies reports of the devices and choose defaults by `rate`, `test`, `real`, `used` (a ready input for `StrategyPriority`).\n\n### The strategy that carried the app leads (patch 61)
+- [ ] `./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug` is green.
+- [ ] On Wi-Fi, use the bypass until the log shows `tun proven net=wifi s=N/6`. Press the Home refresh button (or wait for a random check): `Copy report` then shows `proven=s1` (the proven strategy is first in `#s1`), not `proven=s6`.
+- [ ] Switch the bypass off and on: `vpn chk s=1/6` is the proven strategy and YouTube loads without a `stall` line.
+- [ ] A strategy that is blocked at the head of the chain (pin a known-bad one, then automatic on): a `stall ... rotate ... why=stall` happens, the proven strategy is then reached, and its rating in `#rate` does not collapse (`bad=` rises by 0.40 per stall, not 1.00).
+- [ ] While a video plays on a proven strategy, no `rotate` line; if a quiet connection waits, `stall ignored: proved in this run` appears instead.
+- [ ] If it still fails: copy the report taken right after the failed start. `chk` (the start-up check), `stall` and `tun proven` lines say whether the strategy that carried the app before still carries it.
 
 ### A tunnel that stays up (patch 60)
 - [ ] `./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug` is green.

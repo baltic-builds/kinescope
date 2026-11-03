@@ -75,9 +75,12 @@ internal object StrategyRouter {
         priority: Collection<String> = emptyList()
     ): List<String> = ChainPlanner.demote(chain, loser, scorer(ratings, priority))
 
-    /** The chain a class starts from: its own when it has one, else the other class's first [max] strategies. */
-    fun seed(own: List<String>, other: List<String>, max: Int): List<String> =
-        if (own.isNotEmpty()) own else other.take(max)
+    /**
+     * The chain a class starts from: its own when it has one, else [learned] (patch 62: the best of the class's own long record, best
+     * first) followed by the other class's strategies, the first [max] of them.
+     */
+    fun seed(own: List<String>, other: List<String>, max: Int, learned: List<String> = emptyList()): List<String> =
+        if (own.isNotEmpty()) own else (learned + other).distinct().take(max)
 }
 
 /**
@@ -117,13 +120,19 @@ internal object StrategyRank {
         candidates: List<String>,
         ratings: Map<String, Int>,
         tested: Map<String, StoredResult>,
-        priority: List<String> = emptyList()
+        priority: List<String> = emptyList(),
+        // Patch 62: the long record of the class (`StrategyLedger.history`, 0-100): it breaks ties between equal ratings and orders the
+        // strategies this class has never rated. Empty = the order of patch 55.
+        history: Map<String, Int> = emptyMap()
     ): List<String> {
         val all = candidates.distinct()
         val good = all.filter { (ratings[it] ?: -1) >= StrategyRating.ELIGIBLE }
-            .sortedByDescending { ratings.getValue(it) + StrategyPriority.bonus(it, ratings[it], priority) }
+            .sortedWith(
+                compareByDescending<String> { ratings.getValue(it) + StrategyPriority.bonus(it, ratings[it], priority) }
+                    .thenByDescending { history[it] ?: 0 }
+            )
         val untestedAll = all.filter { it !in ratings }
-        val untested = priority.filter { it in untestedAll } + untestedAll.filter { it !in priority }
+        val untested = priority.filter { it in untestedAll } + untestedAll.filter { it !in priority }.sortedByDescending { history[it] ?: -1 }
         val poor = all.filter { bad(it, ratings) }.sortedBy { tested[it]?.at ?: 0L }
         return good + untested + poor
     }
@@ -172,8 +181,9 @@ internal object RandomCheckPolicy {
      * What may be picked: every strategy on offer except the frozen ones and the one carrying the tunnel (real traffic is
      * already testing that one).
      */
-    fun pool(candidates: List<String>, frozen: Set<String>, active: String?): List<String> =
-        candidates.distinct().filter { it !in frozen && it != active }
+    fun pool(candidates: List<String>, frozen: Set<String>, active: String?, keep: String? = null): List<String> =
+        // Patch 61: [keep] (the strategy that last carried real traffic) is not tested either: a synthetic failure must never take it out.
+        candidates.distinct().filter { it !in frozen && it != active && it != keep }
 
     fun pick(pool: List<String>, count: Int, random: kotlin.random.Random): List<String> = pool.shuffled(random).take(count)
 

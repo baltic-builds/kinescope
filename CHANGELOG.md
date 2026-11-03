@@ -13,6 +13,79 @@ patch's own `.py` script for the exact, idempotent, exact-match-guarded
 edits it makes.
 
 
+## Patch 62 -- three good strategies, a full test in Settings, a long strategy record and a Strategies report
+
+Request (2026-11-03, asked while patches 61 and 62 were still to be applied): (1) a check from the main screen runs only until it has found 3 good strategies, good meaning a score above 80;
+the test in Settings completes a full scan of all strategies; (2) the app should learn better: keep the test results on the device and, on a cold start and whenever something went wrong,
+start with the best strategies in order; (3) log every successful strategy on every device so that after weeks the reports can be compiled into defaults, with a section in the Logs screen that
+gives a ready-to-copy report of all strategies used: time of use, score and success rate. Not run on a device; the Compose changes (`LogsScreen.kt`, `BypassDashboard.kt`) were not compiled here.
+
+### What changed
+- **Check goals.** `SearchGoal` gains `minScore`; `SearchGoal.GOOD` = 3 working strategies that each score `GOOD_SCORE` (80) or more. It is the goal of the Home check, of the first-run check and of the check after an
+  install or an update. A score of exactly 80 counts as good (the request said "above 80"; scores are whole numbers, so this is the one place a stricter reading would differ). `SearchGoal.STANDARD` (patch 55) is no longer used by any
+  check and stays for its tests. **Settings -> Test strategies is a new mode, `full`** (`DpiSearchService.startFull`): no goal, every strategy of the list is tested; Home's strip then reads "Full test - tried N of M". This
+  replaces patch 55's rule "a check never scans the whole list" for that one button (`CLAUDE.md` is updated). The refresh button of Home (a few ways picked at random), the two-a-day random check, the single-strategy test and
+  the short search of a tunnel that is starting (`QUICK`, 2 working) are unchanged.
+- **The long record.** `StrategyLedger` (pure) and `DpiLedgerStore` (preferences `kinescope_dpi_ledger`) keep, per connection class and strategy and without fading: tests and how many worked, the sum, best and last score, real successes and failures,
+  weak failures (stalls, patch 61), the time the tunnel ran on it, the first and the latest day. Fed by `DpiBypass.recordSearch` (every search, random check and strategy test), `DpiPrefs.recordOutcome` (real use) and
+  `BypassVpnService.recordTunnelUse` (once per run, on stop, rotation, restart or destroy). 400 entries at most (the weakest are forgotten first); a failure to write is logged and swallowed.
+- **Cold start and trouble.** `StrategyLedger.history` (0-100: 70% success share with a little doubt, 30% mean test score) orders strategies that rate equally and the ones this class has never rated (`StrategyRank.order(history)`);
+  `DpiBypass.searchOrder` (what a check, a random check's fallback and the tunnel's short search walk) now starts with the chain minus the strategies that failed in the last ten minutes, then the ranked list, the failed ones last;
+  `DpiStrategyStore.ensureSeeded` seeds a class with no chain from its own best record (`StrategyLedger.best`: at least one success, history 60 or more, still on offer) and then from the other class's chain.
+- **Strategies report.** A second section of the Logs screen (tabs Log / Strategies): Copy and Refresh and one line per strategy and class, best first: `net rate test=worked/tests real=ok/failed stall avg best last used first seen s=<whole strategy>`,
+  under a header (build, Android, device, locale, time), a legend and a summary. No URLs, accounts or network names. The `s=` text is the whole strategy so reports from several devices can be merged by it.
+
+### Not changed
+The parser, the engine, the tunnel, the 7 s rule, the rotation limits, the ratings' formula, the Wi-Fi priority, the random check's five picks, extraction, downloads.
+
+### Things to know
+- On a network where fewer than three strategies score 80 or more, a Home check walks the whole list and ends with what it found (as a check always did when its goal was out of reach). The report of 2026-11-02 had one strategy at 100 and the next at 77.
+- The ledger starts empty on every device: it only records from this build on. Strategies the app tested earlier are not in it.
+- Defaults: when enough reports are in, choose by `rate`, `test`, `real` and `used` across devices and add the lines to `StrategyPriority` (or the bundled list).
+
+### Regression coverage
+`StrategyLedgerTest` (accumulation, classes, usage time, text round trip, history, the best of a class, the 400 cap, the report), `CheckGoalsTest` (the good goal, a search that stops at the third good strategy, the progress count,
+the ranking with history, the seed). Pure logic compiled with kotlinc 2.1.0 and run with JUnit 4 together with the existing router tests; not a Gradle run. Gates in `ROADMAP.md` (patch 62).
+
+## Patch 61 -- the strategy that carried the app leads again; a stall is weak evidence
+
+Request (2026-11-03, after patches 59 and 60 applied together): "after your two patches the strategies stopped working; the router works, the strategies do not"
+(report: app 0.13.2, Wi-Fi, chain of six, `proven=s6`, `bypass=on`; the tunnel was switched on and off again within seven seconds of opening YouTube).
+Audit of the whole bypass path against the report and against ByeByeDPI at 7b7eecf (2026-10-30). Everything below is from reading the code and the report; nothing was run on a device.
+
+### What the audit found
+- **The engine, parser and tunnel are the same as ByeByeDPI's.** Same engine commit (`ba532298`), same argument shape (loopback address and port first, the strategy after), UDP-over-SOCKS (`udp: 'udp'`),
+  IPv4-only TUN, `1.1.1.1` DNS unless a Private DNS name is set, `setMetered(false)`; the only configuration difference is the TUN MTU (1500 here, hev's internal 8500 there), which the
+  patch-57 build already ran with. No fault was found in the launch path, so none was changed.
+- **Bug 1 (the one the report shows): the proven strategy was buried by every check.** `RandomCheck.run` stores a search with `keepProven = true` (the proven strategy leads) and
+  then calls `DpiPrefs.reorderByRating`, which sorted the whole chain by rating alone. The rating is dominated by the last synthetic test (a failed test counts 0, a stale pass keeps most of its
+  score), real use only counts a quarter after one proof (`REAL_EVIDENCE_HALF`). So the strategy that carried the YouTube app (`proven=s6`) went to the end, and the tunnel started on `s1` (`rt=78 test=100`, a
+  test about 12 days old), which passes the one-host start-up check (`vpn chk s=1/6 ok=true ms=443`) and need not carry the app. That re-ordering ran at every random check: at the tunnel start, every
+  ten minutes while it runs, at app opening, on the Home refresh button.
+- **Bug 2: the random check could remove it.** It could pick the proven strategy for a synthetic test; a failed probe took it out of the chain (`removeFromChain`).
+- **Bug 3 (what made it worse after patch 59): a weak signal was recorded as a real failure.** Patch 59's seven-second rule rotates through `rotateStrategy`, which quarantined the line with a full
+  REAL_BAD (a failure counts double in the score). The tunnel start did the same for every strategy that failed the one-host check before a later one passed. A good strategy that stalled once lost its standing.
+- **Bug 4: a stall on a strategy that had already carried data in this run rotated away from it.**
+- **Also found, not a regression:** upstream changed its list on 2026-10-30 (`-As`, `-Ar`, `-At`, `-An` became `-At,r,s,c`); the bundled snapshot of a fresh install still had the old triggers (a downloaded list
+  already has the new ones: `#s2` of the report).
+
+### What changed
+- `ChainPlanner.order` gains `proven`: pin first, then the strategy that last carried real traffic (14 days, `DpiPrefs.provenLine`), then the rest; quarantined ones still go last. `ChainPlanner.reorder` and `withLeaders`
+  do the same for a re-order by rating. `DpiStrategyStore.chain` (the tunnel's start) and `DpiPrefs.reorderByRating` use them.
+- The random check never picks the proven strategy (`RandomCheckPolicy.pool(..., keep)`), so a synthetic failure can no longer remove it.
+- `StrategyOutcome.SOFT_BAD` (weight 0.4): a stall and a failed start-up check. A failed probe, a one-way window, a dead transport and a failed download stay REAL_BAD. `DpiPrefs.quarantine(..., outcome)`.
+- `BypassVpnService.checkTunnelStall`: a stall on a strategy that proved itself in this run is ignored (`stall ignored: proved in this run`); the probe and the one-way windows still catch a strategy that really died.
+- The bundled list is the upstream list of 2026-10-30 (60 lines; the 72 total, the two Wi-Fi priority lines and the parser's acceptance are unchanged, a test pins the new triggers).
+- Not changed: the parser allowlist, the engine, the JNI glue, the tunnel configuration, the 7 s rule itself, the rotation limits, the ratings' formula, extraction, the UI.
+
+### Reading of the brief
+"None of the strategies work" is read as: the tunnel comes up on a strategy that does not carry the app, while the strategy that did is at the back of the chain. If the strategy that carried the app before no
+longer does (the network changed), this patch cannot help, and the report will show it: `tun proven` never appears for it and `stall ... rotate` follows each start.
+
+### Regression coverage and verification
+`ProvenLeadTest` (the report's chain in miniature, a pin, a quarantine, the random pool, the weight of a soft failure), `DpiBundledStrategiesTest`. The pure logic and its tests were compiled with kotlinc 2.1.0 and run with JUnit 4;
+this is not a Gradle run and none of it ran on a device. Gates in `ROADMAP.md` (patch 61). New log line: `stall ignored: proved in this run wait=Ns`.
+
 ## Patch 60 — a tunnel that stays up: self-healing start, monitor and resume
 
 Request (2026-11-02, patch 59 not applied yet, so this is built on top of it): the bypass "every once in a while just stops working, not reconnecting even when I toggle

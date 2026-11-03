@@ -95,7 +95,8 @@ fun BypassSettingsSection(requestNotifications: () -> Unit = {}) {
     val startSearch: () -> Unit = {
         message = null
         requestNotifications()
-        DpiSearchService.start(context)
+        // Patch 62: Settings tests every strategy of the list; the check of Home stops at three good ones.
+        DpiSearchService.startFull(context)
     }
 
     // Patch 36: automatic first-run/update searches are owned by MainActivity. Settings only

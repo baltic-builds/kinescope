@@ -30,7 +30,9 @@ internal data class DpiSearchUiState(
     /** Patch 56: a random check (the refresh button, the twice-a-day check): a few ways picked at random, quiet like [background]. */
     val random: Boolean = false,
     /** Patch 56: what the last random check found; set when it ends, shown on the dashboard until the next search starts. */
-    val randomResult: RandomReport? = null
+    val randomResult: RandomReport? = null,
+    /** Patch 62: the full scan of Settings: every strategy is tested, there is no goal to reach. */
+    val full: Boolean = false
 )
 
 /**
@@ -43,8 +45,8 @@ internal object DpiSearchController {
     private val mutableState = MutableStateFlow(DpiSearchUiState())
     val state = mutableState.asStateFlow()
 
-    internal fun starting(background: Boolean = false, mandatory: Boolean = false, random: Boolean = false) {
-        mutableState.value = DpiSearchUiState(running = true, background = background, mandatory = mandatory, random = random)
+    internal fun starting(background: Boolean = false, mandatory: Boolean = false, random: Boolean = false, full: Boolean = false) {
+        mutableState.value = DpiSearchUiState(running = true, background = background, mandatory = mandatory, random = random, full = full)
     }
 
     /** Patch 56: a start that found nothing to do (a check that was not due after all) leaves no message behind. */
@@ -115,7 +117,8 @@ class DpiSearchService : Service() {
                     DpiSearchController.starting(
                         background = mode == MODE_CHECK,
                         mandatory = mandatoryRun,
-                        random = mode == MODE_RANDOM
+                        random = mode == MODE_RANDOM,
+                        full = mode == MODE_FULL
                     )
                     // Patch 47: when the system refuses the foreground start (Android 12+ restricts it), nothing would
                     // ever end the "running" state: Home would show a re-check forever, downloads would wait for a
@@ -138,7 +141,8 @@ class DpiSearchService : Service() {
     /**
      * Patch 35: one strategy search. [mode] is manual, initial (the first check of a fresh install), check (patch 55: the quiet
      * check of one connection after an install or an update; patch 46's 25-day upkeep is gone) or test (one strategy, [only]).
-     * Patch 55: a search stops at [SearchGoal.STANDARD] (five working strategies, three of them perfect) instead of scanning the list.
+     * Patch 55: a search stops at its goal instead of scanning the list. Patch 62: the goal is [SearchGoal.GOOD] (three good strategies); the
+     * full mode of Settings -> Test strategies has none and tests every strategy of the list.
      */
     private fun runSearch(mode: String, only: List<String>?) {
         val context = applicationContext
@@ -165,8 +169,9 @@ class DpiSearchService : Service() {
             val results = DpiBypass.search(
                 context,
                 cls,
-                // Patch 55: a check ends when it has found five working strategies, three of them perfect (a strategy test: its one line).
-                goal = if (testOnly) null else SearchGoal.STANDARD,
+                // Patch 62: a check ends when it has found three good strategies (real traffic, a score of 80 or more). The full scan of
+                // Settings and a strategy test (its one line) have no goal: they test everything they were given.
+                goal = if (testOnly || mode == MODE_FULL) null else SearchGoal.GOOD,
                 only = only,
                 isCancelled = { stopRequested.get() },
                 waitIfPaused = { awaitDownloadsIdle() },
@@ -336,8 +341,13 @@ class DpiSearchService : Service() {
         private const val MODE_TEST = "test"
         private const val MODE_INITIAL = "initial"
         private const val MODE_RANDOM = "random"
+        private const val MODE_FULL = "full"
 
+        /** The check of Home: it ends at three good strategies ([SearchGoal.GOOD]). */
         fun start(context: Context) = dispatch(context, MODE_MANUAL, null)
+
+        /** Patch 62: Settings -> Test strategies: every strategy of the list is tested, nothing stops it early but the Stop button. */
+        fun startFull(context: Context) = dispatch(context, MODE_FULL, null)
 
         /** Patch 51: the mandatory first-run check of a fresh install; it cannot be stopped. */
         fun startInitial(context: Context) = dispatch(context, MODE_INITIAL, null)
@@ -470,7 +480,10 @@ internal object RandomCheck {
         val ratings = DpiPrefs.ratings(app, cls, now)
         val order = StrategyRank.order(DpiStrategyStore.candidates(app), ratings, stored, StrategyPriority.forClass(cls))
         val frozen = StrategyRank.frozen(order, ratings, stored, now)
-        val picks = RandomCheckPolicy.pick(RandomCheckPolicy.pool(order, frozen, active), count, random)
+        // Patch 61: the strategy that last carried real traffic is never picked: a synthetic probe it fails (the app does not care about
+        // it) used to take it out of the chain, and the chain was then re-ordered by ratings alone.
+        val proven = DpiPrefs.provenLine(app, cls, now)
+        val picks = RandomCheckPolicy.pick(RandomCheckPolicy.pool(order, frozen, active, proven), count, random)
         if (picks.isEmpty()) return RandomReport(NOTHING, 0, 0, 0, 0, now)
         DpiPrefs.setRandomCheckAt(app, cls, now)
         val startedAt = System.nanoTime()
@@ -503,7 +516,7 @@ internal object RandomCheck {
         // that reached the hosts but moved no data does not work: it neither joins nor stays.
         val candidatesForChain = results.filter { it.works || !it.fullPass }
         if (usable.any { it.works }) DpiBypass.applySearchResults(app, cls, candidatesForChain, keepProven = true, partial = true)
-        val broken = usable.filter { !it.works }.map { it.line }
+        val broken = usable.filter { !it.works }.map { it.line }.filter { it != proven }
         DpiPrefs.removeFromChain(app, cls, broken)
         DpiPrefs.reorderByRating(app, cls)
         val chainAfter = DpiStrategyStore.verifiedChain(app, cls)

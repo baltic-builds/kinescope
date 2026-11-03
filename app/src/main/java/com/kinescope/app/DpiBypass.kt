@@ -128,6 +128,8 @@ object DpiBypass {
             AppLog.w("DpiBypass", "search net=${cls.key} dropped=${results.size - usable.size} (the engine could not reach the host)")
         }
         DpiResultsStore.save(context, cls, usable)
+        // Patch 62: and the long record: every strategy that really started counts as one test, for good.
+        DpiLedgerStore.recordTests(context, cls, usable)
         return true
     }
 
@@ -301,9 +303,16 @@ object DpiBypass {
             DpiStrategyStore.candidates(context),
             DpiPrefs.ratings(context, cls, now),
             DpiResultsStore.load(context, cls),
-            StrategyPriority.forClass(cls)
+            StrategyPriority.forClass(cls),
+            // Patch 62: ties and the never-tested ones are ordered by the long record of this class.
+            DpiLedgerStore.historyScores(context, cls)
         )
-        return (DpiStrategyStore.verifiedChain(context, cls) + order).distinct()
+        // Patch 62: a search that starts because something went wrong must not begin with what has just failed: the strategies quarantined
+        // in the last ten minutes go to the end (they are still tried if nothing else gives enough).
+        val failed = DpiPrefs.quarantined(context, cls)
+        val chain = DpiStrategyStore.verifiedChain(context, cls)
+        return (chain.filter { it !in failed } + order.filter { it !in failed } + chain.filter { it in failed } + order.filter { it in failed })
+            .distinct()
     }
 
     /**

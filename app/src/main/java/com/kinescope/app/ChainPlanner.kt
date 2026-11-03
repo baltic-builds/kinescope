@@ -17,9 +17,12 @@ internal object ChainPlanner {
     /** Patch 47: how many strategies the stored chain holds -- the primary and five fallbacks. The one definition of it. */
     const val MAX_CHAIN = 6
 
-    fun order(stored: List<String>, pinned: String?, quarantined: Set<String>): List<String> {
+    fun order(stored: List<String>, pinned: String?, quarantined: Set<String>, proven: String? = null): List<String> {
         val base = buildList {
             if (pinned != null) add(pinned)
+            // Patch 61: the strategy that last carried real traffic comes right after the pin. Ratings are dominated by synthetic tests, and a
+            // test that passes says little about the YouTube app; one that really carried the app is the best evidence there is.
+            if (proven != null && proven in stored) add(proven)
             addAll(stored)
         }.distinct()
         if (quarantined.isEmpty() || base.all { it in quarantined }) return base
@@ -62,6 +65,23 @@ internal object ChainPlanner {
             addAll(fill.filter { it !in failed })
         }.distinct().take(max)
     }
+
+    /** Patch 61: [leaders] (nulls and strategies that are not in [chain] ignored) in front, the rest of [chain] behind them in its order. */
+    fun withLeaders(chain: List<String>, leaders: List<String?>): List<String> =
+        (leaders.filterNotNull().filter { it in chain } + chain).distinct()
+
+    /**
+     * Patch 61: [chain] put in the order of [score], with the pin first and then the strategy that last carried real traffic
+     * ([proven], unless it is in [quarantined]). Before, the order was the score alone, so the strategy that carried the YouTube
+     * app sank behind strategies that only passed a synthetic test, every time a check re-ordered the chain.
+     */
+    fun reorder(
+        chain: List<String>,
+        score: (String) -> Double,
+        pinned: String?,
+        proven: String?,
+        quarantined: Set<String>
+    ): List<String> = withLeaders(byScore(chain, score), listOf(pinned, proven?.takeIf { it !in quarantined }))
 
     /** Patch 46: [lines] best score first. The sort is stable, so lines with equal scores keep their given order. */
     fun byScore(lines: List<String>, score: (String) -> Double): List<String> =

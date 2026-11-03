@@ -191,6 +191,13 @@
     <!-- Patch 34 -->
     <string name="copy_report">Copy report</string>
     <string name="report_copied">Report copied</string>
+    <!-- Patch 62: the Strategies section of the Logs screen and the full test. -->
+    <string name="logs_tab_log">Log</string>
+    <string name="logs_tab_strategies">Strategies</string>
+    <string name="copy_strategy_report">Copy strategy results</string>
+    <string name="strategy_report_copied">Strategy results copied</string>
+    <string name="strategy_report_hint">Every strategy this device has tested or used, with its success rate, scores and time in use. Copy it and send it to compare devices.</string>
+    <string name="dash_full_progress">Full test · tried %1$d of %2$d · %3$d good</string>
     <string name="error_verification_vpn">YouTube is asking to confirm you’re not a robot, which often happens over a VPN. Turn the VPN off, use the built-in bypass, and try again.</string>
     <!-- Patch 35 -->
     <string name="progress_percent_speed">%1$.0f%% · %2$s</string>

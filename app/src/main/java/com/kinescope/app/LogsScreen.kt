@@ -57,6 +57,37 @@ private const val PAGE_SCROLL_FRACTION = 0.8f
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun LogsScreen() {
+    // Patch 62: two sections: the log (as before) and the results of every strategy this device has tested or used.
+    var showStrategies by remember { mutableStateOf(false) }
+    Column(modifier = Modifier.fillMaxSize()) {
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            FocusRing {
+                if (showStrategies) {
+                    OutlinedButton(onClick = { showStrategies = false }) { Text(stringResource(R.string.logs_tab_log)) }
+                } else {
+                    Button(onClick = { showStrategies = false }) { Text(stringResource(R.string.logs_tab_log)) }
+                }
+            }
+            FocusRing {
+                if (showStrategies) {
+                    Button(onClick = { showStrategies = true }) { Text(stringResource(R.string.logs_tab_strategies)) }
+                } else {
+                    OutlinedButton(onClick = { showStrategies = true }) { Text(stringResource(R.string.logs_tab_strategies)) }
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        if (showStrategies) StrategyResultsPanel() else LogLinesPanel()
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun LogLinesPanel() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
@@ -130,6 +161,67 @@ internal fun LogsScreen() {
             }
         }
     }
+}
+
+/**
+ * Patch 62: the Strategies section: every strategy this device has tested or used on each connection class, with its success rate, scores
+ * and time in use ([StrategyReport]), ready to copy and paste. Built from the ledger when the section opens and when Refresh is pressed.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun StrategyResultsPanel() {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val listState = rememberLazyListState()
+    var report by remember { mutableStateOf(StrategyReport.build(context)) }
+    val reportLines = report.trimEnd().lines()
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            FocusRing {
+                Button(onClick = { copyStrategyReport(context, report) }) { Text(stringResource(R.string.copy_strategy_report)) }
+            }
+            FocusRing {
+                OutlinedButton(onClick = { report = StrategyReport.build(context) }) { Text(stringResource(R.string.refresh)) }
+            }
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = stringResource(R.string.strategy_report_hint),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(modifier = Modifier.height(10.dp))
+        FocusRing(modifier = Modifier.fillMaxSize(), shape = MaterialTheme.shapes.small) {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .onKeyEvent { event -> scrollPageOnDpad(event, listState, scope) }
+                    .focusable()
+            ) {
+                items(reportLines) { line ->
+                    Text(
+                        text = line,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 3.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun copyStrategyReport(context: Context, report: String) {
+    val manager = context.getSystemService(ClipboardManager::class.java) ?: return
+    manager.setPrimaryClip(ClipData.newPlainText("Kinescope strategy results", report))
+    Toast.makeText(context, R.string.strategy_report_copied, Toast.LENGTH_SHORT).show()
 }
 
 /**

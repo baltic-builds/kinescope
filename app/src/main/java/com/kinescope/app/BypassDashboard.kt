@@ -291,6 +291,7 @@ internal fun BypassDashboard(
                         progress = search.progress,
                         background = search.background,
                         random = search.random,
+                        full = search.full,
                         stoppable = model.searchStoppable,
                         palette = palette,
                         onStop = { DpiSearchService.stop(context) }
@@ -419,6 +420,7 @@ private fun SearchStrip(
     progress: SearchProgress?,
     background: Boolean,
     random: Boolean,
+    full: Boolean,
     stoppable: Boolean,
     palette: DashPalette,
     onStop: () -> Unit
@@ -426,13 +428,17 @@ private fun SearchStrip(
     val total = progress?.total ?: 0
     val done = (progress?.index ?: 0).coerceIn(0, total)
     // Patch 55: a check ends when it has found enough, not when it has tried everything, so it reports what it found.
-    val goal = SearchGoal.STANDARD.working
-    val working = (progress?.working ?: 0).coerceAtMost(goal)
+    // Patch 62: and the good ones (real traffic, score 80 or more) are what it counts.
+    val goal = SearchGoal.GOOD.working
+    val working = (progress?.good ?: 0).coerceAtMost(goal)
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(
             text = if (random) {
                 // Patch 56: a random check reports how many of its few ways it has tried and how many of those work.
                 stringResource(R.string.dash_refresh_progress, done, total, progress?.working ?: 0)
+            } else if (full) {
+                // Patch 62: the full scan of Settings has no goal; it reports how far through the list it is.
+                stringResource(R.string.dash_full_progress, done, total, progress?.good ?: 0)
             } else {
                 stringResource(
                     if (background) R.string.dash_recheck else R.string.dash_check_progress,
@@ -453,7 +459,7 @@ private fun SearchStrip(
     }
     if (progress != null && total > 0) {
         LinearProgressIndicator(
-            progress = { maxOf(done.toFloat() / total, working.toFloat() / goal).coerceIn(0f, 1f) },
+            progress = { (if (full) done.toFloat() / total else maxOf(done.toFloat() / total, working.toFloat() / goal)).coerceIn(0f, 1f) },
             modifier = Modifier.fillMaxWidth(),
             color = MaterialTheme.colorScheme.primary,
             trackColor = MaterialTheme.colorScheme.surface

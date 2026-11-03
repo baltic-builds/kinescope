@@ -4,7 +4,7 @@ The current state of Kinescope for anyone (human or AI agent) resuming work. It 
 appended to: per-patch history lives in `CHANGELOG.md`, open work in `ROADMAP.md`, process rules in `AGENTS.md`,
 product constraints in `CLAUDE.md`. Where this file and the code disagree, the code wins; fix this file.
 
-State as of patch 60 (2026-11-02). Patches 53-57 and the October 2026 v.3 fixes are described below and in `CHANGELOG.md`.
+State as of patch 62 (2026-11-03). Patches 53-57 and the October 2026 v.3 fixes are described below and in `CHANGELOG.md`.
 
 ## What Kinescope is
 
@@ -49,6 +49,9 @@ kills the app while the user wants it on (`TunnelLifecycle.kt`; the mechanism is
 **Patch 59 (not yet confirmed on a device):** the tunnel switches strategy about 7 s after the YouTube app starts waiting for an answer that does not come (`TunnelStall`, once-a-second bridge
 counters; the old 10 s windows and 30 s probe stay as the slow net); switches are limited per chain (`RotationLimits`); two strategies lead the Wi-Fi group by default (`StrategyPriority`); strategy names are flowers.
 The exact checklist is `ROADMAP.md`; the mechanism is `STRATEGY_ROUTER.md` section 7a.
+**Patch 62 (not yet confirmed on a device):** a check of Home, the first-run check and the check after an update end at three good strategies (`SearchGoal.GOOD`: real traffic and a score of 80 or more); Settings -> Test strategies\nis a full scan (`DpiSearchService.startFull`, mode `full`, no goal); `StrategyLedger` / `DpiLedgerStore` keep a never-fading record per class and strategy (tests, scores, real successes and failures, stalls, time in use);\n`StrategyRank`, `DpiBypass.searchOrder` and `DpiStrategyStore.ensureSeeded` start from the best record; the Logs screen has a second section, Strategies (`StrategyReport`), with a Copy button. `STRATEGY_ROUTER.md` section 7d.\n**Patch 61 (not yet confirmed on a device):** the strategy that last carried the YouTube app's traffic (`DpiPrefs.provenLine`, 14 days) leads the chain after the pin, at the tunnel's start and after every re-order by rating
+(before, `RandomCheck` re-ordered by rating alone and buried it behind strategies with stale synthetic test scores); the random check never tests or removes it; a stall and a failed start-up check are `StrategyOutcome.SOFT_BAD`
+(0.4) and not a full failure; a stall on a strategy that proved itself in this run is ignored; the bundled list is upstream's of 2026-10-30. Found by reading the code and the report; `STRATEGY_ROUTER.md` section 7c.
 **CI:** the release workflow was red at patch 42 (`AdaptiveLayoutTest` still referenced the removed
 `WidthClass`). Patch 43 fixes it, pins the NDK/CMake, and restructures the workflow (validate, tests + lint,
 then the signed build; reports uploaded on failure). It counts as green only after the user reports a run.
@@ -136,7 +139,7 @@ not yet being 16 KB page-size compatible (upstream).
   refreshed once per app version by `AppUpdate.refreshStrategyListOncePerVersion`, called by `DpiSearchService` just before a check; and the
   strategies are checked ONE CONNECTION CLASS AT A TIME, each class once per app version (`ClassCheckPolicy`, `DpiPrefs.checkedVersion`): the
   class the phone is on at the first launch, the other the first time the phone is on it with the app open (`MainActivity` watches
-  `NetClassWatcher.state`). A check ends at `SearchGoal.STANDARD` (5 working strategies, at least 3 perfect) or when the list runs out. Only the
+  `NetClassWatcher.state`). A check ends at its goal or when the list runs out (patch 62: `SearchGoal.GOOD`, 3 strategies that work and score 80 or more; Settings -> Test strategies has no goal and tests the whole list). Only the
   very first check of a fresh install runs in `initial` mode: mandatory, no Stop anywhere, Home says "Please wait while we update the
   strategies."; after an update it runs in `check` mode, quietly, and a download that starts meanwhile uses what is stored. The 25-day upkeep
   of patch 46 and the "app updated" notice of patch 51 no longer exist; `MaintenanceSchedule` keeps only the yt-dlp calendar.
@@ -242,7 +245,7 @@ Network bypass
 - `DpiBypass.kt` -- glue used by downloads and Settings (active chain, health check, `reach` verdict, `searchOrder`, applying results).
 - `ChainPlanner.kt`, `BypassRoutes.kt`, `RouteScoreboard.kt` -- pure ordering rules for strategies and routes.
 - `NetClass.kt`, `NetClassWatcher.kt` -- the connection class (Wi-Fi / mobile data), the rule for when the tunnel follows a change, and the flow that follows the default network (patch 53).
-- `StrategyRating.kt`, `StrategyRouter.kt` -- the pure rating (last test + real use) and the router policy (the chain, `StrategyRank`, `RandomCheckPolicy`, `ClassCheckPolicy`); see `STRATEGY_ROUTER.md` (patches 53-55).
+- `StrategyLedger.kt`, `DpiLedgerStore.kt`, `StrategyReport.kt` -- the long strategy record (pure rules and their tests in `StrategyLedgerTest`; the preferences file `kinescope_dpi_ledger`) and the text of the Strategies section of the Logs screen (patch 62).\n- `StrategyRating.kt`, `StrategyRouter.kt` -- the pure rating (last test + real use) and the router policy (the chain, `StrategyRank`, `RandomCheckPolicy`, `ClassCheckPolicy`); see `STRATEGY_ROUTER.md` (patches 53-55).
 - `StrategyMemory.kt` -- pure record of which strategies really carried traffic (real outcomes only since patch 53; fading score, text form); `MaintenanceSchedule.kt` -- pure calendar of the yt-dlp update (25 days) and the day length the other calendars count in.
 - `NetworkCheck.kt`, `NetworkState.kt` -- layered reachability probe through the engine; third-party VPN detection; the connection class (patch 53).
 - `ProbeSites.kt`, `HttpBodyJudge.kt` -- patch 57: the real hosts a strategy is judged against (`SITE_HOSTS`, `VIDEO_EDGE_HOSTS`: hostnames only) and the pure rule that says a response arrived IN FULL (fixed length, chunked or read to the end; a body cut short is `TRUNCATED`); used by `NetworkCheck.coverageViaBypass`.
@@ -384,6 +387,8 @@ parser/search/ranking/store, the network probe, the privacy redaction, the windo
   two scripts, but `ndkVersion` was unset, so AGP's default was what actually built the native code until patch 43.
 - `pipefail` plus `yes |` raises SIGPIPE in setup scripts; dot-directories are skipped by some transfer tools
   (`git add -A` from a terminal keeps them).
+- **An order written by one rule must not be rewritten by another (patch 61).** The chain was led by the strategy that carried real traffic, then re-ordered by rating alone a moment later, so the lead never lasted. When two
+  rules order the same list, the stronger evidence (real traffic) is a leader in BOTH, and a pure function that both call is tested with the report's own numbers.
 - **Compare with a working reference before guessing (patch 57).** The user's phone runs ByeByeDPI perfectly; reading its code and its pinned dependencies (the engine commit, the list, the tunnel library) first showed what was already
   identical, so the patch changed only what differed. A "works on my phone" reference is evidence a guess is not: clone it (`git clone --no-recurse-submodules`, then `git ls-tree` shows the pinned commits), do not rely on a zip alone (submodule folders are empty in it).
 

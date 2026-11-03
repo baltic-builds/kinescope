@@ -63,6 +63,15 @@ class DpiBundledStrategiesTest {
     }
 
     @Test
+    fun theSnapshotUsesTheCurrentAutoTriggers() {
+        // Patch 61: upstream 7b7eecf (2026-10-30) replaced the single-flag triggers (-As, -Ar, -An, -At) by -At,r,s,c.
+        val bundled = DpiStrategyParser.parseList(asset.readText())
+        assertTrue(bundled.none { Regex("-A[a-z](\\s|$)").containsMatchIn(it) })
+        assertTrue(bundled.any { "-At,r,s,c" in it })
+        assertTrue(StrategyPriority.WIFI.all { it in bundled })
+    }
+
+    @Test
     fun theSnapshotHoldsNoPositionalFlagTheSourceFixed() {
         // Six flags were corrected upstream on 2026-10-14 (3e2a85b); none of the old spellings may come back.
         val bundled = DpiStrategyParser.parseList(asset.readText())

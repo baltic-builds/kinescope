@@ -10,7 +10,14 @@ internal enum class StrategyOutcome(val weight: Double, val good: Boolean) {
     REAL_OK(1.0, true),
 
     /** It failed in real use although another route then finished the same job. */
-    REAL_BAD(1.0, false)
+    REAL_BAD(1.0, false),
+
+    /**
+     * Patch 61: weak evidence against it: the YouTube app waited seven seconds with nothing back (`TunnelStall`), or it failed the
+     * one-host live check of a tunnel start before a later strategy passed. Either can be a bad moment of the network, so it
+     * weighs less than half of a real failure (and a failure counts double in the score, see [StrategyMemory]).
+     */
+    SOFT_BAD(0.4, false)
 }
 
 /**

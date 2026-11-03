@@ -221,9 +221,14 @@ object DpiPrefs {
         synchronized(writeLock) {
             val primary = prefs(context).getString(key(KEY_VERIFIED_STRATEGY, cls), null) ?: return
             val chain = (listOf(primary) + verifiedFallbacks(context, cls)).distinct()
-            val ordered = ChainPlanner.byScore(chain, StrategyRouter.scorer(ratings(context, cls, now), StrategyPriority.forClass(cls)))
-            val pin = pinned(context, cls)
-            val result = if (pin != null && pin in ordered) listOf(pin) + ordered.filter { it != pin } else ordered
+            // Patch 61: the pin and then the proven strategy keep the lead; only the rest follows the ratings.
+            val result = ChainPlanner.reorder(
+                chain,
+                StrategyRouter.scorer(ratings(context, cls, now), StrategyPriority.forClass(cls)),
+                pinned(context, cls),
+                provenLine(context, cls, now),
+                quarantined(context, cls)
+            )
             if (result != chain) writeChain(context, cls, result)
         }
     }
@@ -296,13 +301,20 @@ object DpiPrefs {
      * class's, and the stored chain is re-ordered at once ([StrategyRouter.afterFailure]), so the strategy is not back in
      * front when the ten minutes are over unless its rating still puts it there.
      */
-    internal fun quarantine(context: Context, cls: NetClass, line: String, forMs: Long = QUARANTINE_MS) {
+    internal fun quarantine(
+        context: Context,
+        cls: NetClass,
+        line: String,
+        forMs: Long = QUARANTINE_MS,
+        // Patch 61: a stall or a failed start-up check is [StrategyOutcome.SOFT_BAD]; the default stays a real failure.
+        outcome: StrategyOutcome = StrategyOutcome.REAL_BAD
+    ) {
         val now = System.currentTimeMillis()
         synchronized(writeLock) {
             val current = QuarantineList.parse(prefs(context).getString(key(KEY_QUARANTINE, cls), null), now)
             val next = QuarantineList.add(current, line, now + forMs)
             prefs(context).edit().putString(key(KEY_QUARANTINE, cls), QuarantineList.serialize(next)).apply()
-            recordOutcome(context, cls, line, StrategyOutcome.REAL_BAD, now)
+            recordOutcome(context, cls, line, outcome, now)
             val primary = prefs(context).getString(key(KEY_VERIFIED_STRATEGY, cls), null) ?: return
             val chain = (listOf(primary) + verifiedFallbacks(context, cls)).distinct()
             val ordered = StrategyRouter.afterFailure(chain, line, ratings(context, cls, now), StrategyPriority.forClass(cls))
@@ -360,6 +372,8 @@ object DpiPrefs {
             val memory = StrategyMemory.record(learned(context, cls), line, outcome, now)
             if (DpiStrategyParser.parse(line) is DpiStrategyParser.Parsed.Ok) {
                 prefs(context).edit().putString(key(KEY_LEARNED, cls), StrategyMemory.serialize(memory)).apply()
+                // Patch 62: the same outcome goes into the long record (never faded, per device) behind the Strategies report.
+                DpiLedgerStore.recordReal(context, cls, line, outcome, now)
             }
         }
     }
@@ -500,7 +514,8 @@ object DpiStrategyStore {
         if (stored.isEmpty()) {
             return if (pinned != null && DpiPrefs.isStrategyVerified(context, cls, pinned)) listOf(pinned) else emptyList()
         }
-        return ChainPlanner.order(stored, pinned, DpiPrefs.quarantined(context, cls))
+        // Patch 61: the strategy that last carried real traffic leads (after the pin), the quarantined ones come last.
+        return ChainPlanner.order(stored, pinned, DpiPrefs.quarantined(context, cls), DpiPrefs.provenLine(context, cls))
     }
 
     // Patch 47: read under the lock the writers take, so a promotion that is half written is never seen.
@@ -519,7 +534,9 @@ object DpiStrategyStore {
     internal fun ensureSeeded(context: Context, cls: NetClass) {
         DpiPrefs.consistently {
             if (verifiedChain(context, cls).isNotEmpty()) return@consistently
-            val seed = StrategyRouter.seed(emptyList(), verifiedChain(context, cls.other), ChainPlanner.MAX_CHAIN)
+            // Patch 62: a class that has no chain starts from the best of its own long record, then from the other class's chain.
+            val learned = DpiLedgerStore.best(context, cls, ChainPlanner.MAX_CHAIN, candidates(context).toSet())
+            val seed = StrategyRouter.seed(emptyList(), verifiedChain(context, cls.other), ChainPlanner.MAX_CHAIN, learned)
             if (seed.isEmpty()) return@consistently
             DpiPrefs.markStrategiesVerified(context, cls, seed.first(), seed.drop(1), seeded = true)
             AppLog.i("DpiStrategyStore", "seed net=${cls.key} from=${cls.other.key} n=${seed.size}")

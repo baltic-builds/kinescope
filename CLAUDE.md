@@ -147,7 +147,7 @@ future sessions don't lose them.)
   connection that reaches nothing says so; the tunnel runs a short search when its borrowed strategies are blocked. The IPv6 cause is a hypothesis
   until a device report confirms it. Result: `CHANGELOG.md`, "Patch 54"; `STRATEGY_ROUTER.md` section 8.
 - **Request (patch 55): small, per-connection checks, a two-a-day random check, a heartbeat instead of a speed, hints, a Google-style GUI.** Decisions:
-  (1) a check stops at 5 working strategies, 3 of them perfect (`SearchGoal.STANDARD`), never scans the whole list; (2) Wi-Fi and mobile data are
+  (1) a check stops at 5 working strategies, 3 of them perfect (`SearchGoal.STANDARD`), never scans the whole list (patch 62, owner's request: a check of Home, the first-run check and the check after an update stop at 3 strategies that work and score 80 or more, `SearchGoal.GOOD`; Settings -> Test strategies scans the whole list); (2) Wi-Fi and mobile data are
   two groups with their own ranking and checks, each checked once per app version (fresh install and update alike); yt-dlp and the community list refresh at
   the same moments; (3) the first time the bypass is switched on in each twelve hours, two random strategies of the connection class are tested, a failure
   sinks to the very bottom of the ranking and the 15 lowest wait 75 days; (4) the dashboard shows no speed, a heartbeat line instead (green pulse = the

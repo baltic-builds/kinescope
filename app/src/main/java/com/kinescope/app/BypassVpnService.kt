@@ -141,6 +141,9 @@ class BypassVpnService : VpnService() {
     @Volatile private var flowWindows = 0
     @Volatile private var tunnelStartedAt = 0L
 
+    // Patch 62: the start time of the run whose usage time the strategy ledger already has (a run is recorded once, whoever stops it).
+    @Volatile private var useRecordedFor = -1L
+
     // Patch 46: the strategy that already proved it carries real traffic in this tunnel run, so it is recorded once.
     @Volatile private var provedLine: String? = null
 
@@ -356,6 +359,7 @@ class BypassVpnService : VpnService() {
     override fun onDestroy() {
         stopRequested.set(true)
         val preserveError = BypassVpnController.state.value.errorRes != null
+        recordTunnelUse()
         runCatching { if (tunnelRunning || TProxyService.TProxyIsRunning()) TProxyService.TProxyStopService() }
         tunnelRunning = false
         runCatching { tunInterface?.close() }
@@ -624,7 +628,10 @@ class BypassVpnService : VpnService() {
                 )
                 if (TunnelStartupPolicy.accepts(health.ok, stopRequested.get())) {
                     // A confirmed working fallback is evidence that these routes failed on THIS network.
-                    TunnelStartupPolicy.failuresToLearn(failedLines, line).forEach { DpiPrefs.quarantine(this, cls, it) }
+                    // Patch 61: failing the one-host start-up check is weak evidence (SOFT_BAD), not a failure in real use.
+                    TunnelStartupPolicy.failuresToLearn(failedLines, line).forEach {
+                        DpiPrefs.quarantine(this, cls, it, outcome = StrategyOutcome.SOFT_BAD)
+                    }
                     return RouteChoice(candidate, line, chain, false)
                 }
                 candidate.close()
@@ -969,6 +976,12 @@ class BypassVpnService : VpnService() {
         stallState = step.state
         val report = step.report
         if (step.verdict != StallVerdict.STALLED || report == null) return
+        // Patch 61: a strategy that already carried real data in this run is not left because one quiet or blocked connection waited;
+        // the probe and the one-way windows still catch a strategy that really died.
+        if (provedLine == line) {
+            AppLog.i("BypassVpnService", "stall ignored: proved in this run wait=${report.ms / 1000L}s")
+            return
+        }
         if (NetworkState.snapshot(this).kind == "none") {
             AppLog.i("BypassVpnService", "stall ignored: no connection")
             return
@@ -1035,7 +1048,9 @@ class BypassVpnService : VpnService() {
             RotationDecision.GO -> Unit
         }
         rotations.addLast(now)
-        DpiPrefs.quarantine(this, cls, line)
+        // Patch 61: a stall (the app waited, nothing came back) is weak evidence; a failed probe, a one-way window or a dead transport is not.
+        val outcome = if (why == "stall") StrategyOutcome.SOFT_BAD else StrategyOutcome.REAL_BAD
+        DpiPrefs.quarantine(this, cls, line, outcome = outcome)
         AppLog.w("BypassVpnService", "rotate net=${cls.key} why=$why quarantined=1 alternatives=$alternatives")
         failStreak = 0
         BypassVpnController.publishEvent(kind)
@@ -1126,7 +1141,17 @@ class BypassVpnService : VpnService() {
         return file
     }
 
+    /** Patch 62: adds the time this run of the tunnel spent on its strategy to the strategy ledger, once per run. */
+    private fun recordTunnelUse() {
+        val line = currentLine ?: return
+        val started = tunnelStartedAt
+        if (!tunnelRunning || started <= 0L || useRecordedFor == started) return
+        useRecordedFor = started
+        DpiLedgerStore.recordUse(this, tunnelClass, line, SystemClock.elapsedRealtime() - started)
+    }
+
     private fun stopTunnelInternal(publishStopped: Boolean = true) {
+        recordTunnelUse()
         if (tunnelRunning && !stopRequested.get()) logTunnelTotals()
         if (tunnelRunning || runCatching { TProxyService.TProxyIsRunning() }.getOrDefault(false)) {
             runCatching { TProxyService.TProxyStopService() }

@@ -191,6 +191,13 @@
     <!-- Patch 34 -->
     <string name="copy_report">Скопировать отчёт</string>
     <string name="report_copied">Отчёт скопирован</string>
+    <!-- Patch 62: раздел «Стратегии» экрана журнала и полная проверка. -->
+    <string name="logs_tab_log">Журнал</string>
+    <string name="logs_tab_strategies">Стратегии</string>
+    <string name="copy_strategy_report">Скопировать результаты стратегий</string>
+    <string name="strategy_report_copied">Результаты стратегий скопированы</string>
+    <string name="strategy_report_hint">Все стратегии, которые это устройство проверяло или использовало: доля успехов, оценки и время работы. Скопируйте и отправьте, чтобы сравнить устройства.</string>
+    <string name="dash_full_progress">Полная проверка · проверено %1$d из %2$d · хороших: %3$d</string>
     <string name="error_verification_vpn">YouTube просит подтвердить, что вы не робот. Через VPN это случается часто. Отключите VPN, используйте встроенный обход и повторите попытку.</string>
     <!-- Patch 35 -->
     <string name="progress_percent_speed">%1$.0f%% · %2$s</string>
