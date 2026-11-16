@@ -1,5 +1,6 @@
 package com.kinescope.app
 
+import android.annotation.SuppressLint
 import android.content.Context
 
 /**
@@ -68,11 +69,14 @@ internal object DpiResultsStore {
     fun load(context: Context, cls: NetClass): Map<String, StoredResult> =
         parse(prefs(context).getString(KEY + cls.suffix, null))
 
+    @SuppressLint("ApplySharedPref")
     fun save(context: Context, cls: NetClass, results: List<StrategyResult>, at: Long = System.currentTimeMillis()) {
         val fresh = results.filter { it.started || it.total > 0 }.map { it.toStored(at) }
         if (fresh.isEmpty()) return
         val merged = merge(load(context, cls), fresh)
-        prefs(context).edit().putString(KEY + cls.suffix, serialize(merged.values)).apply()
+        // Patch 63: written to the disk before the call returns (commit, not apply): the results are what the router starts from after an
+        // update or a restart, and a search runs on a background thread, so waiting for the disk costs nothing.
+        prefs(context).edit().putString(KEY + cls.suffix, serialize(merged.values)).commit()
     }
 
     private fun StrategyResult.toStored(at: Long) = StoredResult(

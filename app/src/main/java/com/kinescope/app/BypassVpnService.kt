@@ -162,6 +162,10 @@ class BypassVpnService : VpnService() {
     @Volatile private var stallState = StallState()
     @Volatile private var spareSearchDone = false
 
+    // Patch 63: when real data last reached the YouTube app through the tunnel (elapsed-realtime ms, 0 = not in this run); a failed probe
+    // is judged against it (see ProbeJudge). Written by the monitor thread, read by it too.
+    @Volatile private var lastRealRxAt = 0L
+
     // Patch 53: the connection class (Wi-Fi, mobile data) the tunnel's strategies were chosen for, and for how many monitor
     // ticks in a row the system has reported another one (see followConnection).
     @Volatile private var tunnelClass: NetClass = NetClass.WIFI
@@ -517,6 +521,7 @@ class BypassVpnService : VpnService() {
             // Patch 59: the bridge's counters start from zero again; so does the seven-second watch.
             stallPrevious = TunnelCounters.ZERO
             stallPreviousAt = startedNow
+            lastRealRxAt = 0L
             stallState = StallState()
             nextStallSampleAt = startedNow + TunnelStall.SAMPLE_MS
             engine = null
@@ -902,17 +907,46 @@ class BypassVpnService : VpnService() {
         val line = currentLine ?: return
         if (NetworkState.snapshot(this).kind == "none") return
         val load = DpiBypass.checkLoad(session.port, PROBE_CONNECTIONS)
-        if (load.passed * 3 >= load.total * 2) {
-            failStreak = 0
-            probeOkCount++
-            if (probeOkCount == 1 || probeOkCount % 10 == 0) {
-                AppLog.i("BypassVpnService", "probe ok n=$probeOkCount ${load.passed}/${load.total} hs=${load.medianHandshakeMs}ms")
+        // Patch 63: a failed probe is only a synthetic witness. Real data that reached the app a moment ago, or a dead system name lookup
+        // (the probe connects by name), outweigh it; see ProbeJudge for the report this comes from.
+        val sinceRealData = lastRealRxAt.takeIf { it > 0L }?.let { SystemClock.elapsedRealtime() - it }
+        val verdict = ProbeJudge.judge(load.passed, load.total, sinceRealData) { systemLookupWorks() }
+        when (verdict) {
+            ProbeVerdict.OK -> {
+                failStreak = 0
+                probeOkCount++
+                if (probeOkCount == 1 || probeOkCount % 10 == 0) {
+                    AppLog.i("BypassVpnService", "probe ok n=$probeOkCount ${load.passed}/${load.total} hs=${load.medianHandshakeMs}ms")
+                }
             }
-            return
+            ProbeVerdict.IGNORED_TRAFFIC, ProbeVerdict.IGNORED_DNS -> {
+                failStreak = 0
+                AppLog.i(
+                    "BypassVpnService",
+                    "probe ignored why=${if (verdict == ProbeVerdict.IGNORED_TRAFFIC) "traffic" else "dns"} " +
+                        "${load.passed}/${load.total} hs=${load.medianHandshakeMs}ms data=${sinceRealData?.let { "${it / 1000L}s" } ?: "-"}"
+                )
+            }
+            ProbeVerdict.FAIL -> {
+                failStreak++
+                AppLog.w("BypassVpnService", "probe fail streak=$failStreak ${load.passed}/${load.total} hs=${load.medianHandshakeMs}ms")
+                if (failStreak >= FAILS_BEFORE_ROTATE) rotateStrategy(line, RouterEventKind.PROBE)
+            }
         }
-        failStreak++
-        AppLog.w("BypassVpnService", "probe fail streak=$failStreak ${load.passed}/${load.total} hs=${load.medianHandshakeMs}ms")
-        if (failStreak >= FAILS_BEFORE_ROTATE) rotateStrategy(line, RouterEventKind.PROBE)
+    }
+
+    /**
+     * Patch 63: whether the phone's own name lookup works right now (one bounded lookup of the probe host). A lookup that fails turns the
+     * address fallback on ([DnsFallback]), so the next probe and the next start connect by address instead of failing by name.
+     */
+    private fun systemLookupWorks(): Boolean = try {
+        DnsFallback.remember(NetworkCheck.DEFAULT_HOST, resolveBounded(NetworkCheck.DEFAULT_HOST, LOOKUP_TIMEOUT_MS))
+        if (DnsFallback.active()) DnsFallback.clear()
+        true
+    } catch (e: java.io.IOException) {
+        if (!DnsFallback.active()) AppLog.w("BypassVpnService", "dns fallback on: the system lookup is dead, probes connect by address")
+        DnsFallback.mark()
+        false
     }
 
     /**
@@ -970,6 +1004,8 @@ class BypassVpnService : VpnService() {
         nextStallSampleAt = now + TunnelStall.SAMPLE_MS
         val line = currentLine ?: return
         val current = TunnelCounters.fromStats(runCatching { TProxyService.TProxyGetStats() }.getOrNull()) ?: return
+        // Patch 63: a sample that brought real data back to the app is the best proof the strategy carries traffic right now.
+        if (current.rxBytes - stallPrevious.rxBytes >= ProbeJudge.REAL_RX_BYTES) lastRealRxAt = now
         val step = TunnelStall.step(stallState, stallPrevious, current, stallPreviousAt, now)
         stallPrevious = current
         stallPreviousAt = now
@@ -1294,6 +1330,9 @@ class BypassVpnService : VpnService() {
         /** Patch 56: how often a running tunnel asks the calendar of the random check whether one is due: ten minutes. */
         private const val UPKEEP_INTERVAL_MS = 10L * 60L * 1000L
         private const val PROBE_CONNECTIONS = 3
+
+        /** Patch 63: the bound of the lookup that tells a dead name lookup from a failed strategy. */
+        private const val LOOKUP_TIMEOUT_MS = 2_000
         private const val FAILS_BEFORE_ROTATE = 2
 
         // Patch 59: how often strategies may be switched is `RotationLimits`; what makes one switch is `TunnelStall` (7 s of

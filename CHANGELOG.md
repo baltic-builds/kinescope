@@ -13,6 +13,44 @@ patch's own `.py` script for the exact, idempotent, exact-match-guarded
 edits it makes.
 
 
+## Patch 63 -- a tunnel that survives a failed probe, checks that work without a name lookup, the first-launch question, a 240-minute log
+
+Request (2026-11-16, repomix at patch 62, two device logs): (1) the bypass sometimes shuts down and restarts: find the error; (2) the log keeps only the last 240 minutes, with more detail if needed; (3) bring back the
+first-install notice recommending a check of all strategies, with the buttons "Check now" (update the list, run a full check) and "Do not check"; (4) store every strategy result locally so that an update keeps them and
+the router goes on using the best; (5) a strategy check failed on another device (log supplied); (6) ByeByeDPI feels more stable: compare and improve. Not run on a device; the Compose edits (`MainActivity.kt`,
+`FirstCheckPrompt.kt`) were not compiled here, the pure files and their tests were (29 tests).
+
+### What the logs show
+- **Log 1 (the restart).** At 18:43:42 the tunnel carried 4.1 MB in ten seconds (`v=flowing`). At 18:43:22 and 18:43:51 the engine probe passed 1 of 3 (`probe fail streak=2 1/3`), and `rotate why=probe` took the
+  strategy out and tore the tunnel down. The probe opens three connections to the engine BY NAME while the engine is busy; it is a synthetic witness, and the app's own traffic was the better one. Patch 61 had
+  already made a stall yield to proven traffic; the probe had no such rule. After the teardown the restart failed: `res=...553` (engine did not come up, three times in about two seconds each, then once more) and
+  `res=...554` (no route), until the tunnel gave up after about three minutes.
+- **Both logs (the no-route).** `byp reach net=wifi none rc=4 ... dns=nohost a4=0 a6=0`: the phone's own name lookup of the probe host returned nothing. The engine resolves a name with the same system resolver, so every
+  CONNECT-by-name failed with SOCKS reply 4 and the app called it "no route"; on the second device that voided the random check (`srch rand ... void=no-route`). The YouTube app is not affected by that lookup (the tunnel gives it
+  a public DNS server and it connects by address), so the checks were judging the lookup, not the strategy.
+- **ByeByeDPI.** It has no probe that restarts anything: it runs one strategy until the user changes it, and its DNS is the same public server Kinescope's tunnel uses. The instability was ours, in the rotation machinery.
+
+### What changed
+- **`ProbeJudge` (`TunnelProbe.kt`).** A failed probe is ignored when real data reached the YouTube app in the last 35 s (`lastRealRxAt`, set by the once-a-second bridge sample when it brought back at least 8 KB) or when
+  the phone's own lookup is dead (one bounded lookup, which also switches the fallback below on). Only a failed probe with no traffic and a working lookup counts, and two in a row still switch. Log: `probe ignored why=traffic|dns`.
+- **`DnsFallback` (`DnsFallback.kt`).** When the name lookup is shown to be broken, every check connects through the engine BY ADDRESS (`Socks5.connectByAddress`, one `connectToHost` replaces the four CONNECT-by-name call sites):
+  the address is one remembered from an earlier lookup or the answer of a plain UDP query to 1.1.1.1 / 8.8.8.8 (`DnsWire`, 40 lines of pure code). `DpiBypass.reach` uses it before it returns NO_ROUTE: if the host answers by address,
+  the verdict is OK (`reach ... dns-broken`). The mode lasts 10 minutes and ends sooner when a lookup works again. Downloads (`socks5h`) still resolve in the engine: this keeps the checks and the tunnel honest, it does not
+  resolve names for yt-dlp.
+- **Engine start diagnostics.** `DpiEngine` logs one line per failed start attempt (`eng start failed svc=vpn why=bind|timeout|lost|notready try=n/m ms=`), gives the tunnel's engine a third attempt and waits 0.7 s after a
+  process that vanished at once. The cause of the 40 s of failed starts after the restart is NOT known (the log had nothing); the new line will show it.
+- **Log of 240 minutes.** `AppLog` stores `epoch-ms TAB text` in `kinescope-log-v2.txt` and drops lines older than 240 minutes (`LogRetention`, pruned at start and every 5 minutes; a 3 MB cap trims the older half). The
+  old `kinescope.log` (no dates) is deleted at the first start. The Logs screen shows up to 3000 lines (was 300) and the report up to 1200 (was 150).
+- **First-launch question.** A fresh install asks once: "Check all strategies?" with "Check now" (`DpiSearchService.startFirst`: refresh the list, then a full scan with no goal, stoppable) and "Do not check"
+  (`DpiStrategyStore.skipFirstCheck`: untested starting chains for both classes marked seeded, this version's class checks marked done, nothing scans). The dialog cannot be dismissed any other way. A "Check now" cut short is
+  carried on at the next launch without asking. Patch 51's mandatory first check (`startInitial`) is removed; its `mandatory` plumbing in the dashboard is now inert (debt).
+- **Strategy results stay.** Audit: the results (`kinescope_dpi_results`), the long ledger (`kinescope_dpi_ledger`), the real-use record, the chains and the downloaded list are preference files and app files that an update
+  keeps. The results and the ledger are now committed to the disk before the call returns, and every launch logs `upd kept kind=... wifi:chain=,results=,learned= mobile:... ledger=` so a report after an update shows
+  that nothing was lost. Uninstalling the app (or a build signed with another key) removes them: install over the old app.
+
+### Not changed
+The parser and its allowlist, the engine, the 7 s stall rule, the rotation limits, the ratings, the Wi-Fi priority, extraction, downloads.
+
 ## Patch 62 -- three good strategies, a full test in Settings, a long strategy record and a Strategies report
 
 Request (2026-11-03, asked while patches 61 and 62 were still to be applied): (1) a check from the main screen runs only until it has found 3 good strategies, good meaning a score above 80;

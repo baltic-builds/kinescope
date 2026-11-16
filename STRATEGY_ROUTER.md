@@ -254,6 +254,12 @@ Evidence has two weights since patch 61. A failed probe, a one-way window, a dea
 really died. Why: the tunnel starts on the first strategy that passes a one-host check, so a leader chosen on stale tests could start the tunnel on a strategy the app cannot use, and every seven-second switch then cost the good
 strategies a double-weight failure.
 
+## 7e. What judges a running tunnel, and a dead name lookup (patch 63)
+
+The tunnel has three witnesses and they are NOT equal. In order of weight: (1) the YouTube app's own traffic (bridge counters, `TunnelFlow` / `TunnelStall`: real data back = the strategy works); (2) the 30 s engine probe (`ProbeJudge`: three connections by name through the engine); (3) the start-up check of a candidate. A failed probe is ignored when real data reached the app in the last 35 s (`ProbeJudge.TRAFFIC_GRACE_MS`) and when the phone's own lookup of the probe host is dead; only a failed probe with no traffic and a working lookup counts, and two in a row switch (`FAILS_BEFORE_ROTATE`).
+
+A name lookup that returns nothing is not a missing route. `DnsFallback` turns on for 10 minutes when `DpiBypass.reach` finds that the host answers by address but not by name (or the tunnel's probe finds the lookup dead): every check then connects through the engine by IPv4 address (`connectToHost`), from an address remembered earlier or a plain UDP query to 1.1.1.1 / 8.8.8.8. It never changes ratings and never marks a strategy; it only stops a dead lookup from being read as a failed strategy. Downloads (`socks5h`) are not covered.
+
 ## 8. Reachability (patch 54)
 
 A strategy only changes what is done to the TLS ClientHello after the TCP connection exists. A failure at the CONNECT stage with SOCKS reply

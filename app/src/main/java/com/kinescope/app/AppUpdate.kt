@@ -35,6 +35,19 @@ internal object AppUpdate {
     }
 
     /**
+     * Patch 63: one line saying what the router still knows at this launch, so a report after an update shows that nothing was lost:
+     * per connection class the chain, the stored test results and the real-use record, and the size of the long ledger. Blocking (reads
+     * the preference files): call it off the main thread.
+     */
+    fun logKeptKnowledge(context: Context, kind: LaunchKind) {
+        val perClass = NetClass.entries.joinToString(" ") { cls ->
+            "${cls.key}:chain=${DpiStrategyStore.verifiedChain(context, cls).size},results=${DpiResultsStore.load(context, cls).size}," +
+                "learned=${DpiPrefs.learned(context, cls).size}"
+        }
+        AppLog.i("AppUpdate", "kept kind=${kind.name.lowercase()} $perClass ledger=${DpiLedgerStore.load(context).size}")
+    }
+
+    /**
      * Blocking: refreshes the community strategy list from the repository, once for each version of the app (the first check of
      * a fresh install and the first check after an update both call it; the second finds the version recorded and does nothing).
      * A failed refresh is not recorded, so the next check tries again; the list that is already there keeps working.

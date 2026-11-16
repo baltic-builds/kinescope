@@ -151,6 +151,8 @@ private fun KinescopeApp(
     // Patch 51: the one-time power-saving pop-up of the second launch (see BatteryOptimization.kt). The search state is
     // read where it is shown (the dashboard), not here: this composable no longer redraws on every search step.
     var showBatteryPrompt by rememberSaveable { mutableStateOf(false) }
+    // Patch 63: the question of the first launch of a fresh install (see FirstCheckPrompt.kt).
+    var showFirstCheckPrompt by rememberSaveable { mutableStateOf(false) }
     val batteryOpener = rememberBatteryOpener { }
 
     // Patch 48: where the user is, the link being typed and the chosen quality survive the activity being recreated
@@ -195,9 +197,9 @@ private fun KinescopeApp(
         }
     }
 
-    // Patch 36: MainActivity is the single owner of automatic strategy refreshes. Patch 51: the first check of a fresh
-    // install is mandatory: it cannot be stopped, and Home shows "Please wait while we update the strategies." with the
-    // progress (the dialog that used to explain it is gone). The periodic re-check (patch 46) is quiet.
+    // Patch 36: MainActivity is the single owner of automatic strategy refreshes. Patch 63: a fresh install ASKS once whether to check
+    // every strategy now ("Check now" / "Do not check"); patch 51's mandatory first check, which could not be stopped, is gone. A
+    // "Check now" whose scan was cut short (the app was closed) is carried on at the next launch without asking again.
     LaunchedEffect(Unit) {
         if (
             !DpiPrefs.hasRunInitialSearch(context) &&
@@ -205,9 +207,12 @@ private fun KinescopeApp(
             NetClass.entries.all { DpiStrategyStore.verifiedChain(context, it).isEmpty() } &&
             !DpiSearchController.state.value.running
         ) {
-            // The check runs in a foreground service whose notification needs the permission.
-            requestNotifications()
-            DpiSearchService.startInitial(context)
+            if (DpiPrefs.firstCheckAnswer(context) == DpiPrefs.FIRST_CHECK) {
+                requestNotifications()
+                DpiSearchService.startFirst(context)
+            } else {
+                showFirstCheckPrompt = true
+            }
         }
     }
 
@@ -376,6 +381,22 @@ private fun KinescopeApp(
     }
 
     BackHandler(enabled = section != AppSection.HOME) { goBack() }
+
+    if (showFirstCheckPrompt) {
+        FirstCheckDialog(
+            onCheckNow = {
+                showFirstCheckPrompt = false
+                DpiPrefs.setFirstCheckAnswer(context, DpiPrefs.FIRST_CHECK)
+                // The check runs in a foreground service whose notification needs the permission.
+                requestNotifications()
+                DpiSearchService.startFirst(context)
+            },
+            onSkip = {
+                showFirstCheckPrompt = false
+                scope.launch(Dispatchers.IO) { DpiStrategyStore.skipFirstCheck(context) }
+            }
+        )
+    }
 
     if (showBatteryPrompt) {
         BatteryPromptDialog(

@@ -113,12 +113,13 @@ class DpiSearchService : Service() {
                     val count = intent?.getIntExtra(EXTRA_COUNT, RandomCheckPolicy.MANUAL_PICKS) ?: RandomCheckPolicy.MANUAL_PICKS
                     val force = intent?.getBooleanExtra(EXTRA_FORCE, true) ?: true
                     stopRequested.set(false)
-                    mandatoryRun = mode == MODE_INITIAL
+                    // Patch 63: nothing is mandatory any more (the first check is a question, see FirstCheckPrompt.kt); the flag is inert.
+                    mandatoryRun = false
                     DpiSearchController.starting(
                         background = mode == MODE_CHECK,
                         mandatory = mandatoryRun,
                         random = mode == MODE_RANDOM,
-                        full = mode == MODE_FULL
+                        full = mode == MODE_FULL || mode == MODE_FIRST
                     )
                     // Patch 47: when the system refuses the foreground start (Android 12+ restricts it), nothing would
                     // ever end the "running" state: Home would show a re-check forever, downloads would wait for a
@@ -155,7 +156,7 @@ class DpiSearchService : Service() {
             // Patch 55: note the attempt first, so a check that is stopped or fails is not restarted at once (ClassCheckPolicy).
             if (background) DpiPrefs.markCheckTried(context, cls)
             // Patch 55: the first launch and the first launch after an update look at the current community list.
-            if (!testOnly && (background || mode == MODE_INITIAL)) AppUpdate.refreshStrategyListOncePerVersion(context)
+            if (!testOnly && (background || mode == MODE_FIRST)) AppUpdate.refreshStrategyListOncePerVersion(context)
             val directWorks = DpiBypass.directConnectionWorks()
             // Patch 54: before testing a list of strategies, find out whether the engine can reach the hosts on this connection at
             // all. If it cannot, nothing a strategy does helps: say so at once instead of scanning the whole list for nothing and
@@ -171,7 +172,7 @@ class DpiSearchService : Service() {
                 cls,
                 // Patch 62: a check ends when it has found three good strategies (real traffic, a score of 80 or more). The full scan of
                 // Settings and a strategy test (its one line) have no goal: they test everything they were given.
-                goal = if (testOnly || mode == MODE_FULL) null else SearchGoal.GOOD,
+                goal = if (testOnly || mode == MODE_FULL || mode == MODE_FIRST) null else SearchGoal.GOOD,
                 only = only,
                 isCancelled = { stopRequested.get() },
                 waitIfPaused = { awaitDownloadsIdle() },
@@ -339,9 +340,9 @@ class DpiSearchService : Service() {
         private const val MODE_MANUAL = "manual"
         private const val MODE_CHECK = "check"
         private const val MODE_TEST = "test"
-        private const val MODE_INITIAL = "initial"
         private const val MODE_RANDOM = "random"
         private const val MODE_FULL = "full"
+        private const val MODE_FIRST = "first"
 
         /** The check of Home: it ends at three good strategies ([SearchGoal.GOOD]). */
         fun start(context: Context) = dispatch(context, MODE_MANUAL, null)
@@ -349,8 +350,11 @@ class DpiSearchService : Service() {
         /** Patch 62: Settings -> Test strategies: every strategy of the list is tested, nothing stops it early but the Stop button. */
         fun startFull(context: Context) = dispatch(context, MODE_FULL, null)
 
-        /** Patch 51: the mandatory first-run check of a fresh install; it cannot be stopped. */
-        fun startInitial(context: Context) = dispatch(context, MODE_INITIAL, null)
+        /**
+         * Patch 63: "Check now" of the first-launch question: the community list is refreshed, then every strategy is tested (a full scan, no
+         * goal). It can be stopped like any other check (patch 51's mandatory first check, which could not, is gone).
+         */
+        fun startFirst(context: Context) = dispatch(context, MODE_FIRST, null)
 
         /**
          * Patch 55: the quiet check of the connection the phone is on, for a version of the app that has not checked it yet

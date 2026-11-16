@@ -81,6 +81,13 @@ internal object StrategyRouter {
      */
     fun seed(own: List<String>, other: List<String>, max: Int, learned: List<String> = emptyList()): List<String> =
         if (own.isNotEmpty()) own else (learned + other).distinct().take(max)
+
+    /**
+     * Patch 63: the chain of a class nobody has tested (the user declined the first check): the class's priority strategies, then the
+     * list in its order, the first [max] of them. A starting point only: it is stored as seeded and judged by live use.
+     */
+    fun untestedSeed(candidates: List<String>, priority: List<String>, max: Int): List<String> =
+        (priority + candidates).distinct().take(max)
 }
 
 /**

@@ -59,7 +59,28 @@ internal object Socks5 {
         request[6 + name.size] = port.toByte()
         output.write(request)
         output.flush()
+        return readConnectReply(input)
+    }
 
+    /**
+     * Patch 63: SOCKS5 CONNECT to an IPv4 address, so the engine does no name lookup at all: what the YouTube app's own connections
+     * through the tunnel look like. Used when the system lookup is dead (see [DnsFallback]).
+     */
+    fun connectByAddress(input: InputStream, output: OutputStream, address: java.net.Inet4Address, port: Int): ConnectResult {
+        val request = ByteArray(10)
+        request[0] = 0x05
+        request[1] = 0x01
+        request[2] = 0x00
+        request[3] = ATYP_IPV4.toByte()
+        System.arraycopy(address.address, 0, request, 4, 4)
+        request[8] = (port shr 8).toByte()
+        request[9] = port.toByte()
+        output.write(request)
+        output.flush()
+        return readConnectReply(input)
+    }
+
+    private fun readConnectReply(input: InputStream): ConnectResult {
         val head = readFully(input, 4)
         if (head[0].toInt() != VERSION) return ConnectResult(false, null, "bad SOCKS5 reply")
         val code = head[1].toInt() and 0xFF
@@ -98,6 +119,18 @@ internal object Socks5 {
         }
         return buffer
     }
+}
+
+/**
+ * Patch 63: the SOCKS5 CONNECT of every check. By name, as always, so the engine resolves it; but while the system lookup is known to be
+ * dead ([DnsFallback.active]) by an IPv4 address from [DnsFallback.ipv4], and by name again when no address can be found.
+ */
+internal fun connectToHost(input: InputStream, output: OutputStream, host: String, port: Int): ConnectResult {
+    if (DnsFallback.active()) {
+        val address = DnsFallback.ipv4(host)
+        if (address != null) return Socks5.connectByAddress(input, output, address, port)
+    }
+    return Socks5.connectByName(input, output, host, port)
 }
 
 /** Bounded name lookup: InetAddress has no timeout of its own, so it runs on a daemon thread. */
@@ -266,6 +299,7 @@ internal class NetworkCheck(
             return PathResult(false, stages)
         }
         stages += StageResult(CheckStage.DNS, true, "${addresses.size} address(es)")
+        DnsFallback.remember(host, addresses)
 
         val socket = Socket()
         try {
@@ -303,6 +337,7 @@ internal class NetworkCheck(
         } catch (e: IOException) {
             return FamilyReport(reasonOf(e), 0, 0, "-", "-")
         }
+        DnsFallback.remember(host, addresses)
         val v4 = addresses.filterIsInstance<java.net.Inet4Address>()
         val v6 = addresses.filterIsInstance<java.net.Inet6Address>()
         return FamilyReport("ok", v4.size, v6.size, tryConnect(v4.firstOrNull(), port), tryConnect(v6.firstOrNull(), port))
@@ -347,7 +382,7 @@ internal class NetworkCheck(
             stages += StageResult(CheckStage.PROXY, true, "SOCKS5 without authentication")
 
             val connect = try {
-                Socks5.connectByName(socket.getInputStream(), socket.getOutputStream(), host, port)
+                connectToHost(socket.getInputStream(), socket.getOutputStream(), host, port)
             } catch (e: IOException) {
                 ConnectResult(false, null, describe(e))
             }
@@ -379,7 +414,7 @@ internal class NetworkCheck(
             socket.connect(InetSocketAddress(engine.host, engine.port), stageTimeoutMs)
             socket.soTimeout = stageTimeoutMs
             if (Socks5.greet(socket.getInputStream(), socket.getOutputStream()) != null) return null
-            val connect = Socks5.connectByName(socket.getInputStream(), socket.getOutputStream(), host, HTTPS_PORT)
+            val connect = connectToHost(socket.getInputStream(), socket.getOutputStream(), host, HTTPS_PORT)
             if (!connect.ok) return null
 
             val factory = SSLSocketFactory.getDefault() as SSLSocketFactory
@@ -442,7 +477,7 @@ internal class NetworkCheck(
             socket.connect(InetSocketAddress(engine.host, engine.port), stageTimeoutMs)
             socket.soTimeout = stageTimeoutMs
             if (Socks5.greet(socket.getInputStream(), socket.getOutputStream()) != null) return null
-            val connect = Socks5.connectByName(socket.getInputStream(), socket.getOutputStream(), host, HTTPS_PORT)
+            val connect = connectToHost(socket.getInputStream(), socket.getOutputStream(), host, HTTPS_PORT)
             if (!connect.ok) return null
 
             val factory = SSLSocketFactory.getDefault() as SSLSocketFactory
@@ -551,7 +586,7 @@ internal class NetworkCheck(
             socket.connect(InetSocketAddress(engine.host, engine.port), stageTimeoutMs)
             socket.soTimeout = stageTimeoutMs
             if (Socks5.greet(socket.getInputStream(), socket.getOutputStream()) != null) return noResponse("proxy")
-            val connect = Socks5.connectByName(socket.getInputStream(), socket.getOutputStream(), host, HTTPS_PORT)
+            val connect = connectToHost(socket.getInputStream(), socket.getOutputStream(), host, HTTPS_PORT)
             if (!connect.ok) return noResponse("conn" + (connect.replyCode?.let { "_r$it" } ?: ""))
 
             val factory = SSLSocketFactory.getDefault() as SSLSocketFactory

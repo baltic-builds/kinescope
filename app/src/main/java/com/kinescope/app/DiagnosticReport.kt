@@ -14,7 +14,7 @@ import java.util.Locale
  * event per line, no URLs, cookies or private paths (AppLog redacts those before storing).
  */
 internal object DiagnosticReport {
-    const val MAX_LINES = 150
+    const val MAX_LINES = 1200
 
     fun build(context: Context, maxLines: Int = MAX_LINES): String {
         val info = runCatching { context.packageManager.getPackageInfo(context.packageName, 0) }.getOrNull()

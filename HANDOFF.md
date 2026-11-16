@@ -4,7 +4,7 @@ The current state of Kinescope for anyone (human or AI agent) resuming work. It 
 appended to: per-patch history lives in `CHANGELOG.md`, open work in `ROADMAP.md`, process rules in `AGENTS.md`,
 product constraints in `CLAUDE.md`. Where this file and the code disagree, the code wins; fix this file.
 
-State as of patch 62 (2026-11-03). Patches 53-57 and the October 2026 v.3 fixes are described below and in `CHANGELOG.md`.
+State as of patch 63 (2026-11-16). Patches 53-57 and the October 2026 v.3 fixes are described below and in `CHANGELOG.md`.
 
 ## What Kinescope is
 
@@ -50,6 +50,8 @@ kills the app while the user wants it on (`TunnelLifecycle.kt`; the mechanism is
 counters; the old 10 s windows and 30 s probe stay as the slow net); switches are limited per chain (`RotationLimits`); two strategies lead the Wi-Fi group by default (`StrategyPriority`); strategy names are flowers.
 The exact checklist is `ROADMAP.md`; the mechanism is `STRATEGY_ROUTER.md` section 7a.
 **Patch 62 (not yet confirmed on a device):** a check of Home, the first-run check and the check after an update end at three good strategies (`SearchGoal.GOOD`: real traffic and a score of 80 or more); Settings -> Test strategies\nis a full scan (`DpiSearchService.startFull`, mode `full`, no goal); `StrategyLedger` / `DpiLedgerStore` keep a never-fading record per class and strategy (tests, scores, real successes and failures, stalls, time in use);\n`StrategyRank`, `DpiBypass.searchOrder` and `DpiStrategyStore.ensureSeeded` start from the best record; the Logs screen has a second section, Strategies (`StrategyReport`), with a Copy button. `STRATEGY_ROUTER.md` section 7d.\n**Patch 61 (not yet confirmed on a device):** the strategy that last carried the YouTube app's traffic (`DpiPrefs.provenLine`, 14 days) leads the chain after the pin, at the tunnel's start and after every re-order by rating
+
+**Patch 63 (not yet confirmed on a device):** the tunnel no longer restarts on a failed probe while the YouTube app is receiving data (`ProbeJudge`); checks and the tunnel connect by address when the phone's name lookup is dead (`DnsFallback`); a fresh install asks "Check all strategies?" (Check now = list update + full scan; Do not check = untested starting chains) instead of the mandatory first check; the log keeps 240 minutes (`LogRetention`, 3000 lines on screen, 1200 in the report); every launch logs what the router still knows (`upd kept`). Open: why the tunnel's engine failed to start for 40 s after a restart (the new `eng start failed ... why=` lines will say); downloads still resolve names in the engine. See `CHANGELOG.md` and the ROADMAP gate.
 (before, `RandomCheck` re-ordered by rating alone and buried it behind strategies with stale synthetic test scores); the random check never tests or removes it; a stall and a failed start-up check are `StrategyOutcome.SOFT_BAD`
 (0.4) and not a full failure; a stall on a strategy that proved itself in this run is ignored; the bundled list is upstream's of 2026-10-30. Found by reading the code and the report; `STRATEGY_ROUTER.md` section 7c.
 **CI:** the release workflow was red at patch 42 (`AdaptiveLayoutTest` still referenced the removed
@@ -245,6 +247,10 @@ Network bypass
 - `DpiBypass.kt` -- glue used by downloads and Settings (active chain, health check, `reach` verdict, `searchOrder`, applying results).
 - `ChainPlanner.kt`, `BypassRoutes.kt`, `RouteScoreboard.kt` -- pure ordering rules for strategies and routes.
 - `NetClass.kt`, `NetClassWatcher.kt` -- the connection class (Wi-Fi / mobile data), the rule for when the tunnel follows a change, and the flow that follows the default network (patch 53).
+- `DnsFallback.kt` -- patch 63: `DnsWire` (a plain UDP DNS A query and its answer, pure) and `DnsFallback` (when the phone's name lookup is broken the checks connect through the engine by address; remembered addresses, then 1.1.1.1 / 8.8.8.8; a 10-minute mode); `connectToHost` in `NetworkCheck.kt` is the one place that chooses.
+- `TunnelProbe.kt` -- patch 63: `ProbeJudge` (a failed engine probe yields to real traffic seen in the last 35 s and to a dead name lookup).
+- `LogRetention.kt` -- patch 63: the 240-minute window of the log (`epoch-ms TAB text` lines, pruning rules).
+- `FirstCheckPrompt.kt` -- patch 63: the first-launch question ("Check now" / "Do not check").
 - `StrategyLedger.kt`, `DpiLedgerStore.kt`, `StrategyReport.kt` -- the long strategy record (pure rules and their tests in `StrategyLedgerTest`; the preferences file `kinescope_dpi_ledger`) and the text of the Strategies section of the Logs screen (patch 62).\n- `StrategyRating.kt`, `StrategyRouter.kt` -- the pure rating (last test + real use) and the router policy (the chain, `StrategyRank`, `RandomCheckPolicy`, `ClassCheckPolicy`); see `STRATEGY_ROUTER.md` (patches 53-55).
 - `StrategyMemory.kt` -- pure record of which strategies really carried traffic (real outcomes only since patch 53; fading score, text form); `MaintenanceSchedule.kt` -- pure calendar of the yt-dlp update (25 days) and the day length the other calendars count in.
 - `NetworkCheck.kt`, `NetworkState.kt` -- layered reachability probe through the engine; third-party VPN detection; the connection class (patch 53).

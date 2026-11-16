@@ -53,6 +53,10 @@ object DpiEngine {
 
     private const val READY_TIMEOUT_MS = 6_000L
     private const val START_ATTEMPTS = 2
+
+    /** Patch 63: the tunnel's engine gets one more try, and a process that vanished at once is given a moment before the next one. */
+    private const val VPN_START_ATTEMPTS = 3
+    private const val LOST_RETRY_PAUSE_MS = 700L
     private const val POLL_INTERVAL_MS = 80L
     private const val PORT_CLOSE_WAIT_MS = 2_000L
     private const val SETTLE_MS = 200L
@@ -108,7 +112,8 @@ object DpiEngine {
         DpiVpnEngineService::class.java,
         vpnGate,
         ipv4Only,
-        VPN_GATE_WAIT_MS
+        VPN_GATE_WAIT_MS,
+        VPN_START_ATTEMPTS
     )?.also { vpnHolder.set(it) }
 
     fun regularBusy(): Boolean = regularGate.availablePermits() == 0
@@ -120,16 +125,22 @@ object DpiEngine {
         serviceClass: Class<out Service>,
         gate: Semaphore,
         ipv4Only: Boolean?,
-        gateWaitMs: Long = 0L
+        gateWaitMs: Long = 0L,
+        attempts: Int = START_ATTEMPTS
     ): DpiEngineSession? {
-        if (!gate.tryAcquire(gateWaitMs, TimeUnit.MILLISECONDS)) return null
+        val vpn = serviceClass == DpiVpnEngineService::class.java
+        if (!gate.tryAcquire(gateWaitMs, TimeUnit.MILLISECONDS)) {
+            AppLog.w("Engine", "start refused svc=${if (vpn) "vpn" else "reg"} why=gate")
+            return null
+        }
         var handedOff = false
         try {
             val appContext = context.applicationContext
             val v4Only = ipv4Only ?: DpiPrefs.ipv4Only(appContext, NetClassWatcher.current(appContext))
-            repeat(START_ATTEMPTS) {
+            for (attempt in 1..attempts) {
                 val port = freePort() ?: return null
-                val session = startOnce(
+                val began = System.nanoTime()
+                val attemptResult = startOnce(
                     appContext,
                     port,
                     strategyArgs,
@@ -138,9 +149,24 @@ object DpiEngine {
                     gate,
                     v4Only
                 )
-                if (session != null) {
+                if (attemptResult.session != null) {
                     handedOff = true
-                    return session
+                    return attemptResult.session
+                }
+                // Patch 63: a device report showed the tunnel's engine failing to start for about 40 s after a restart with nothing in
+                // the log to say why. One line per failed attempt: which service, how it failed, how long it took.
+                val ms = (System.nanoTime() - began) / 1_000_000L
+                AppLog.w(
+                    "Engine",
+                    "start failed svc=${if (vpn) "vpn" else "reg"} why=${attemptResult.why} try=$attempt/$attempts ms=$ms"
+                )
+                if (attempt < attempts && attemptResult.why == WHY_LOST) {
+                    try {
+                        Thread.sleep(LOST_RETRY_PAUSE_MS)
+                    } catch (e: InterruptedException) {
+                        Thread.currentThread().interrupt()
+                        return null
+                    }
                 }
             }
             return null
@@ -148,6 +174,11 @@ object DpiEngine {
             if (!handedOff) gate.release()
         }
     }
+
+    /** Patch 63: how one start attempt ended: the session, or the short reason it did not come up. */
+    private class StartAttempt(val session: DpiEngineSession?, val why: String)
+
+    private const val WHY_LOST = "lost"
 
     private fun startOnce(
         context: Context,
@@ -157,7 +188,7 @@ object DpiEngine {
         serviceClass: Class<out Service>,
         gate: Semaphore,
         ipv4Only: Boolean
-    ): DpiEngineSession? {
+    ): StartAttempt {
         val intent = Intent(context, serviceClass)
             .putExtra(DpiEngineService.EXTRA_ARGS, dpiLaunchArguments(HOST, port, strategyArgs, ipv4Only).toTypedArray())
         val connected = CountDownLatch(1)
@@ -185,21 +216,21 @@ object DpiEngine {
 
         if (!context.bindService(intent, connection, Context.BIND_AUTO_CREATE)) {
             release(context, connection, port)
-            return null
+            return StartAttempt(null, "bind")
         }
         var session: DpiEngineSession? = null
         try {
             val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(readyTimeoutMs)
-            if (!connected.await(readyTimeoutMs, TimeUnit.MILLISECONDS)) return null
+            if (!connected.await(readyTimeoutMs, TimeUnit.MILLISECONDS)) return StartAttempt(null, "timeout")
             val endpoint = SocksEndpoint(HOST, port)
             while (!lost.get() && System.nanoTime() < deadline) {
                 if (isSocksReady(endpoint)) {
                     session = DpiEngineSession(context, connection, lost, gate, port)
-                    return session
+                    return StartAttempt(session, "ok")
                 }
                 Thread.sleep(POLL_INTERVAL_MS)
             }
-            return null
+            return StartAttempt(null, if (lost.get()) WHY_LOST else "notready")
         } finally {
             if (session == null) release(context, connection, port)
         }

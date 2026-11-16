@@ -25,6 +25,7 @@ object DpiPrefs {
     private const val KEY_NAMES = "strategy_names"
     private const val KEY_SEEN_VERSION = "seen_version"
     private const val KEY_LIST_VERSION = "list_version"
+    private const val KEY_FIRST_ANSWER = "first_check_answer"
 
     // Class-scoped (see NetClass.suffix).
     private const val KEY_STRATEGY = "strategy"
@@ -232,6 +233,20 @@ object DpiPrefs {
             if (result != chain) writeChain(context, cls, result)
         }
     }
+
+    /**
+     * Patch 63: what the user answered to the question of the first launch ("check all strategies now?"): [FIRST_CHECK], [FIRST_SKIP] or
+     * null (not asked yet). The question is asked on a fresh install only, once; an answer of [FIRST_CHECK] whose scan was cut short
+     * (the app was closed) is carried on at the next launch without asking again.
+     */
+    fun firstCheckAnswer(context: Context): String? = prefs(context).getString(KEY_FIRST_ANSWER, null)
+
+    fun setFirstCheckAnswer(context: Context, answer: String) {
+        prefs(context).edit().putString(KEY_FIRST_ANSWER, answer).apply()
+    }
+
+    const val FIRST_CHECK = "check"
+    const val FIRST_SKIP = "skip"
 
     /** True once the one-time automatic first-run strategy search has been attempted. */
     fun hasRunInitialSearch(context: Context): Boolean =
@@ -541,6 +556,29 @@ object DpiStrategyStore {
             DpiPrefs.markStrategiesVerified(context, cls, seed.first(), seed.drop(1), seeded = true)
             AppLog.i("DpiStrategyStore", "seed net=${cls.key} from=${cls.other.key} n=${seed.size}")
         }
+    }
+
+    /**
+     * Patch 63: the user chose not to check the strategies on the first launch. Both connection classes get a starting chain that is
+     * NOT tested (marked as seeded, time 0: the live check of every tunnel start and the router's own rotation judge it), so the bypass
+     * can be switched on at once; the class checks of this app version are marked done, so nothing scans without being asked. The
+     * full scan stays one tap away in Settings.
+     */
+    internal fun skipFirstCheck(context: Context) {
+        val version = DpiSearchService.appVersionCode(context)
+        DpiPrefs.consistently {
+            for (cls in NetClass.entries) {
+                ensureSeeded(context, cls)
+                if (verifiedChain(context, cls).isEmpty()) {
+                    val seed = StrategyRouter.untestedSeed(candidates(context), StrategyPriority.forClass(cls), ChainPlanner.MAX_CHAIN)
+                    if (seed.isNotEmpty()) DpiPrefs.markStrategiesVerified(context, cls, seed.first(), seed.drop(1), seeded = true)
+                }
+                if (version > 0L) DpiPrefs.setCheckedVersion(context, cls, version)
+            }
+        }
+        DpiPrefs.setHasRunInitialSearch(context, true)
+        DpiPrefs.setFirstCheckAnswer(context, DpiPrefs.FIRST_SKIP)
+        AppLog.i("DpiStrategyStore", "first check skipped by the user; untested starting chains set")
     }
 
     /** Blocking network call: run it on a background thread. */

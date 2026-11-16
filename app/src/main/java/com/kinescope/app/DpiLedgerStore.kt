@@ -1,5 +1,6 @@
 package com.kinescope.app
 
+import android.annotation.SuppressLint
 import android.content.Context
 
 /**
@@ -15,12 +16,14 @@ internal object DpiLedgerStore {
 
     fun load(context: Context): Map<String, LedgerEntry> = StrategyLedger.parse(prefs(context).getString(KEY, null))
 
+    @SuppressLint("ApplySharedPref")
     private fun update(context: Context, change: (Map<String, LedgerEntry>) -> Map<String, LedgerEntry>) {
         try {
             synchronized(lock) {
                 val old = load(context)
                 val next = change(old)
-                if (next !== old) prefs(context).edit().putString(KEY, StrategyLedger.serialize(next.values)).apply()
+                // Patch 63: committed to the disk at once (see DpiResultsStore.save); every caller is a background thread.
+                if (next !== old) prefs(context).edit().putString(KEY, StrategyLedger.serialize(next.values)).commit()
             }
         } catch (e: Exception) {
             AppLog.w("DpiLedgerStore", "ledger not updated: ${e.javaClass.simpleName}")

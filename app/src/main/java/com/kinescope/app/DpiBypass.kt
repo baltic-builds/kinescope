@@ -162,8 +162,26 @@ object DpiBypass {
                 return Reach.IPV4_ONLY
             }
         }
-        val family = NetworkCheck(stageTimeoutMs = FAMILY_STAGE_TIMEOUT_MS).familyReport(NetworkCheck.DEFAULT_HOST).format()
-        AppLog.w("DpiBypass", "reach net=${cls.key} none rc=${first.replyCode ?: "-"} v4only=${if (already) 1 else 0} $family")
+        val family = NetworkCheck(stageTimeoutMs = FAMILY_STAGE_TIMEOUT_MS).familyReport(NetworkCheck.DEFAULT_HOST)
+        AppLog.w("DpiBypass", "reach net=${cls.key} none rc=${first.replyCode ?: "-"} v4only=${if (already) 1 else 0} ${family.format()}")
+        // Patch 63: the phone's own name lookup returned nothing (`dns=nohost a4=0 a6=0`): the engine's lookup is the same one, so the
+        // CONNECT-by-name of every check failed, which is not the same as having no route. Ask a public resolver for the address, and
+        // when the engine reaches the host by address the route is there: only the lookup is broken, and the checks go by address.
+        if (family.dns != "ok" && !DnsFallback.active() && !isCancelled()) {
+            val address = DnsFallback.ipv4(NetworkCheck.DEFAULT_HOST)
+            if (address != null) {
+                AppLog.w("DpiBypass", "dns fallback on: checks connect by address for ${DnsFallback.BROKEN_MS / 60_000L} min")
+                DnsFallback.mark()
+                val third = reachProbe(context, parsed.args, already)
+                if (third == null || third.ok) {
+                    AppLog.i("DpiBypass", "reach net=${cls.key} dns-broken: the host answers by address; the checks use addresses")
+                    return Reach.OK
+                }
+                DnsFallback.clear()
+            } else {
+                AppLog.i("DpiBypass", "reach net=${cls.key} dns-fallback: no public resolver answered")
+            }
+        }
         return Reach.NO_ROUTE
     }
 

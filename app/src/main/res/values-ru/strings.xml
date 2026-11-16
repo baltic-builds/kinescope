@@ -416,6 +416,10 @@
     <string name="youtube_app_default">По умолчанию</string>
     <string name="youtube_app_none">Не найдено приложений, которые открывают YouTube.</string>
     <string name="youtube_app_note">Вступит в силу при следующем запуске обхода YouTube. Обход использует только это приложение.</string>
+    <string name="first_check_title">Проверить все стратегии?</string>
+    <string name="first_check_body">Для лучшего результата один раз проверьте все стратегии сейчас. Сначала обновится список, затем проверится каждая стратегия. Это займёт несколько минут и идёт в фоне. Позже это можно сделать в настройках.</string>
+    <string name="first_check_now">Проверить сейчас</string>
+    <string name="first_check_skip">Не проверять</string>
     <string name="battery_prompt_title">Чтобы загрузки не прерывались</string>
     <string name="battery_prompt_body">Экономия заряда Android может закрыть Kinescope в фоне и остановить загрузки. Разрешите работу без ограничений, и они дойдут до конца.</string>
     <string name="battery_prompt_open">Открыть настройки</string>

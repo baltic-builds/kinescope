@@ -416,6 +416,10 @@
     <string name="youtube_app_default">Default</string>
     <string name="youtube_app_none">No app that opens YouTube was found.</string>
     <string name="youtube_app_note">Applies the next time the YouTube bypass starts. Only this app uses the bypass.</string>
+    <string name="first_check_title">Check all strategies?</string>
+    <string name="first_check_body">For the best result, check every strategy once now. The list is updated first, then each strategy is tested. It takes a few minutes and runs in the background. You can do it later in Settings.</string>
+    <string name="first_check_now">Check now</string>
+    <string name="first_check_skip">Do not check</string>
     <string name="battery_prompt_title">Keep downloads running</string>
     <string name="battery_prompt_body">Android’s power saving can close Kinescope in the background and stop your downloads. Allow Kinescope to run without limits so they finish.</string>
     <string name="battery_prompt_open">Open settings</string>

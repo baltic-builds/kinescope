@@ -30,6 +30,7 @@ class YtOfflineApp : Application() {
         val launch = AppUpdate.onProcessStart(this)
 
         appScope.launch {
+            AppUpdate.logKeptKnowledge(this@YtOfflineApp, launch)
             // Rebuild the visible queue without doing journal/MediaStore I/O
             // on the main thread. Any job that died mid-execution is exposed
             // as INTERRUPTED and requires an explicit retry.
