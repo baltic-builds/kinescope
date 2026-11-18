@@ -160,9 +160,8 @@ internal fun BypassDashboard(
             },
             flow = traffic.verdict,
             searching = search.running,
-            // Patch 56: a random check is as quiet as the check after an update: the controls stay, only the strip shows it.
-            searchBackground = search.background || search.random,
-            searchMandatory = search.mandatory,
+            // Patch 56: a refresh is quiet: the controls stay, only the strip shows it.
+            searchBackground = search.random,
             activeDownloads = activeDownloads,
             tunnelError = tunnel.errorRes != null
         )
@@ -249,7 +248,6 @@ internal fun BypassDashboard(
                         Text(
                             text = stringResource(
                                 when (model.headline) {
-                                    DashHeadline.FIRST_RUN -> R.string.dash_headline_first_run
                                     DashHeadline.CHECKING -> R.string.dash_headline_checking
                                     DashHeadline.SETUP -> R.string.dash_headline_setup
                                     DashHeadline.ON -> R.string.dash_headline_on
@@ -262,7 +260,6 @@ internal fun BypassDashboard(
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
                             text = when (model.headline) {
-                                DashHeadline.FIRST_RUN -> stringResource(R.string.dash_sub_first_run)
                                 DashHeadline.CHECKING -> stringResource(R.string.dash_sub_checking)
                                 DashHeadline.SETUP -> stringResource(setupMessage ?: R.string.dash_sub_setup)
                                 DashHeadline.ON, DashHeadline.OFF -> waysReadyText(prefs)
@@ -302,10 +299,8 @@ internal fun BypassDashboard(
                     Spacer(modifier = Modifier.height(10.dp))
                     SearchStrip(
                         progress = search.progress,
-                        background = search.background,
                         random = search.random,
                         full = search.full,
-                        stoppable = model.searchStoppable,
                         palette = palette,
                         onStop = { DpiSearchService.stop(context) }
                     )
@@ -421,16 +416,13 @@ private fun CheckHint(hint: DashCheckHint, palette: DashPalette) {
 }
 
 /**
- * Progress of a running strategy search: how many ways were tried, a bar and, unless the check is mandatory (the first
- * run), Stop.
+ * Progress of a running strategy search: how many ways were tried, a bar and Stop.
  */
 @Composable
 private fun SearchStrip(
     progress: SearchProgress?,
-    background: Boolean,
     random: Boolean,
     full: Boolean,
-    stoppable: Boolean,
     palette: DashPalette,
     onStop: () -> Unit
 ) {
@@ -450,21 +442,14 @@ private fun SearchStrip(
                 // Patch 62: the full scan of Settings has no goal; it reports how far through the list it is.
                 stringResource(R.string.dash_full_progress, done, total, progress?.good ?: 0)
             } else {
-                stringResource(
-                    if (background) R.string.dash_recheck else R.string.dash_check_progress,
-                    done,
-                    working,
-                    goal
-                )
+                stringResource(R.string.dash_check_progress, done, working, goal)
             },
             style = MaterialTheme.typography.bodySmall,
             color = palette.secondary,
             modifier = Modifier.weight(1f)
         )
-        if (stoppable) {
-            FocusRing {
-                TextButton(onClick = onStop) { Text(stringResource(R.string.stop)) }
-            }
+        FocusRing {
+            TextButton(onClick = onStop) { Text(stringResource(R.string.stop)) }
         }
     }
     if (progress != null && total > 0) {

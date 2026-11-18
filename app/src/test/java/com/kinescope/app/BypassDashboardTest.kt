@@ -13,7 +13,6 @@ class BypassDashboardTest {
         flow: FlowVerdict = FlowVerdict.IDLE,
         searching: Boolean = false,
         background: Boolean = false,
-        mandatory: Boolean = false,
         downloads: Int = 0,
         error: Boolean = false
     ) = BypassDashInputs(
@@ -22,7 +21,6 @@ class BypassDashboardTest {
         flow = flow,
         searching = searching,
         searchBackground = background,
-        searchMandatory = mandatory,
         activeDownloads = downloads,
         tunnelError = error
     )
@@ -39,11 +37,11 @@ class BypassDashboardTest {
     }
 
     @Test
-    fun theRefreshButtonIsOnlyAbsentDuringTheFirstRunCheck() {
-        // Patch 64: it is there on a card that is not set up and during a check the user can see; only the check that cannot be stopped hides it.
+    fun theRefreshButtonIsAlwaysThere() {
+        // Patch 64/65: on a card that is not set up, during a check the user can see, during a quiet one: always.
         assertTrue(bypassDashboardModel(inputs(ways = 0)).showRefresh)
         assertTrue(bypassDashboardModel(inputs(searching = true)).showRefresh)
-        assertFalse(bypassDashboardModel(inputs(ways = 3, searching = true, mandatory = true)).showRefresh)
+        assertTrue(bypassDashboardModel(inputs(searching = true, background = true)).showRefresh)
     }
 
     @Test
@@ -69,31 +67,10 @@ class BypassDashboardTest {
     }
 
     @Test
-    fun theFirstRunCheckSaysWaitAndCannotBeStopped() {
-        val model = bypassDashboardModel(inputs(ways = 0, searching = true, mandatory = true))
-        assertEquals(DashHeadline.FIRST_RUN, model.headline)
-        assertTrue(model.showSearchStrip)
-        assertFalse(model.searchStoppable)
-        assertFalse(model.showControls)
-        assertFalse(model.showSetupAction)
-        assertFalse(model.checkEnabled)
-    }
-
-    @Test
-    fun theFirstRunCheckStaysMandatoryEvenWhenWaysAlreadyExist() {
-        // A search that already stored passes (for example after a partial earlier run) is still the mandatory one.
-        val model = bypassDashboardModel(inputs(ways = 3, searching = true, mandatory = true))
-        assertEquals(DashHeadline.FIRST_RUN, model.headline)
-        assertFalse(model.searchStoppable)
-        assertFalse(model.openEnabled)
-    }
-
-    @Test
-    fun aVisibleCheckShowsProgressAndHidesTheControlsButCanBeStopped() {
+    fun aVisibleCheckShowsProgressAndHidesTheControls() {
         val model = bypassDashboardModel(inputs(ways = 0, searching = true))
         assertEquals(DashHeadline.CHECKING, model.headline)
         assertTrue(model.showSearchStrip)
-        assertTrue(model.searchStoppable)
         assertFalse(model.showControls)
         assertFalse(model.showSetupAction)
         assertFalse(model.checkEnabled)
@@ -104,7 +81,6 @@ class BypassDashboardTest {
         val model = bypassDashboardModel(inputs(searching = true, background = true))
         assertEquals(DashHeadline.OFF, model.headline)
         assertTrue(model.showSearchStrip)
-        assertTrue(model.searchStoppable)
         assertTrue(model.showControls)
         assertTrue(model.openEnabled)
         // The results are about to change, so a pick would race the check.

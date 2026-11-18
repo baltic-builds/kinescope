@@ -4,7 +4,7 @@ The current state of Kinescope for anyone (human or AI agent) resuming work. It 
 appended to: per-patch history lives in `CHANGELOG.md`, open work in `ROADMAP.md`, process rules in `AGENTS.md`,
 product constraints in `CLAUDE.md`. Where this file and the code disagree, the code wins; fix this file.
 
-State as of patch 64 (2026-11-17). Patches 53-57 and the October 2026 v.3 fixes are described below and in `CHANGELOG.md`.
+State as of patch 65 (2026-11-18). Patches 53-57 and the October 2026 v.3 fixes are described below and in `CHANGELOG.md`.
 
 ## What Kinescope is
 
@@ -50,6 +50,8 @@ kills the app while the user wants it on (`TunnelLifecycle.kt`; the mechanism is
 counters; the old 10 s windows and 30 s probe stay as the slow net); switches are limited per chain (`RotationLimits`); two strategies lead the Wi-Fi group by default (`StrategyPriority`); strategy names are flowers.
 The exact checklist is `ROADMAP.md`; the mechanism is `STRATEGY_ROUTER.md` section 7a.
 **Patch 62 (not yet confirmed on a device):** a check of Home, the first-run check and the check after an update end at three good strategies (`SearchGoal.GOOD`: real traffic and a score of 80 or more); Settings -> Test strategies\nis a full scan (`DpiSearchService.startFull`, mode `full`, no goal); `StrategyLedger` / `DpiLedgerStore` keep a never-fading record per class and strategy (tests, scores, real successes and failures, stalls, time in use);\n`StrategyRank`, `DpiBypass.searchOrder` and `DpiStrategyStore.ensureSeeded` start from the best record; the Logs screen has a second section, Strategies (`StrategyReport`), with a Copy button. `STRATEGY_ROUTER.md` section 7d.\n**Patch 61 (not yet confirmed on a device):** the strategy that last carried the YouTube app's traffic (`DpiPrefs.provenLine`, 14 days) leads the chain after the pin, at the tunnel's start and after every re-order by rating
+
+**Patch 65 (not yet confirmed):** fixes the two compile errors of patch 64 and removes the dead code it left (per-version class checks, the twice-a-day calendar, the first-check answer, the mandatory-check plumbing); see `CHANGELOG.md`.
 
 **Patch 64 (not yet confirmed on a device):** one update rule (`LaunchUpdate.kt`: first launch, first launch on mobile data, a new Wi-Fi network; the same network never updates; the list, yt-dlp, then the refresh until three ways at 85+); the refresh buttons are never locked (`ForceRefresh.kt` pauses downloads, stops search and tunnel, refreshes, restores); the tunnel switch is replaced by a status bar below "Watch YouTube"; "Watch YouTube" stops a running quiet search before it starts the tunnel; a manual strategy choice rebuilds the running tunnel; queue formats (default chips + a button per row, a running job restarts in the new format); library players per kind (`LibraryPlayers.kt`); a DNS picker for the tunnel (`TunnelDnsSettings.kt`, Yandex is a preset); faster switching timings; yt-dlp and the list on a 30-day calendar; a browser chosen for "Watch YouTube" opens the final address. See `CHANGELOG.md` (Patch 64) and the ROADMAP gate.
 
@@ -140,13 +142,12 @@ not yet being 16 KB page-size compatible (upstream).
   if there is one, else the bundled snapshot), never both (`mergeStrategyLists`). Source today: 60 strategies; built-ins: 12.
 - **First install and updates (patches 51 and 55).** `AppUpdate.onProcessStart` (in `YtOfflineApp`) compares the version code with the last
   seen one: a fresh install and an update are treated alike. yt-dlp is refreshed at once (`YtOfflineApp`); the community strategy list is
-  refreshed once per app version by `AppUpdate.refreshStrategyListOncePerVersion`, called by `DpiSearchService` just before a check; and the
-  strategies are checked ONE CONNECTION CLASS AT A TIME, each class once per app version (`ClassCheckPolicy`, `DpiPrefs.checkedVersion`): the
-  class the phone is on at the first launch, the other the first time the phone is on it with the app open (`MainActivity` watches
-  `NetClassWatcher.state`). A check ends at its goal or when the list runs out (patch 62: `SearchGoal.GOOD`, 3 strategies that work and score 80 or more; Settings -> Test strategies has no goal and tests the whole list). Only the
-  very first check of a fresh install runs in `initial` mode: mandatory, no Stop anywhere, Home says "Please wait while we update the
-  strategies."; after an update it runs in `check` mode, quietly, and a download that starts meanwhile uses what is stored. The 25-day upkeep
-  of patch 46 and the "app updated" notice of patch 51 no longer exist; `MaintenanceSchedule` keeps only the yt-dlp calendar.
+  refreshed once per app version and every 30 days by `AppUpdate.refreshStrategyListIfDue` (patch 64). Whether the STRATEGIES are tested is decided by the
+  network (patch 64, `LaunchUpdate`): the first launch after an install, the first launch on mobile data, a launch on a Wi-Fi network (SSID) not seen
+  before; on a network already updated on, nothing runs. That update is the list, yt-dlp, then the refresh (`DpiSearchService.startUpdate`: ways in random order until three
+  are confirmed at 85 or more, `SearchGoal.REFRESH`), quiet; a download that starts meanwhile uses what is stored. Patch 65 removed the per-version class checks
+  and the mandatory first check. A check ends at its goal or when the list runs out (patch 62: `SearchGoal.GOOD`, 3 strategies that work and score 80 or more; Settings -> Test
+  strategies has no goal and tests the whole list). `MaintenanceSchedule` keeps the 30-day calendar of yt-dlp and the list.
 - **The app behind "Unblock YouTube" (patch 51).** `Settings.getYoutubeApp` (default the official YouTube app) is opened by
   `YoutubeApps.open` and is the one app `BypassVpnService.buildAppTunnel` lets through; Settings lists the apps that open youtube.com
   links (manifest `<queries>`). A browser opens the YouTube site; its whole traffic goes through the tunnel while it runs.
@@ -180,9 +181,9 @@ not yet being 16 KB page-size compatible (upstream).
   tunnel that is starting and has nothing that works): `DpiBypass.search` walks `searchOrder`, the current chain and then `StrategyRank`
   order. (3) *Ranking* (`StrategyRank`, derived from ratings and test times, not stored): good evidence, never tested, did badly with the
   last failure at the very bottom; the last 15 of the ones that did badly and were tested less than 75 days ago are frozen and come last.
-  (4) *Per-class checks* (`ClassCheckPolicy`): once per app version and class. (5) *Two-a-day random check* (`RandomCheckPolicy`, `RandomCheck`,
-  started by `BypassVpnService` once the tunnel is up): two random strategies of the class, not the one in use, not frozen; a pass joins the
-  chain by rating, a failure leaves it (`DpiPrefs.removeFromChain`) and sinks to the bottom of the ranking. Not confirmed on a device.
+  (4) *The refresh* (`RandomCheckPolicy`, `RandomCheck`; patch 64/65): every candidate in random order, not the one in use, not frozen, until three are confirmed at 85 or more;
+  a pass joins the chain by rating, a failure leaves it (`DpiPrefs.removeFromChain`) and sinks to the bottom of the ranking. Started by Home's button (`ForceRefresh`) and by the automatic
+  update (`LaunchUpdate`); the twice-a-day calendar and the tunnel's own trigger no longer exist. Not confirmed on a device.
 
 - **Recreation (patch 48).** `MainActivity` keeps `uiMode` out of `configChanges` on purpose (the system-bar icon colours
   are set once in `onCreate`), so a dark-mode or language change recreates the activity. The current screen, the typed

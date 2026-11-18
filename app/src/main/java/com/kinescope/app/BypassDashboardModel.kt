@@ -30,19 +30,14 @@ internal data class BypassDashInputs(
     /** The verdict of the tunnel's last traffic window; only meaningful while the tunnel is active. */
     val flow: FlowVerdict,
     val searching: Boolean,
-    /** The quiet check after an install or an update: downloads keep using the stored ways and the controls stay usable. */
+    /** A refresh or an update: quiet; downloads keep using the stored ways and the controls stay usable. */
     val searchBackground: Boolean,
-    /** The first-run check: it cannot be stopped and the screen says to wait for it. */
-    val searchMandatory: Boolean,
     val activeDownloads: Int,
     /** The tunnel stopped on an error (no route, engine failed, ...) and says so; only meaningful while it is off. */
     val tunnelError: Boolean = false
 )
 
 internal enum class DashHeadline {
-    /** The first-run check: "Please wait while we update the strategies." */
-    FIRST_RUN,
-
     /** A strategy search the user started and can see. */
     CHECKING,
 
@@ -79,9 +74,8 @@ internal data class BypassDashboardModel(
     val showControls: Boolean,
     /** Choosing a strategy: not while a search is changing the results. */
     val strategiesEnabled: Boolean,
-    /** The progress strip of a running search, and whether the user may stop it (the first-run check cannot be). */
+    /** The progress strip of a running search (it always has Stop). */
     val showSearchStrip: Boolean,
-    val searchStoppable: Boolean,
     /** The primary "Check the ways" button of the not-set-up state. */
     val showSetupAction: Boolean,
     /** Whether a new check may start now (the same rule as the Test button in Settings). */
@@ -98,13 +92,11 @@ internal fun bypassDashboardModel(inputs: BypassDashInputs): BypassDashboardMode
     val ready = inputs.waysReady > 0
     val tunnelOff = inputs.tunnel == TunnelPhase.OFF
     val tunnelStarting = inputs.tunnel == TunnelPhase.STARTING
-    val mandatory = inputs.searching && inputs.searchMandatory
-    val visibleCheck = inputs.searching && !inputs.searchBackground && !mandatory
+    val visibleCheck = inputs.searching && !inputs.searchBackground
     val downloadsBusy = inputs.activeDownloads > 0
-    val busyWithCheck = mandatory || visibleCheck
+    val busyWithCheck = visibleCheck
 
     val headline = when {
-        mandatory -> DashHeadline.FIRST_RUN
         visibleCheck -> DashHeadline.CHECKING
         !ready -> DashHeadline.SETUP
         tunnelOff -> DashHeadline.OFF
@@ -131,7 +123,6 @@ internal fun bypassDashboardModel(inputs: BypassDashInputs): BypassDashboardMode
         showControls = controls,
         strategiesEnabled = controls && !inputs.searching,
         showSearchStrip = inputs.searching,
-        searchStoppable = !inputs.searchMandatory,
         showSetupAction = headline == DashHeadline.SETUP && !inputs.searching,
         checkEnabled = checkEnabled,
         checkHint = if (checkIdle && downloadsBusy) DashCheckHint.WAIT_DOWNLOAD else DashCheckHint.NONE,
@@ -141,12 +132,9 @@ internal fun bypassDashboardModel(inputs: BypassDashInputs): BypassDashboardMode
             DashTunnelState.STARTING -> DashPulse.IDLE
             DashTunnelState.OFF -> if (inputs.tunnelError) DashPulse.LOST else DashPulse.IDLE
         },
-        // Patch 56: the refresh sits with the controls (not on a "not set up" card, which has its own check button, nor during the
-        // first-run check). It runs beside the tunnel (the strategy in use is never tested), but needs the engine free of another
-        // search and of a running download, the rule of the Test button in Settings.
         // Patch 64: always there and always usable: a press stops whatever runs (downloads, the tunnel, a search), refreshes and starts
-        // them again (`ForceRefresh`). Only the first-run check, which cannot be stopped, hides it.
-        showRefresh = !mandatory,
+        // them again (`ForceRefresh`).
+        showRefresh = true,
         refreshEnabled = true
     )
 }

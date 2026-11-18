@@ -1,9 +1,9 @@
 package com.kinescope.app
 
 /**
- * Patch 46: when the background upkeep is due. Patch 55: what is left of it is the yt-dlp update calendar (every
- * [INTERVAL_MS]) and the day length the other calendars count in; the 25-day strategy re-check is gone, the strategies are
- * checked after an install or an update and by the two-a-day random check instead (`ClassCheckPolicy`, `RandomCheckPolicy`).
+ * Patch 46: when the background upkeep is due. Patch 55: what is left of it is the calendar of yt-dlp and (patch 64) of the community strategy
+ * list (every [INTERVAL_MS]) and the day length the other calendars count in; the strategies are tested when the network says so
+ * (`LaunchUpdate`, patch 64), not by a calendar.
  * Pure, unit-tested in `MaintenanceScheduleTest`.
  */
 internal object MaintenanceSchedule {

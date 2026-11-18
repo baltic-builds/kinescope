@@ -273,7 +273,6 @@
     <string name="hint_plus">Скопируйте ссылку и нажмите +: загрузка начнётся сразу с качеством и папкой по умолчанию из настроек. Повторите, чтобы добавить ещё.</string>
     <string name="dash_check_ways">Проверить способы</string>
     <string name="dash_check_progress">Проверено способов: %1$d · найдено хороших: %2$d из %3$d</string>
-    <string name="dash_recheck">Фоновая проверка · проверено: %1$d · найдено хороших: %2$d из %3$d</string>
     <string name="dash_wait_download_check">Дождитесь окончания загрузки, чтобы проверить способы.</string>
     <!-- Patch 48: adaptive UI audit -->
     <string name="logs_jump_top">Вверх</string>
@@ -390,14 +389,11 @@
         <item>Желтофиоль</item>
         <item>Юкка</item>
     </string-array>
-    <string name="dash_headline_first_run">Подождите, пока мы обновляем стратегии.</string>
-    <string name="dash_sub_first_run">Это делается один раз после установки, пропустить нельзя. Может занять несколько минут.</string>
     <!-- Patch 53: strategies are rated per connection (Wi-Fi, mobile data). -->
     <string name="net_wifi">Wi-Fi</string>
     <string name="net_mobile">мобильный интернет</string>
     <string name="strategy_rating">Рейтинг %1$d</string>
     <string name="bypass_search_network_changed">Подключение изменилось во время проверки, результаты не сохранены.</string>
-    <string name="bypass_first_run_note">Эту первую проверку остановить нельзя.</string>
     <string name="nav_library">Библиотека</string>
     <string name="cd_library">Библиотека</string>
     <!-- Patch 52: the Queue destination, the + button that downloads the clipboard link, the automatic strategy switch. -->

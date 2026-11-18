@@ -167,23 +167,11 @@ internal object StrategyRank {
 }
 
 /**
- * Patch 55: the two-a-day random check. The first time the YouTube bypass is switched on in each half day, two strategies of the
- * connection the phone is on are picked at random and tested; what they show is recorded. Pure, unit-tested in
- * `RandomCheckPolicyTest`.
+ * Patch 55: which strategies a random check may test and how it picks them. Patch 65: only the refresh (Home's button, `ForceRefresh`, the
+ * automatic update of `LaunchUpdate`) uses it now, with every candidate as the pick count; the twice-a-day calendar, its constants and the
+ * fixed pick counts are gone. Pure, unit-tested in `RandomCheckPolicyTest`.
  */
 internal object RandomCheckPolicy {
-    /** Two checks a day: one at most every twelve hours. */
-    const val INTERVAL_MS = 12L * 60L * 60L * 1000L
-
-    /** How many strategies one automatic check tests. */
-    const val PICKS = 2
-
-    /** Patch 56: how many strategies the refresh button of Home tests. */
-    const val MANUAL_PICKS = 5
-
-    /** True when [lastAt] (0 = never) is at least [INTERVAL_MS] ago. A time in the future (the clock moved back) counts as old. */
-    fun isDue(lastAt: Long, now: Long): Boolean = lastAt <= 0L || (now - lastAt) !in 0L until INTERVAL_MS
-
     /**
      * What may be picked: every strategy on offer except the frozen ones and the one carrying the tunnel (real traffic is
      * already testing that one).
@@ -200,25 +188,6 @@ internal object RandomCheckPolicy {
 }
 
 /**
- * Patch 55: when the strategies of one connection class are checked because of the app itself: after an install and after an
- * update, once for each class, on the first launch (or the first time the phone is on that class). The check stops at
- * [SearchGoal.STANDARD]. Pure, unit-tested in `ClassCheckPolicyTest`.
- */
-internal object ClassCheckPolicy {
-    /** After a check that did not finish (stopped, no network) the next one waits at least this long. */
-    const val RETRY_GAP_MS = 6L * 60L * 60L * 1000L
-
-    /**
-     * [checkedVersion] is the app version under which this class was last checked (0 = never), [currentVersion] the one running
-     * now, [tryAt] when a check of this class was last started (0 = never).
-     */
-    fun needed(checkedVersion: Long, currentVersion: Long, tryAt: Long, now: Long): Boolean =
-        currentVersion > 0L &&
-            checkedVersion != currentVersion &&
-            (tryAt <= 0L || (now - tryAt) !in 0L until RETRY_GAP_MS)
-}
-
-/**
  * Patch 59: strategies that lead a connection class by default, before the app has learned anything about them. Today only the
  * Wi-Fi group has any: two long split/disorder lines that the user's own ByeByeDPI runs on Wi-Fi (both are in the community list
  * already; here they are put first). A priority is a PRIOR, not a verdict: evidence beats it.
@@ -227,8 +196,8 @@ internal object ClassCheckPolicy {
  *   ([StrategyRouter.scorer]) or the ranking is made, so they lead unless another strategy is clearly better;
  * - a strategy rated below [StrategyRating.ELIGIBLE] (it failed) gets no bonus: it sinks like any other.
  *
- * The first strategy of a fresh install is still found by the mandatory first check, never assumed: a priority strategy is not
- * written into a chain without a test (the first-run gate reads the stored chains, see `MainActivity`).
+ * A priority strategy is never written into a chain as if it had passed a test: a fresh install gets untested starting chains (marked as
+ * seeded, `DpiStrategyStore.seedStartingChains`) and the first automatic update tests them (`LaunchUpdate`).
  * Pure, unit-tested in `StrategyPriorityTest`.
  */
 internal object StrategyPriority {

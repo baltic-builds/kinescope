@@ -436,9 +436,6 @@ class DownloadService : Service() {
         private val RETRYABLE_STATES = setOf(JobState.PAUSED, JobState.INTERRUPTED, JobState.FAILED)
         private val TERMINAL_STATES = setOf(JobState.DONE, JobState.STOPPED)
 
-        /** Patch 64: the states in which a job holds a process or the engine (pausing it needs the process destroyed). */
-        private val EXECUTION_STATES = setOf(JobState.PREPARING, JobState.RUNNING, JobState.PROCESSING, JobState.SAVING)
-
         fun enqueue(context: Context, url: String, qualityIndex: Int): EnqueueResult {
             // Patch 37: one strict entry point for both sites. `mediaId` is the bare YouTube video id
             // (unchanged, so existing journals still de-duplicate) or `ig:<shortcode>`.

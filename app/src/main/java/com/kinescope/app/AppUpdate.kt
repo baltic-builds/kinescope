@@ -4,12 +4,9 @@ import android.content.Context
 
 // Patch 51: what happens when the app itself is installed or updated. Patch 55: the same for both.
 //
-// - A FRESH INSTALL or AN UPDATE: yt-dlp is updated (`YtOfflineApp`), the community strategy list is refreshed (once per
-//   version, by the search service just before its check) and the strategies are checked again, one connection class at a time:
-//   the class the phone is on at the first launch, the other one the first time the phone is on it with the app open
-//   (`ClassCheckPolicy`, `DpiPrefs.checkedVersion`). A check stops at five working strategies, three of them perfect. Only the
-//   very first check of a fresh install is mandatory (it cannot be stopped and Home says to wait); after an update it is quiet.
-// - Otherwise nothing happens at launch. (Patch 46's 25-day upkeep and patch 51's "re-check in Settings" notice are gone.)
+// - A FRESH INSTALL or AN UPDATE: yt-dlp is updated (`YtOfflineApp`) and the community strategy list is refreshed (`AppUpdate.refreshStrategyListIfDue`:
+//   once per version and every 30 days). Patch 65: whether the STRATEGIES are tested is decided by the network, not by the version
+//   (`LaunchUpdate`: first launch, first launch on mobile data, a new Wi-Fi network). The per-version class checks are gone.
 
 internal enum class LaunchKind { FIRST_INSTALL, UPDATED, SAME }
 

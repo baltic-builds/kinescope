@@ -13,6 +13,36 @@ patch's own `.py` script for the exact, idempotent, exact-match-guarded
 edits it makes.
 
 
+## Patch 65 -- the compile errors of patch 64, and the technical debt it left
+
+Applied on top of patch 64 (which was applied and pushed, then failed `./gradlew assembleDebug`). Not confirmed on a device.
+
+### What the build said
+
+- `BypassVpnService.kt`: `Unresolved reference 'nextUpkeepAt'`; `DownloadService.kt`: `EXECUTION_STATES` declared twice (the set already existed there).
+- The cause, in both cases and in three more places that did not fail the build: patch 64's script treated an edit as "already applied" when its
+  REPLACEMENT text was found in the file, and for short replacements (a line that also occurs elsewhere, a lone `}`) that was true before the edit
+  was made, so the edit was silently skipped. The scripts now name a marker that the replacement alone contains, or, for a deletion, test that the
+  old text is gone. The skipped ones were: the `nextUpkeepAt` line, the `UPKEEP_INTERVAL_MS` constant, `DpiSearchService.busy()`.
+- Not run here: the Android build itself (no SDK in the sandbox). Run by me: the pure parts (the new rules and the changed timings, 76 unit tests), brace
+  balance and XML of every touched file, the English/Russian string parity, and a search for every removed name.
+
+### What changed
+
+- The two compile errors above, and the three leftovers.
+- Removed with their tests (the technical debt patch 64 listed): `ClassCheckPolicy`; `RandomCheckPolicy.isDue / INTERVAL_MS / PICKS / MANUAL_PICKS`
+  (what the refresh uses stays: `pool`, `pick`, `added`); `DpiPrefs.checkedVersion / setCheckedVersion / checkTriedAt / markCheckTried`, the first-check
+  answer (`firstCheckAnswer`, `FIRST_CHECK`, `FIRST_SKIP`) and their preference keys (old stored values are simply ignored); `DpiSearchService.MODE_CHECK` and the
+  `background` flag; the mandatory-check plumbing (`DpiSearchUiState.mandatory`, `mandatoryRun`, `DashHeadline.FIRST_RUN`, `searchStoppable`, the "cannot be stopped"
+  note in Settings, the Stop button that is now always there); the strings only these used (`dash_recheck`, `dash_headline_first_run`, `dash_sub_first_run`,
+  `bypass_first_run_note`); the `chk=` field of the diagnostic report (it showed the per-version class check).
+- Behaviour that follows: a search's Stop is never ignored; a stopped or finished full scan or Home check enables the bypass as before (the "quiet re-check must not enable it"
+  case no longer exists).
+
+### Not changed
+
+Everything else in patch 64. The other items under "Technical debt" need a device or a product decision and are untouched.
+
 ## Patch 64 -- one update rule, a refresh that cannot be locked, a status bar, queue formats, library players
 
 Thirteen requests of 2026-11-17 (repomix at patch 63). Applied on top of patch 63. Not confirmed on a device.

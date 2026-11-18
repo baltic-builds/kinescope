@@ -203,18 +203,9 @@ fun BypassSettingsSection(requestNotifications: () -> Unit = {}) {
             drawStopIndicator = {}
         )
         Spacer(Modifier.height(8.dp))
-        if (searchState.mandatory) {
-            // Patch 51: the first-run check cannot be stopped.
-            Text(
-                text = stringResource(R.string.bypass_first_run_note),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        } else {
-            FocusRing(modifier = Modifier.fillMaxWidth()) {
-                OutlinedButton(modifier = Modifier.fillMaxWidth(), onClick = { DpiSearchService.stop(context) }) {
-                    Text(stringResource(R.string.bypass_stop_search))
-                }
+        FocusRing(modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(modifier = Modifier.fillMaxWidth(), onClick = { DpiSearchService.stop(context) }) {
+                Text(stringResource(R.string.bypass_stop_search))
             }
         }
     } else {

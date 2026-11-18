@@ -46,12 +46,10 @@ internal object DiagnosticReport {
             append(" pin=").append(DpiPrefs.pinned(context, cls)?.let { pinned -> chain.indexOf(pinned).let { if (it >= 0) "s${it + 1}" else "gone" } } ?: "none")
             append(" proven=").append(DpiPrefs.provenLine(context, cls)?.let { proven -> chain.indexOf(proven).let { if (it >= 0) "s${it + 1}" else "other" } } ?: "none")
             append(" quar=").append(DpiPrefs.quarantined(context, cls).size)
-            // Patch 54: whether the engine runs IPv4-only on this class (learned). Patch 55: whether this class has been checked for
-            // the running version of the app, and the hours since its last two-a-day random check.
+            // Patch 54: whether the engine runs IPv4-only on this class (learned). Patch 65: and the hours since its last random test.
             append(" v4only=").append(if (DpiPrefs.ipv4Only(context, cls)) 1 else 0)
             // Patch 57: whether the phone has a Private DNS host name (the tunnel then adds no DNS server of its own). The name itself is not printed.
             append(" pdns=").append(PrivateDns.label(PrivateDns.state(context)))
-            append(" chk=").append(if (DpiPrefs.checkedVersion(context, cls) == DpiSearchService.appVersionCode(context)) "ok" else "due")
             append(" rand=").append(
                 DpiPrefs.randomCheckAt(context, cls).let { at ->
                     if (at <= 0L) "none" else "${(now - at).coerceAtLeast(0L) / 3_600_000L}h"

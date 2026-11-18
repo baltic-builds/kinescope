@@ -541,7 +541,6 @@ class BypassVpnService : VpnService() {
             engine = null
             tun = null
             hevStarted = false
-            nextUpkeepAt = startedNow + UPKEEP_INTERVAL_MS
             BypassVpnController.active()
             BypassVpnController.publishLine(chosenLine)
             BypassVpnController.publishPosition(chain.indexOf(chosenLine) + 1, chain.size)
@@ -1338,9 +1337,6 @@ class BypassVpnService : VpnService() {
         // Patch 64: shorter, so a dead strategy is found sooner (was 30 s and 45 s).
         private const val PROBE_INTERVAL_MS = 20_000L
         private const val FIRST_PROBE_DELAY_MS = 20_000L
-
-        /** Patch 56: how often a running tunnel asks the calendar of the random check whether one is due: ten minutes. */
-        private const val UPKEEP_INTERVAL_MS = 10L * 60L * 1000L
         private const val PROBE_CONNECTIONS = 3
 
         /** Patch 63: the bound of the lookup that tells a dead name lookup from a failed strategy. */

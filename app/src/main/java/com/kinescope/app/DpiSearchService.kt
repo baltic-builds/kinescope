@@ -23,11 +23,7 @@ internal data class DpiSearchUiState(
     val progress: SearchProgress? = null,
     @StringRes val resultMessageRes: Int? = null,
     val resultDirectWorks: Boolean = false,
-    /** Patch 55: the quiet check of one connection after an install or an update; downloads keep using the stored strategies. */
-    val background: Boolean = false,
-    /** Patch 51: the first-run check of a fresh install: it cannot be stopped and Home says to wait for it. */
-    val mandatory: Boolean = false,
-    /** Patch 56: a random check (the refresh button, the twice-a-day check): a few ways picked at random, quiet like [background]. */
+    /** Patch 56: a refresh (the Home button, the automatic update): ways picked at random until three are confirmed. Quiet: the controls stay. */
     val random: Boolean = false,
     /** Patch 56: what the last random check found; set when it ends, shown on the dashboard until the next search starts. */
     val randomResult: RandomReport? = null,
@@ -45,8 +41,8 @@ internal object DpiSearchController {
     private val mutableState = MutableStateFlow(DpiSearchUiState())
     val state = mutableState.asStateFlow()
 
-    internal fun starting(background: Boolean = false, mandatory: Boolean = false, random: Boolean = false, full: Boolean = false) {
-        mutableState.value = DpiSearchUiState(running = true, background = background, mandatory = mandatory, random = random, full = full)
+    internal fun starting(random: Boolean = false, full: Boolean = false) {
+        mutableState.value = DpiSearchUiState(running = true, random = random, full = full)
     }
 
     /** Patch 56: a start that found nothing to do (a check that was not due after all) leaves no message behind. */
@@ -96,10 +92,6 @@ class DpiSearchService : Service() {
     }
     private val stopRequested = AtomicBoolean(false)
 
-    // Patch 51: set while the first-run check runs: Stop is ignored and the notification has no Stop button.
-    @Volatile
-    private var mandatoryRun = false
-
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
@@ -109,18 +101,13 @@ class DpiSearchService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            // Patch 51: the first-run check is mandatory; a stop request (a stale notification, an old intent) is ignored.
-            ACTION_STOP -> if (!DpiSearchController.state.value.mandatory) stopRequested.set(true)
+            ACTION_STOP -> stopRequested.set(true)
             ACTION_START -> {
                 if (!DpiSearchController.state.value.running) {
                     val mode = intent?.getStringExtra(EXTRA_MODE) ?: MODE_MANUAL
                     val only = intent?.getStringArrayExtra(EXTRA_ONLY)?.toList()
                     stopRequested.set(false)
-                    // Patch 63: nothing is mandatory any more (the first check is a question, see FirstCheckPrompt.kt); the flag is inert.
-                    mandatoryRun = false
                     DpiSearchController.starting(
-                        background = mode == MODE_CHECK,
-                        mandatory = mandatoryRun,
                         random = mode == MODE_REFRESH || mode == MODE_UPDATE,
                         full = mode == MODE_FULL
                     )
@@ -153,13 +140,10 @@ class DpiSearchService : Service() {
     private fun runSearch(mode: String, only: List<String>?) {
         val context = applicationContext
         val testOnly = only != null
-        val background = mode == MODE_CHECK
         try {
             // Patch 53: a search describes the connection it ran on. The class is read once, here, and the results are
             // stored for it only if the connection is still of that class when the search ends.
             val cls = NetworkState.currentClass(context)
-            // Patch 55: note the attempt first, so a check that is stopped or fails is not restarted at once (ClassCheckPolicy).
-            if (background) DpiPrefs.markCheckTried(context, cls)
             // Patch 64: the full scan of Settings looks at the current community list first (it is due once a month, and after an update).
             if (!testOnly) AppUpdate.refreshStrategyListIfDue(context)
             val directWorks = DpiBypass.directConnectionWorks()
@@ -199,8 +183,8 @@ class DpiSearchService : Service() {
                     // Patch 35: a stopped search used to throw away everything it had found. Keep the
                     // passes (the old chain stays behind them), as long as something really carried traffic.
                     val kept = results.any { it.fullPass && it.deepOk } &&
-                        DpiBypass.applySearchResults(context, cls, results, keepProven = background, partial = true)
-                    if (kept && !background) DpiPrefs.setEnabled(context, true)
+                        DpiBypass.applySearchResults(context, cls, results, keepProven = false, partial = true)
+                    if (kept) DpiPrefs.setEnabled(context, true)
                     DpiSearchController.finished(if (kept) R.string.bypass_search_partial else R.string.bypass_search_stopped)
                 }
                 else -> {
@@ -208,11 +192,8 @@ class DpiSearchService : Service() {
                     DpiPrefs.setHasRunInitialSearch(context, true)
                     DpiPrefs.setLastSearchVersion(context, appVersionCode(context))
                     DpiPrefs.setLastSearchAt(context, System.currentTimeMillis())
-                    // Patch 55: this connection is checked for the running version, whether the goal was reached or the list ran out.
-                    DpiPrefs.setCheckedVersion(context, cls, appVersionCode(context))
-                    if (DpiBypass.applySearchResults(context, cls, results, keepProven = background)) {
-                        // A quiet re-check must not switch a bypass the user turned off back on.
-                        if (!background) DpiPrefs.setEnabled(context, true)
+                    if (DpiBypass.applySearchResults(context, cls, results, keepProven = false)) {
+                        DpiPrefs.setEnabled(context, true)
                         DpiSearchController.finished(
                             if (directWorks) R.string.bypass_search_found_direct else R.string.bypass_search_found,
                             directWorks
@@ -324,8 +305,7 @@ class DpiSearchService : Service() {
             .setContentIntent(AppIntents.pendingOpenHome(this))
             .setOnlyAlertOnce(true)
             .setOngoing(true)
-        // Patch 51: the first-run check cannot be stopped, so its notification offers no Stop.
-        if (!mandatoryRun) builder.addAction(0, getString(R.string.stop), stopPendingIntent)
+        builder.addAction(0, getString(R.string.stop), stopPendingIntent)
         return builder.build()
     }
 
@@ -349,7 +329,6 @@ class DpiSearchService : Service() {
         private const val EXTRA_MODE = "mode"
         private const val EXTRA_ONLY = "only"
         private const val MODE_MANUAL = "manual"
-        private const val MODE_CHECK = "check"
         private const val MODE_TEST = "test"
         private const val MODE_REFRESH = "refresh"
         private const val MODE_UPDATE = "update"
@@ -511,6 +490,4 @@ internal object RandomCheck {
         )
         return report
     }
-
-    private fun busy(): Boolean = DpiSearchController.state.value.running || DpiSearchController.isHeld()
 }

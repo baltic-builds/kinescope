@@ -25,7 +25,6 @@ object DpiPrefs {
     private const val KEY_NAMES = "strategy_names"
     private const val KEY_SEEN_VERSION = "seen_version"
     private const val KEY_LIST_VERSION = "list_version"
-    private const val KEY_FIRST_ANSWER = "first_check_answer"
 
     // Class-scoped (see NetClass.suffix).
     private const val KEY_STRATEGY = "strategy"
@@ -39,8 +38,6 @@ object DpiPrefs {
     private const val KEY_LEARNED = "learned"
     private const val KEY_SEEDED = "seeded"
     private const val KEY_IPV4_ONLY = "ipv4_only"
-    private const val KEY_CHECKED_VERSION = "checked_version"
-    private const val KEY_CHECK_TRY_AT = "check_try_at"
     private const val KEY_RANDOM_AT = "random_check_at"
     private const val KEY_RANDOM_LAST = "random_check_last"
     private const val PROVEN_MAX_AGE_MS = 14L * MaintenanceSchedule.DAY_MS
@@ -143,26 +140,7 @@ object DpiPrefs {
         prefs(context).edit().putBoolean(key(KEY_IPV4_ONLY, cls), value).apply()
     }
 
-    /**
-     * Patch 55: the app version code under which the strategies of [cls] were last checked (0 = never). A fresh install or an
-     * update makes the stored value differ from the running version, which is what asks for one check per class
-     * ([ClassCheckPolicy]); a check that reaches its goal, or runs the list out, records the version. The Wi-Fi class is stamped
-     * when the install happens on Wi-Fi, the mobile class the first time the phone is on mobile data with the app open.
-     */
-    internal fun checkedVersion(context: Context, cls: NetClass): Long = prefs(context).getLong(key(KEY_CHECKED_VERSION, cls), 0L)
-
-    internal fun setCheckedVersion(context: Context, cls: NetClass, version: Long) {
-        prefs(context).edit().putLong(key(KEY_CHECKED_VERSION, cls), version).apply()
-    }
-
-    /** Patch 55: when a check of [cls] last started (0 = never), so one that is stopped or fails is not restarted at once. */
-    internal fun checkTriedAt(context: Context, cls: NetClass): Long = prefs(context).getLong(key(KEY_CHECK_TRY_AT, cls), 0L)
-
-    internal fun markCheckTried(context: Context, cls: NetClass, at: Long = System.currentTimeMillis()) {
-        prefs(context).edit().putLong(key(KEY_CHECK_TRY_AT, cls), at).apply()
-    }
-
-    /** Patch 55: when the last two-a-day random check of [cls] started (0 = never). Each class keeps its own calendar. */
+    /** Patch 55: when the last random test of [cls] started (0 = never). Patch 65: no calendar reads it any more; the diagnostic report does. */
     internal fun randomCheckAt(context: Context, cls: NetClass): Long = prefs(context).getLong(key(KEY_RANDOM_AT, cls), 0L)
 
     internal fun setRandomCheckAt(context: Context, cls: NetClass, at: Long) {
@@ -233,20 +211,6 @@ object DpiPrefs {
             if (result != chain) writeChain(context, cls, result)
         }
     }
-
-    /**
-     * Patch 63: what the user answered to the question of the first launch ("check all strategies now?"): [FIRST_CHECK], [FIRST_SKIP] or
-     * null (not asked yet). The question is asked on a fresh install only, once; an answer of [FIRST_CHECK] whose scan was cut short
-     * (the app was closed) is carried on at the next launch without asking again.
-     */
-    fun firstCheckAnswer(context: Context): String? = prefs(context).getString(KEY_FIRST_ANSWER, null)
-
-    fun setFirstCheckAnswer(context: Context, answer: String) {
-        prefs(context).edit().putString(KEY_FIRST_ANSWER, answer).apply()
-    }
-
-    const val FIRST_CHECK = "check"
-    const val FIRST_SKIP = "skip"
 
     /** True once the one-time automatic first-run strategy search has been attempted. */
     fun hasRunInitialSearch(context: Context): Boolean =
@@ -564,7 +528,6 @@ object DpiStrategyStore {
      * Patch 64: called on a fresh install before the first automatic update (`LaunchUpdate.plan`), which then tests and replaces it.
      */
     internal fun seedStartingChains(context: Context) {
-        val version = DpiSearchService.appVersionCode(context)
         DpiPrefs.consistently {
             for (cls in NetClass.entries) {
                 ensureSeeded(context, cls)
@@ -572,7 +535,6 @@ object DpiStrategyStore {
                     val seed = StrategyRouter.untestedSeed(candidates(context), StrategyPriority.forClass(cls), ChainPlanner.MAX_CHAIN)
                     if (seed.isNotEmpty()) DpiPrefs.markStrategiesVerified(context, cls, seed.first(), seed.drop(1), seeded = true)
                 }
-                if (version > 0L) DpiPrefs.setCheckedVersion(context, cls, version)
             }
         }
         DpiPrefs.setHasRunInitialSearch(context, true)
