@@ -13,6 +13,65 @@ patch's own `.py` script for the exact, idempotent, exact-match-guarded
 edits it makes.
 
 
+## Patch 64 -- one update rule, a refresh that cannot be locked, a status bar, queue formats, library players
+
+Thirteen requests of 2026-11-17 (repomix at patch 63). Applied on top of patch 63. Not confirmed on a device.
+
+### What changed
+
+1. **Library players.** Settings -> "Open library files with": one choice for video, one for audio (`LibraryPlayers.kt`). The default
+   is "Let Android choose", i.e. the old behaviour. A chosen player that cannot open a file falls back to Android's choice.
+2. **The refresh stops at three ways at 85 or more.** The Home button (and the automatic update) test the ways of the connection in
+   random order until three are confirmed with real traffic and a score of 85 or more (`SearchGoal.REFRESH`), or the list is used up. The
+   strategy in use and the frozen ones are never tested (patch 61's rule). The strip shows "tried N - X of 3 confirmed".
+3. **The orange dot** at the end of the progress bars is Material 3 1.3's "stop indicator" (drawn in the primary colour at the end of the
+   track). Switched off (`drawStopIndicator = {}`) on the Home strip, the queue row and the Settings search bar.
+4. **Faster switching.** Stall verdict 7 s -> 4 s (`TunnelStall.STALL_MS`), two one-way windows instead of three (`TunnelFlow`), minimum gap
+   between rotations 4 s -> 2 s, health-check stage timeout 6 s -> 4 s, first probe 45 s -> 20 s and probe interval 30 s -> 20 s, start retries
+   3/6/12/24/45/60 s (were 5/10/20/40/60/60), exhausted-chain cooldowns 30/90/240 s (were 60/120/300).
+5. **Queue formats.** The queue screen has a chip row for the default format (the same setting as in Settings and on the Add screen); every
+   row has a small button with its format. Changing it stores the new format and restarts the download in it (a running job is paused and
+   started again from scratch, its partial files deleted; a paused/failed/interrupted job restarts at once; a job being saved keeps its format).
+6. **"Watch YouTube" during a background search.** The search drives many connections on the same network and the tunnel's start-up checks
+   (a few seconds each) failed under that load, so the tunnel rotated, learned bad marks or gave up. The start now stops a running search first
+   and waits up to 15 s for it to end; if it has not ended it goes on beside it, as before. (This is the fix chosen instead of disabling the
+   button; the cause is inferred from the code and was not reproduced on a device.)
+7. **The refresh cannot be locked.** The Home button and Settings' "Test strategies" are always enabled. A press (`ForceRefresh`) pauses every
+   queued and running download (a stuck one is interrupted after 6 s and marked interrupted, and the download hold on the engine is cleared),
+   stops a running search, stops the tunnel, runs the refresh (Home: until three ways at 85+; Settings: every way), then starts the tunnel again
+   if it was on and resumes the downloads that were queued or running.
+8. **One update rule** (`LaunchUpdate.kt`): the first launch after an install; the first launch on mobile data; a launch on a Wi-Fi network (SSID)
+   not seen before. On a network already updated on, nothing runs (mobile data is one network). "The update" is: the strategy list, yt-dlp, then the
+   refresh of item 2. It runs in the background (the tunnel and downloads stay usable; a fresh install first gets untested starting chains). The
+   network is remembered only when the update finished without being stopped; one that did not finish is retried at a later launch, not within 6 h.
+   Only a hash of the network is stored. The Wi-Fi name needs the location permission: it is asked once (`WifiNamePrompt.kt`); without it a network is
+   recognised by its gateway and subnet. Removed: patch 63's first-launch question, patch 55's per-version class checks, patch 56's twice-a-day random check.
+9. **A manual choice rebuilds the tunnel.** Choosing a strategy on Home or in Settings (`BypassVpnService.rebuild`) takes a running tunnel down and
+   builds it again on the choice; before, the old tunnel stayed on the old strategy.
+10. **Status bar.** The tunnel switch is gone; "Watch YouTube" is the one control. Below it, "Bypass restrictions" is an indicator: empty while off, a
+    sweeping band while starting, a green fill with a moving light once the tunnel carries traffic, an amber pulsing fill when the app sends and nothing
+    comes back (`TunnelStatusBar`). A small "Turn off" beside it is the only control (the tunnel's notification still has Stop).
+11. **Calendars.** yt-dlp and the community strategy list refresh every 30 days (`MaintenanceSchedule.INTERVAL_MS`, was 25 days and yt-dlp only), and at
+    an install or an update. Before, the list was refreshed once per app version and had no calendar.
+12. **ByeByeDPI's Yandex DNS.** Analysed in its repository (`MainSettingsFragment.kt`, commit "add dns picker dialog", 2026-06-29): Yandex 77.88.8.8 is one
+    preset of a DNS picker (system / Google / Cloudflare / Quad9 / Yandex), not a new default; ByeByeDPI's default is still 1.1.1.1 and it already skips its
+    own DNS server when Private DNS is set, both of which Kinescope already did (`PrivateDns`). Nothing in the repository shows a measured gain. Added the
+    same picker for the YouTube tunnel (Settings, default Cloudflare as before; a running tunnel is rebuilt on a change).
+13. **A browser stays a browser.** A browser chosen for "Watch YouTube" is opened on `https://m.youtube.com/` (the final address), with the application-id
+    extra Chrome-family browsers read. The suspected cause: `www.youtube.com` redirects a phone to the mobile site and a browser started by another app
+    hands a redirect to the app that owns the link. Not confirmed on a device.
+
+### Decisions to know about
+
+- "Updates ... all strategies" (request 8) is implemented as the refresh of request 2 (three ways at 85+), not a scan of all 72; the full scan stays in Settings.
+- Request 8a removes patch 63's question ("Check now" / "Do not check") and its strings.
+- The refresh restarts the tunnel and downloads from a background thread; on Android 12+ a foreground-service start from the background can be refused, in which
+  case they stay paused/stopped and are started by hand.
+
+### Not changed
+
+The router, ranking and the strategy list; the log format; the engine and the VPN permission; the signing and release process.
+
 ## Patch 63 -- a tunnel that survives a failed probe, checks that work without a name lookup, the first-launch question, a 240-minute log
 
 Request (2026-11-16, repomix at patch 62, two device logs): (1) the bypass sometimes shuts down and restarts: find the error; (2) the log keeps only the last 240 minutes, with more detail if needed; (3) bring back the

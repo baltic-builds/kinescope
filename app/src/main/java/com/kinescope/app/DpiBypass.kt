@@ -24,7 +24,7 @@ object DpiBypass {
     private const val MAX_VERIFIED_STRATEGIES = ChainPlanner.MAX_CHAIN
 
     /** Patch 33: per-stage timeout of the quick live check made right before a strategy is used. */
-    private const val HEALTH_STAGE_TIMEOUT_MS = 6_000
+    private const val HEALTH_STAGE_TIMEOUT_MS = 4_000
 
     /** Patch 34: pause between the two tries of a live check; passing strategies listed per search. */
     private const val HEALTH_RETRY_PAUSE_MS = 400L

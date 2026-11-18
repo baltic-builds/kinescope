@@ -151,8 +151,6 @@ private fun KinescopeApp(
     // Patch 51: the one-time power-saving pop-up of the second launch (see BatteryOptimization.kt). The search state is
     // read where it is shown (the dashboard), not here: this composable no longer redraws on every search step.
     var showBatteryPrompt by rememberSaveable { mutableStateOf(false) }
-    // Patch 63: the question of the first launch of a fresh install (see FirstCheckPrompt.kt).
-    var showFirstCheckPrompt by rememberSaveable { mutableStateOf(false) }
     val batteryOpener = rememberBatteryOpener { }
 
     // Patch 48: where the user is, the link being typed and the chosen quality survive the activity being recreated
@@ -197,25 +195,6 @@ private fun KinescopeApp(
         }
     }
 
-    // Patch 36: MainActivity is the single owner of automatic strategy refreshes. Patch 63: a fresh install ASKS once whether to check
-    // every strategy now ("Check now" / "Do not check"); patch 51's mandatory first check, which could not be stopped, is gone. A
-    // "Check now" whose scan was cut short (the app was closed) is carried on at the next launch without asking again.
-    LaunchedEffect(Unit) {
-        if (
-            !DpiPrefs.hasRunInitialSearch(context) &&
-            // Patch 53: nothing verified on either connection class (a fresh install).
-            NetClass.entries.all { DpiStrategyStore.verifiedChain(context, it).isEmpty() } &&
-            !DpiSearchController.state.value.running
-        ) {
-            if (DpiPrefs.firstCheckAnswer(context) == DpiPrefs.FIRST_CHECK) {
-                requestNotifications()
-                DpiSearchService.startFirst(context)
-            } else {
-                showFirstCheckPrompt = true
-            }
-        }
-    }
-
     // Patch 51: the power-saving pop-up: from the second launch on, once, never while the first-run check has not
     // finished (that one has the screen), and not when Android already lets the app run freely.
     LaunchedEffect(Unit) {
@@ -232,30 +211,27 @@ private fun KinescopeApp(
         }
     }
 
-    // Patch 55: the strategies of each connection class are checked once for every version of the app (a fresh install or an
-    // update), quietly, with no popup: the class the phone is on at the first launch, the other one the first time the phone
-    // is on it with the app open (`ClassCheckPolicy`). The check stops at five working strategies, three of them perfect, so on
-    // mobile data it costs a few megabytes at most. Patch 46's 25-day full re-check is gone. A download that starts meanwhile
-    // uses the stored and learned strategies.
-    // Patch 56: when no such check is needed, opening the app starts the twice-a-day random check if the calendar says it is due
-    // (two random ways of the connection the phone is on, `RandomCheck`). Before, it ran only when the bypass was switched on,
-    // so a person who opened the app and saw nothing happen had no way to tell the check from no check. With the bypass up, the
-    // tunnel's own thread does it.
+    // Patch 64: the automatic update (see LaunchUpdate.kt): the first launch after an install, the first launch on mobile data and a launch
+    // on a Wi-Fi network (SSID) not seen before. On a network the app has already updated on, nothing runs. This replaces patch 55's
+    // per-version class checks, patch 56's twice-a-day random check and patch 63's first-launch question. The Wi-Fi name needs the location
+    // permission: it is asked once, with a short explanation; without it a network is known by its gateway and subnet instead.
     val connectionClass by NetClassWatcher.state.collectAsState()
-    LaunchedEffect(connectionClass) {
-        val cls = connectionClass ?: return@LaunchedEffect
-        if (!DpiPrefs.hasRunInitialSearch(context) || DpiSearchController.state.value.running) return@LaunchedEffect
-        if (
-            ClassCheckPolicy.needed(
-                checkedVersion = DpiPrefs.checkedVersion(context, cls),
-                currentVersion = DpiSearchService.appVersionCode(context),
-                tryAt = DpiPrefs.checkTriedAt(context, cls),
-                now = System.currentTimeMillis()
-            )
-        ) {
-            DpiSearchService.startCheck(context)
-        } else if (!bypassState.active && !bypassState.starting && RandomCheck.dueNow(context, cls)) {
-            DpiSearchService.startRandom(context, RandomCheckPolicy.PICKS, force = false)
+    var showWifiNamePrompt by rememberSaveable { mutableStateOf(false) }
+    var wifiNameAnswered by rememberSaveable { mutableStateOf(false) }
+    val locationLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { wifiNameAnswered = true }
+    LaunchedEffect(connectionClass, wifiNameAnswered) {
+        if (connectionClass == null || DpiSearchController.state.value.running) return@LaunchedEffect
+        when (withContext(Dispatchers.IO) { LaunchUpdate.plan(context) }) {
+            LaunchStep.NOTHING -> Unit
+            LaunchStep.ASK_WIFI_NAME -> {
+                LaunchUpdate.markWifiNameAsked(context)
+                showWifiNamePrompt = true
+            }
+            LaunchStep.UPDATE -> {
+                // The update runs in a foreground service whose notification needs the permission.
+                requestNotifications()
+                DpiSearchService.startUpdate(context)
+            }
         }
     }
 
@@ -382,18 +358,15 @@ private fun KinescopeApp(
 
     BackHandler(enabled = section != AppSection.HOME) { goBack() }
 
-    if (showFirstCheckPrompt) {
-        FirstCheckDialog(
-            onCheckNow = {
-                showFirstCheckPrompt = false
-                DpiPrefs.setFirstCheckAnswer(context, DpiPrefs.FIRST_CHECK)
-                // The check runs in a foreground service whose notification needs the permission.
-                requestNotifications()
-                DpiSearchService.startFirst(context)
+    if (showWifiNamePrompt) {
+        WifiNameDialog(
+            onAllow = {
+                showWifiNamePrompt = false
+                locationLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
             },
-            onSkip = {
-                showFirstCheckPrompt = false
-                scope.launch(Dispatchers.IO) { DpiStrategyStore.skipFirstCheck(context) }
+            onLater = {
+                showWifiNamePrompt = false
+                wifiNameAnswered = true
             }
         )
     }
@@ -436,7 +409,7 @@ private fun KinescopeApp(
                 AppSection.HOME -> HomeScreen(
                     jobs = jobs,
                     bypassState = bypassState,
-                    onToggleTunnel = { on -> if (on) startBypass(openApp = false) else BypassVpnService.stop(context) },
+                    onStopTunnel = { BypassVpnService.stop(context) },
                     onOpenApp = { startBypass(openApp = true) },
                     requestNotifications = requestNotifications,
                     onSignIn = { section = AppSection.YOUTUBE_AUTH },
@@ -444,9 +417,15 @@ private fun KinescopeApp(
                 )
                 AppSection.QUEUE -> QueueScreen(
                     jobs = jobs,
+                    defaultQuality = selectedQuality,
+                    onDefaultQuality = { index ->
+                        selectedQuality = index
+                        Settings.setDefaultQualityIndex(context, index)
+                    },
                     onPause = { DownloadService.pause(context, it) },
                     onResume = { DownloadService.resume(context, it) },
-                    onStop = { DownloadService.stop(context, it) }
+                    onStop = { DownloadService.stop(context, it) },
+                    onFormat = { id, quality -> DownloadService.changeQuality(context, id, quality) }
                 )
                 AppSection.LIBRARY -> LibraryScreen(
                     library = library,

@@ -150,8 +150,6 @@ class BypassVpnService : VpnService() {
     // Patch 56: how many times the transport died early on a strategy since it last carried traffic (see TransportRecovery), and when
     // the calendar of the random check is next looked at while the tunnel runs. Touched by the monitor thread only (the executor).
     private val earlyDeaths = HashMap<String, Int>()
-    private val randomRunning = AtomicBoolean(false)
-    @Volatile private var nextUpkeepAt = 0L
 
     // Patch 59: the seven-second rule (see TunnelStall): the monitor thread reads the bridge counters once a second and a
     // strategy that has left the app waiting for about seven seconds is switched. `spareSearchDone`: a chain with nothing left
@@ -196,6 +194,21 @@ class BypassVpnService : VpnService() {
                             isDaemon = true
                             start()
                         }
+                    }
+                }
+            }
+            ACTION_REBUILD -> {
+                // Patch 64: the strategy was chosen by hand (Home, Settings): the running tunnel is taken down and built again on the new
+                // choice (before, the old tunnel stayed up on the old strategy). Its own thread, like the update's.
+                val state = BypassVpnController.state.value
+                if (state.active && !updating && !restarting && !startInProgress.get() && !stopRequested.get()) {
+                    AppLog.i("BypassVpnService", "rebuild: a strategy was chosen by hand")
+                    Thread({
+                        BypassVpnController.publishEvent(RouterEventKind.UPDATE)
+                        restartTunnel()
+                    }, "kinescope-bypass-rebuild").apply {
+                        isDaemon = true
+                        start()
                     }
                 }
             }
@@ -271,6 +284,7 @@ class BypassVpnService : VpnService() {
                 val queued = runCatching {
                     // A session left behind by an earlier run would keep the one VPN engine gate taken: nothing runs now, so none is wanted.
                     executor.execute {
+                        yieldToSearch()
                         DpiEngine.reclaimVpn()
                         startTunnel()
                     }
@@ -540,7 +554,6 @@ class BypassVpnService : VpnService() {
             )
             AppLog.i("BypassVpnService", "YouTube-only bypass active")
             if (monitorRunning.compareAndSet(false, true)) executor.execute { monitorTunnel() }
-            startRandomCheck(cls, chosenLine)
             return StartOutcome.Up
         } catch (e: BypassStartException) {
             return StartOutcome.Failed(e.errorRes)
@@ -571,26 +584,24 @@ class BypassVpnService : VpnService() {
     }
 
     /**
-     * Patch 55: the two-a-day random check ([RandomCheck]) for the connection this tunnel runs on, started once the tunnel is up so
-     * switching the bypass on is not delayed. It has its own thread (the monitor and the start/stop work take turns on [executor])
-     * and gives way as soon as the tunnel is stopped. The strategy in use is not among the ones it tests.
-     *
-     * Patch 56: also looked at every [UPKEEP_INTERVAL_MS] while the tunnel runs (see [monitorTunnel]): a tunnel that stays on for days
-     * used to be checked once, when it was switched on. One check at a time ([randomRunning]); the thread is only started when the
-     * calendar says a check is due, so a quiet tunnel costs nothing.
+     * Patch 64: "Watch YouTube" while a quiet strategy search (the automatic update, the refresh) is running. The search drives up to
+     * dozens of connections through its own engine on the same network, and the tunnel's start-up checks, which have a few seconds each,
+     * failed under that load: the tunnel then rotated through its chain, learned bad marks, or gave up, and the user had to stop the
+     * search and start again by hand. Now the start stops the search first and waits (bounded) for it to end; what the search had
+     * found so far is kept. If it has not ended in [SEARCH_YIELD_MS] the start goes on beside it, as before.
      */
-    private fun startRandomCheck(cls: NetClass, active: String?) {
-        if (!RandomCheck.dueNow(applicationContext, cls)) return
-        if (!randomRunning.compareAndSet(false, true)) return
-        Thread({
-            try {
-                RandomCheck.runIfDue(applicationContext, cls, active) { stopRequested.get() || !tunnelRunning }
-            } catch (e: Exception) {
-                AppLog.e("BypassVpnService", "Random check failed", e)
-            } finally {
-                randomRunning.set(false)
-            }
-        }, "kinescope-random-check").apply { isDaemon = true }.start()
+    private fun yieldToSearch() {
+        if (!DpiSearchController.state.value.running) return
+        AppLog.i("BypassVpnService", "start: a strategy search is running; stopping it first")
+        DpiSearchService.stop(applicationContext)
+        val deadline = SystemClock.elapsedRealtime() + SEARCH_YIELD_MS
+        while (DpiSearchController.state.value.running && !stopRequested.get() && SystemClock.elapsedRealtime() < deadline) {
+            Thread.sleep(200L)
+        }
+        AppLog.i(
+            "BypassVpnService",
+            if (DpiSearchController.state.value.running) "start: the search is still running; going on beside it" else "start: the search has stopped"
+        )
     }
 
     /** Patch 54: the outcome of choosing the strategy a tunnel starts on. */
@@ -766,10 +777,6 @@ class BypassVpnService : VpnService() {
             return !stopRequested.get()
         }
         if (tick % NOTIFICATION_CHECK_TICKS == 0) ensureNotificationVisible()
-        if (!updating && !restarting && SystemClock.elapsedRealtime() >= nextUpkeepAt) {
-            nextUpkeepAt = SystemClock.elapsedRealtime() + UPKEEP_INTERVAL_MS
-            startRandomCheck(tunnelClass, currentLine)
-        }
         if (!updating && !restarting) followConnection()
         if (!updating && !restarting && SystemClock.elapsedRealtime() >= nextStallSampleAt) {
             checkTunnelStall()
@@ -1157,7 +1164,7 @@ class BypassVpnService : VpnService() {
         // not be able to use (patch 54's reach fault). Adding ANY IPv6 address, route or DNS server would allow the family again.
         // DNS: the fixed resolver, unless the phone has a Private DNS name: then none is added and Android uses the default
         // network's DNS, where that name takes effect (`PrivateDns`).
-        val dns = PrivateDns.tunnelDnsServer(PrivateDns.state(this))
+        val dns = PrivateDns.tunnelDnsServer(PrivateDns.state(this), Settings.getTunnelDns(this))
         tunnelDnsTag = dns ?: "system"
         val builder = Builder()
             .setSession(getString(R.string.bypass_title))
@@ -1307,6 +1314,9 @@ class BypassVpnService : VpnService() {
         /** Patch 60: how long a start that came in during a stop waits for the previous run to end. */
         private const val DRAIN_TIMEOUT_S = 20L
 
+        /** Patch 64: how long a start waits for a quiet search to stop before it goes on beside it (see [yieldToSearch]). */
+        private const val SEARCH_YIELD_MS = 15_000L
+
         /** Patch 60: the connection must have been back this long before a retry wait is cut short (a handover flickers). */
         private const val CONNECTION_BACK_MIN_WAIT_MS = 2_000L
 
@@ -1315,6 +1325,7 @@ class BypassVpnService : VpnService() {
         private const val ACTION_START = "com.kinescope.app.ACTION_START_BYPASS_VPN"
         private const val ACTION_STOP = "com.kinescope.app.ACTION_STOP_BYPASS_VPN"
         private const val ACTION_UPDATE = "com.kinescope.app.ACTION_UPDATE_BYPASS_VPN"
+        private const val ACTION_REBUILD = "com.kinescope.app.ACTION_REBUILD_BYPASS_VPN"
         private const val ACTION_REPOST = "com.kinescope.app.ACTION_REPOST_BYPASS_VPN_NOTIFICATION"
         private const val CHANNEL_ID = "youtube_bypass"
         private const val NOTIFICATION_ID = 1101
@@ -1324,8 +1335,9 @@ class BypassVpnService : VpnService() {
         private const val NOTIFICATION_CHECK_TICKS = 6
 
         // Patch 35: periodic probe and strategy rotation.
-        private const val PROBE_INTERVAL_MS = 30_000L
-        private const val FIRST_PROBE_DELAY_MS = 45_000L
+        // Patch 64: shorter, so a dead strategy is found sooner (was 30 s and 45 s).
+        private const val PROBE_INTERVAL_MS = 20_000L
+        private const val FIRST_PROBE_DELAY_MS = 20_000L
 
         /** Patch 56: how often a running tunnel asks the calendar of the random check whether one is due: ten minutes. */
         private const val UPKEEP_INTERVAL_MS = 10L * 60L * 1000L
@@ -1349,6 +1361,14 @@ class BypassVpnService : VpnService() {
                 true
             }.onFailure { AppLog.e("BypassVpnService", "Could not dispatch start", it) }
                 .getOrDefault(false)
+        }
+
+        /** Patch 64: a strategy was chosen by hand: a running tunnel is rebuilt on it; a stopped one is left alone. */
+        fun rebuild(context: Context) {
+            if (!BypassVpnController.state.value.active) return
+            val intent = Intent(context, BypassVpnService::class.java).apply { action = ACTION_REBUILD }
+            runCatching { context.startService(intent) }
+                .onFailure { AppLog.e("BypassVpnService", "Could not dispatch rebuild", it) }
         }
 
         fun stop(context: Context) {

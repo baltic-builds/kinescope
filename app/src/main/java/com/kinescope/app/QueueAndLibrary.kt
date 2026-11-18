@@ -8,6 +8,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -61,14 +63,15 @@ internal fun QueueRow(
     job: DownloadJobStatus,
     onPause: (String) -> Unit,
     onResume: (String) -> Unit,
-    onStop: (String) -> Unit
+    onStop: (String) -> Unit,
+    onFormat: (String, QualityId) -> Unit
 ) {
     // Patch 52: the removal (Stop) is a button on every layout, now that the queue has a screen of its own; before, a
     // touch screen had only the swipe, which nothing on the row hints at. A row in SAVING cannot be removed.
     val onRemove: (() -> Unit)? = if (job.state != JobState.SAVING) ({ onStop(job.id) }) else null
     if (LocalAdaptive.current.isTv) {
         // A D-pad cannot swipe: the button is the only way.
-        QueueRowCard(job = job, onPause = onPause, onResume = onResume, onRemove = onRemove)
+        QueueRowCard(job = job, onPause = onPause, onResume = onResume, onRemove = onRemove, onFormat = { onFormat(job.id, it) })
         return
     }
     val dismissState = rememberSwipeToDismissBoxState(
@@ -104,7 +107,7 @@ internal fun QueueRow(
             }
         }
     ) {
-        QueueRowCard(job = job, onPause = onPause, onResume = onResume, onRemove = onRemove)
+        QueueRowCard(job = job, onPause = onPause, onResume = onResume, onRemove = onRemove, onFormat = { onFormat(job.id, it) })
     }
 }
 
@@ -114,7 +117,8 @@ private fun QueueRowCard(
     job: DownloadJobStatus,
     onPause: (String) -> Unit,
     onResume: (String) -> Unit,
-    onRemove: (() -> Unit)?
+    onRemove: (() -> Unit)?,
+    onFormat: (QualityId) -> Unit
 ) {
     // Patch 51: compact rows (the queue was taking too much of Home): tighter padding, a 32dp tile, a small status line.
     Surface(
@@ -146,7 +150,8 @@ private fun QueueRowCard(
             Spacer(modifier = Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "${job.qualityLabel} — ${job.url}",
+                    // Patch 64: the format has its own button now.
+                    text = job.url,
                     style = MaterialTheme.typography.titleSmall,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -174,7 +179,9 @@ private fun QueueRowCard(
                             progress = { progressFraction },
                             modifier = Modifier.fillMaxWidth(),
                             color = MaterialTheme.colorScheme.primary,
-                            trackColor = MaterialTheme.colorScheme.surface
+                            trackColor = MaterialTheme.colorScheme.surface,
+                            // Patch 64: no dot at the end of the track (Material 3's "stop indicator", drawn in the primary orange).
+                            drawStopIndicator = {}
                         )
                     } else {
                         LinearProgressIndicator(
@@ -185,6 +192,8 @@ private fun QueueRowCard(
                     }
                 }
             }
+            // Patch 64: a small button with the job's format; another choice restarts the download in it (a job being saved keeps its format).
+            if (job.state != JobState.SAVING) FormatButton(label = job.qualityLabel, onPick = onFormat)
             when (job.state) {
                 JobState.RUNNING -> {
                     FocusRing {
@@ -208,6 +217,35 @@ private fun QueueRowCard(
                         Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.cd_remove_download))
                     }
                 }
+            }
+        }
+    }
+}
+
+/** Patch 64: the format of a queue row, with a menu of the others. */
+@Composable
+private fun FormatButton(label: String, onPick: (QualityId) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        FocusRing(shape = MaterialTheme.shapes.small) {
+            TextButton(
+                onClick = { expanded = true },
+                contentPadding = PaddingValues(horizontal = 8.dp),
+                modifier = Modifier.heightIn(min = 36.dp)
+            ) {
+                Text(text = label, style = MaterialTheme.typography.labelMedium, maxLines = 1)
+            }
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            for (preset in qualityPresets) {
+                val text = stringResource(preset.labelRes)
+                DropdownMenuItem(
+                    text = { Text(text) },
+                    onClick = {
+                        expanded = false
+                        if (text != label) onPick(preset.id)
+                    }
+                )
             }
         }
     }
@@ -388,13 +426,17 @@ private fun formatFileSize(bytes: Long): String = when {
  * changes the hint too; before patch 48 only the hardware decided which no-player message was shown.
  */
 internal fun playItem(context: Context, item: LibraryItem, tv: Boolean) {
-    val intent = Intent(Intent.ACTION_VIEW).apply {
-        setDataAndType(item.uri, item.mimeType)
-        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    }
+    // Patch 64: the player chosen in Settings for this kind of file (video or audio); without one, Android chooses as before.
+    val intent = LibraryPlayers.viewIntent(context, item)
     try {
-        context.startActivity(intent)
+        try {
+            context.startActivity(intent)
+        } catch (e: ActivityNotFoundException) {
+            // The chosen player cannot open this file (it was changed or removed): let Android choose instead of failing.
+            if (intent.`package` == null) throw e
+            AppLog.w("Library", "The chosen player could not open the item; letting Android choose")
+            context.startActivity(Intent(intent).setPackage(null))
+        }
         AppLog.i("Library", "Opened library item")
     } catch (e: ActivityNotFoundException) {
         // A TV box often ships without any video player; say what to do about it.

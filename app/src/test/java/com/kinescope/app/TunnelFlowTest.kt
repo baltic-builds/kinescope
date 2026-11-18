@@ -69,10 +69,8 @@ class TunnelFlowTest {
     }
 
     @Test
-    fun theRotationNeedsThreeOneWayWindowsInARow() {
+    fun theRotationNeedsTwoOneWayWindowsInARow() {
         var streak = 0
-        streak = TunnelFlow.streakAfter(streak, FlowVerdict.ONE_WAY)
-        assertFalse(TunnelFlow.shouldRotate(streak))
         streak = TunnelFlow.streakAfter(streak, FlowVerdict.ONE_WAY)
         assertFalse(TunnelFlow.shouldRotate(streak))
         streak = TunnelFlow.streakAfter(streak, FlowVerdict.ONE_WAY)

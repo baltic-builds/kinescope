@@ -128,6 +128,10 @@ internal fun SettingsScreen(
             }
         }
 
+        // Patch 64: which app opens a library file, for video and for audio.
+        SettingsDivider()
+        LibraryPlayerSection()
+
         SettingsDivider()
         SettingsSectionHeader(stringResource(R.string.settings_extractor))
         Text(
@@ -164,6 +168,9 @@ internal fun SettingsScreen(
         // Patch 51: which app "Watch YouTube" opens (and the tunnel carries).
         Spacer(modifier = Modifier.height(16.dp))
         YoutubeAppSection()
+        // Patch 64: the DNS server of the tunnel (a ByeByeDPI-style picker, Yandex among the presets).
+        Spacer(modifier = Modifier.height(16.dp))
+        TunnelDnsSection()
     }
 
     val accounts: @Composable () -> Unit = {

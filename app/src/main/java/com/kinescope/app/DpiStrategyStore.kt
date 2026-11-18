@@ -559,12 +559,11 @@ object DpiStrategyStore {
     }
 
     /**
-     * Patch 63: the user chose not to check the strategies on the first launch. Both connection classes get a starting chain that is
-     * NOT tested (marked as seeded, time 0: the live check of every tunnel start and the router's own rotation judge it), so the bypass
-     * can be switched on at once; the class checks of this app version are marked done, so nothing scans without being asked. The
-     * full scan stays one tap away in Settings.
+     * Patch 63 (named `skipFirstCheck` then): both connection classes get a starting chain that is NOT tested (marked as seeded, time
+     * 0: the live check of every tunnel start and the router's own rotation judge it), so the bypass can be switched on at once.
+     * Patch 64: called on a fresh install before the first automatic update (`LaunchUpdate.plan`), which then tests and replaces it.
      */
-    internal fun skipFirstCheck(context: Context) {
+    internal fun seedStartingChains(context: Context) {
         val version = DpiSearchService.appVersionCode(context)
         DpiPrefs.consistently {
             for (cls in NetClass.entries) {
@@ -577,8 +576,7 @@ object DpiStrategyStore {
             }
         }
         DpiPrefs.setHasRunInitialSearch(context, true)
-        DpiPrefs.setFirstCheckAnswer(context, DpiPrefs.FIRST_SKIP)
-        AppLog.i("DpiStrategyStore", "first check skipped by the user; untested starting chains set")
+        AppLog.i("DpiStrategyStore", "untested starting chains set")
     }
 
     /** Blocking network call: run it on a background thread. */

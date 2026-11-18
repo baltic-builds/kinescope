@@ -26,6 +26,9 @@ class DownloadService : Service() {
     private val lock = Any()
     private var workerThread: Thread? = null
 
+    // Patch 64: jobs whose format was changed while they ran: paused first, then started again in the new format by the worker.
+    private val restartAfterPause: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+
     @Volatile
     private var activeJobId: String? = null
 
@@ -60,6 +63,8 @@ class DownloadService : Service() {
             ACTION_PAUSE -> handlePause(intent.getStringExtra(EXTRA_JOB_ID))
             ACTION_RESUME -> handleResume(intent.getStringExtra(EXTRA_JOB_ID))
             ACTION_STOP -> handleStop(intent.getStringExtra(EXTRA_JOB_ID))
+            ACTION_PAUSE_ALL -> handlePauseAll(hard = intent.getBooleanExtra(EXTRA_HARD, false))
+            ACTION_CHANGE_QUALITY -> handleChangeQuality(intent.getStringExtra(EXTRA_JOB_ID), intent.getStringExtra(EXTRA_QUALITY))
             else -> stopIfIdle()
         }
         return START_NOT_STICKY
@@ -105,6 +110,60 @@ class DownloadService : Service() {
             }
             else -> Unit
         }
+    }
+
+    /**
+     * Patch 64: every queued and running download is paused (the forced refresh of the strategies needs the engine and the network to
+     * itself, and a stuck download must not keep it out). [hard]: the worker thread is interrupted as well and a job that still says it
+     * is running is marked interrupted, so that it can be resumed afterwards whatever the stuck thread is doing.
+     */
+    private fun handlePauseAll(hard: Boolean) {
+        val ids = DownloadJobStore.load(this)
+            .filter { it.state == JobState.QUEUED || it.state in EXECUTION_STATES }
+            .map { it.id }
+        AppLog.i("DownloadService", "Pause all jobs=${ids.size} hard=$hard")
+        for (id in ids) handlePause(id)
+        if (!hard) return
+        workerThread?.interrupt()
+        for (id in ids) {
+            val job = DownloadJobStore.find(this, id) ?: continue
+            if (job.state in EXECUTION_STATES) {
+                lifecycle.interruptJob(job, FailureKind.CANCELLED, getString(R.string.status_interrupted))
+            }
+        }
+    }
+
+    /**
+     * Patch 64: the format of a job was changed in the queue. The new format is stored at once. A job that has not started simply starts in
+     * it; a running one is paused and then restarted from scratch in the new format (the partial files of the old one are deleted); a
+     * paused, interrupted or failed one is restarted now. A job that is being saved (the last second) keeps the format it has.
+     */
+    private fun handleChangeQuality(id: String?, value: String?) {
+        val target = QualityId.fromPersisted(value)
+        val job = if (id.isNullOrBlank()) null else DownloadJobStore.find(this, id)
+        if (id == null || target == null || job == null || job.state in TERMINAL_STATES || job.state == JobState.SAVING || job.qualityId == target) {
+            stopIfIdle()
+            return
+        }
+        DownloadJobStore.update(this, id) { it.copy(qualityId = target) }
+        DownloadQueueBus.update(id) { it.copy(qualityLabel = getString(qualityPreset(target).labelRes)) }
+        AppLog.i("DownloadService", "Format changed job=$id from=${job.qualityId} to=$target state=${job.state}")
+        when (job.state) {
+            JobState.QUEUED -> Unit
+            in EXECUTION_STATES -> {
+                restartAfterPause.add(id)
+                handlePause(id)
+            }
+            else -> {
+                notifier.startForeground(getString(R.string.notification_starting), activeJobId)
+                restartInNewFormat(id)
+            }
+        }
+    }
+
+    private fun restartInNewFormat(id: String) {
+        runCatching { DownloadJobStore.workspaceDir(this, id).deleteRecursively() }
+        handleResume(id)
     }
 
     private fun handleResume(id: String?) {
@@ -164,6 +223,8 @@ class DownloadService : Service() {
                         activeJobId = id
                         runJob(job)
                         activeJobId = null
+                        // Patch 64: a format change of a running job: it has been paused, now it starts again in the new format.
+                        if (restartAfterPause.remove(id)) restartInNewFormat(id)
                     }
                     continue
                 }
@@ -359,6 +420,10 @@ class DownloadService : Service() {
         private const val ACTION_PAUSE = "com.kinescope.app.ACTION_PAUSE"
         private const val ACTION_RESUME = "com.kinescope.app.ACTION_RESUME"
         internal const val ACTION_STOP = "com.kinescope.app.ACTION_STOP"
+        private const val ACTION_PAUSE_ALL = "com.kinescope.app.ACTION_PAUSE_ALL"
+        private const val ACTION_CHANGE_QUALITY = "com.kinescope.app.ACTION_CHANGE_QUALITY"
+        private const val EXTRA_HARD = "extra_hard"
+        private const val EXTRA_QUALITY = "extra_quality"
         internal const val EXTRA_JOB_ID = "extra_job_id"
         private const val IDLE_TIMEOUT_MS = 5_000L
 
@@ -370,6 +435,9 @@ class DownloadService : Service() {
         )
         private val RETRYABLE_STATES = setOf(JobState.PAUSED, JobState.INTERRUPTED, JobState.FAILED)
         private val TERMINAL_STATES = setOf(JobState.DONE, JobState.STOPPED)
+
+        /** Patch 64: the states in which a job holds a process or the engine (pausing it needs the process destroyed). */
+        private val EXECUTION_STATES = setOf(JobState.PREPARING, JobState.RUNNING, JobState.PROCESSING, JobState.SAVING)
 
         fun enqueue(context: Context, url: String, qualityIndex: Int): EnqueueResult {
             // Patch 37: one strict entry point for both sites. `mediaId` is the bare YouTube video id
@@ -431,6 +499,29 @@ class DownloadService : Service() {
             if (sendControl(context, ACTION_STOP, id, foreground = false)) DownloadQueueBus.remove(id)
         }
         fun resume(context: Context, id: String) = sendControl(context, ACTION_RESUME, id, foreground = true)
+
+        /** Patch 64: pauses every queued and running download (see [handlePauseAll]); [hard] also interrupts a stuck worker. */
+        fun pauseAll(context: Context, hard: Boolean): Boolean = runCatching {
+            context.startService(
+                Intent(context, DownloadService::class.java).apply {
+                    action = ACTION_PAUSE_ALL
+                    putExtra(EXTRA_HARD, hard)
+                }
+            )
+            true
+        }.onFailure { AppLog.e("DownloadService", "Pause-all dispatch failed", it) }.getOrDefault(false)
+
+        /** Patch 64: changes the format of a job; a running job restarts in it (see [handleChangeQuality]). */
+        fun changeQuality(context: Context, id: String, quality: QualityId): Boolean = runCatching {
+            context.startService(
+                Intent(context, DownloadService::class.java).apply {
+                    action = ACTION_CHANGE_QUALITY
+                    putExtra(EXTRA_JOB_ID, id)
+                    putExtra(EXTRA_QUALITY, quality.persistedValue)
+                }
+            )
+            true
+        }.onFailure { AppLog.e("DownloadService", "Change-format dispatch failed job=$id", it) }.getOrDefault(false)
 
         private fun sendControl(context: Context, actionName: String, id: String, foreground: Boolean): Boolean {
             val intent = Intent(context, DownloadService::class.java).apply {

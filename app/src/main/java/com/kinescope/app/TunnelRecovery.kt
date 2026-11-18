@@ -92,7 +92,7 @@ internal enum class RotationDecision { GO, TOO_SOON, EXHAUSTED }
  */
 internal object RotationLimits {
     const val WINDOW_MS = 10L * 60L * 1000L
-    const val MIN_GAP_MS = 4_000L
+    const val MIN_GAP_MS = 2_000L
     const val MIN_ALLOWED = 3
 
     /** How many switches the window allows for a chain of [chainSize]. */

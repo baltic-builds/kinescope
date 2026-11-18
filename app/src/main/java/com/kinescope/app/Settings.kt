@@ -13,6 +13,9 @@ object Settings {
     private const val KEY_INTERFACE_MODE = "interface_mode"
     private const val KEY_OVERSCAN_PERCENT = "tv_overscan_percent"
     private const val KEY_YOUTUBE_APP = "youtube_app_package"
+    private const val KEY_LIBRARY_VIDEO_APP = "library_video_app_package"
+    private const val KEY_LIBRARY_AUDIO_APP = "library_audio_app_package"
+    private const val KEY_TUNNEL_DNS = "tunnel_dns"
     private const val KEY_LAUNCH_COUNT = "launch_count"
     private const val KEY_BATTERY_PROMPT_SHOWN = "battery_prompt_shown"
 
@@ -105,6 +108,22 @@ object Settings {
 
     internal fun setYoutubeApp(context: Context, packageName: String) {
         prefs(context).edit().putString(KEY_YOUTUBE_APP, packageName).apply()
+    }
+
+    /** Patch 64: the app that opens a library file of [kind]; [LibraryPlayers.SYSTEM] (empty) leaves the choice to Android, as before. */
+    internal fun getLibraryPlayer(context: Context, kind: MediaKind): String =
+        prefs(context).getString(if (kind == MediaKind.AUDIO) KEY_LIBRARY_AUDIO_APP else KEY_LIBRARY_VIDEO_APP, null).orEmpty()
+
+    internal fun setLibraryPlayer(context: Context, kind: MediaKind, packageName: String) {
+        prefs(context).edit().putString(if (kind == MediaKind.AUDIO) KEY_LIBRARY_AUDIO_APP else KEY_LIBRARY_VIDEO_APP, packageName).apply()
+    }
+
+    /** Patch 64: the DNS server the YouTube tunnel hands the app (see [TunnelDns]); Cloudflare by default, as before. */
+    internal fun getTunnelDns(context: Context): String =
+        prefs(context).getString(KEY_TUNNEL_DNS, null)?.takeIf { TunnelDns.isValid(it) } ?: TunnelDns.DEFAULT
+
+    internal fun setTunnelDns(context: Context, value: String) {
+        prefs(context).edit().putString(KEY_TUNNEL_DNS, if (TunnelDns.isValid(value)) value else TunnelDns.DEFAULT).apply()
     }
 
     /** Patch 51: counts the launches of the app (not the recreations of its window) for the power-saving pop-up. */

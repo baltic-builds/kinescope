@@ -48,7 +48,7 @@ private val HomeMaxWidth = 640.dp
 internal fun HomeScreen(
     jobs: List<DownloadJobStatus>,
     bypassState: BypassVpnUiState,
-    onToggleTunnel: (Boolean) -> Unit,
+    onStopTunnel: () -> Unit,
     onOpenApp: () -> Unit,
     requestNotifications: () -> Unit,
     onSignIn: () -> Unit,
@@ -75,7 +75,7 @@ internal fun HomeScreen(
         BypassDashboard(
             tunnel = bypassState,
             jobs = jobs,
-            onToggleTunnel = onToggleTunnel,
+            onStopTunnel = onStopTunnel,
             onOpenApp = onOpenApp,
             requestNotifications = requestNotifications
         )

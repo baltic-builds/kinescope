@@ -63,7 +63,7 @@ internal data class StallStep(val state: StallState, val verdict: StallVerdict, 
 
 internal object TunnelStall {
     /** How long the app may wait for an answer before the strategy is given up: seven seconds. */
-    const val STALL_MS = 7_000L
+    const val STALL_MS = 4_000L
 
     /** How often the bridge counters are read. */
     const val SAMPLE_MS = 1_000L

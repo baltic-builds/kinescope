@@ -39,28 +39,22 @@ class BypassDashboardTest {
     }
 
     @Test
-    fun theRefreshButtonIsAbsentOnACardThatIsNotSetUpAndDuringTheFirstRunCheck() {
-        assertFalse(bypassDashboardModel(inputs(ways = 0)).showRefresh)
+    fun theRefreshButtonIsOnlyAbsentDuringTheFirstRunCheck() {
+        // Patch 64: it is there on a card that is not set up and during a check the user can see; only the check that cannot be stopped hides it.
+        assertTrue(bypassDashboardModel(inputs(ways = 0)).showRefresh)
+        assertTrue(bypassDashboardModel(inputs(searching = true)).showRefresh)
         assertFalse(bypassDashboardModel(inputs(ways = 3, searching = true, mandatory = true)).showRefresh)
-        // A check the user started and can see replaces the card's controls, the refresh with them.
-        assertFalse(bypassDashboardModel(inputs(searching = true)).showRefresh)
     }
 
     @Test
-    fun aRandomCheckKeepsTheCardAndDisablesTheRefreshWhileItRuns() {
-        // The dashboard passes a random check as a quiet one (searchBackground): the controls stay, only the strip shows it.
-        val model = bypassDashboardModel(inputs(searching = true, background = true))
-        assertTrue(model.showRefresh)
-        assertFalse(model.refreshEnabled)
-        assertTrue(model.showControls)
-        assertTrue(model.showSearchStrip)
-    }
-
-    @Test
-    fun aRunningDownloadDisablesTheRefreshLikeItDoesTheTestButton() {
-        val model = bypassDashboardModel(inputs(downloads = 1))
-        assertTrue(model.showRefresh)
-        assertFalse(model.refreshEnabled)
+    fun theRefreshButtonCanAlwaysBePressed() {
+        // Patch 64: a running check, a running download, a running tunnel: the press stops them, refreshes and starts them again.
+        assertTrue(bypassDashboardModel(inputs(searching = true, background = true)).refreshEnabled)
+        assertTrue(bypassDashboardModel(inputs(downloads = 1)).refreshEnabled)
+        assertTrue(bypassDashboardModel(inputs(tunnel = TunnelPhase.STARTING)).refreshEnabled)
+        val quiet = bypassDashboardModel(inputs(searching = true, background = true))
+        assertTrue(quiet.showControls)
+        assertTrue(quiet.showSearchStrip)
     }
 
     @Test
@@ -70,7 +64,7 @@ class BypassDashboardTest {
         assertTrue(model.showSetupAction)
         assertTrue(model.checkEnabled)
         assertFalse(model.showControls)
-        assertFalse(model.tunnelSwitchEnabled)
+        assertFalse(model.openEnabled)
         assertFalse(model.showSearchStrip)
     }
 
@@ -91,7 +85,6 @@ class BypassDashboardTest {
         val model = bypassDashboardModel(inputs(ways = 3, searching = true, mandatory = true))
         assertEquals(DashHeadline.FIRST_RUN, model.headline)
         assertFalse(model.searchStoppable)
-        assertFalse(model.tunnelSwitchEnabled)
         assertFalse(model.openEnabled)
     }
 
@@ -113,7 +106,7 @@ class BypassDashboardTest {
         assertTrue(model.showSearchStrip)
         assertTrue(model.searchStoppable)
         assertTrue(model.showControls)
-        assertTrue(model.tunnelSwitchEnabled)
+        assertTrue(model.openEnabled)
         // The results are about to change, so a pick would race the check.
         assertFalse(model.strategiesEnabled)
     }
@@ -123,26 +116,23 @@ class BypassDashboardTest {
         val model = bypassDashboardModel(inputs())
         assertEquals(DashHeadline.OFF, model.headline)
         assertEquals(DashTunnelState.OFF, model.tunnel)
-        assertFalse(model.tunnelSwitchOn)
-        assertTrue(model.tunnelSwitchEnabled)
         assertTrue(model.openEnabled)
         assertTrue(model.strategiesEnabled)
     }
 
     @Test
-    fun aRunningTunnelIsOnAndTheSwitchShowsIt() {
+    fun aRunningTunnelIsOnAndWatchYouTubeStaysUsable() {
         val model = bypassDashboardModel(inputs(tunnel = TunnelPhase.ACTIVE))
         assertEquals(DashHeadline.ON, model.headline)
-        assertTrue(model.tunnelSwitchOn)
-        assertTrue(model.tunnelSwitchEnabled)
+        assertEquals(DashTunnelState.ON, model.tunnel)
+        assertTrue(model.openEnabled)
     }
 
     @Test
     fun aStartingTunnelIsNotInterrupted() {
         val model = bypassDashboardModel(inputs(tunnel = TunnelPhase.STARTING))
         assertEquals(DashHeadline.ON, model.headline)
-        assertTrue(model.tunnelSwitchOn)
-        assertFalse(model.tunnelSwitchEnabled)
+        assertEquals(DashTunnelState.STARTING, model.tunnel)
         assertFalse(model.openEnabled)
     }
 

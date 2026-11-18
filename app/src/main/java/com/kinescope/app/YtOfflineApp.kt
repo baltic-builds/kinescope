@@ -48,6 +48,8 @@ class YtOfflineApp : Application() {
                     YtDlpUpdater.updateBlocking(this@YtOfflineApp)
                 }
             }
+            // Patch 64: the community strategy list follows the same calendar (30 days) and an install or an update; it needs no engine.
+            AppUpdate.refreshStrategyListIfDue(this@YtOfflineApp)
         }
     }
 

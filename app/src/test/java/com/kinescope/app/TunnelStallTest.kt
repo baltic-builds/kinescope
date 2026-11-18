@@ -30,27 +30,27 @@ class TunnelStallTest {
     }
 
     @Test
-    fun aBlockedConnectionIsGivenUpAfterSevenSeconds() {
+    fun aBlockedConnectionIsGivenUpAfterFourSeconds() {
         // The app opens ten connections in the first second (hello packets out, a few small acknowledgements back), then waits.
         val burst = counters(30, 18_000, 6, 400)
         val steps = run(List(8) { burst })
         assertEquals(StallVerdict.WATCHING, steps[0].verdict)
-        assertTrue(steps.subList(0, 6).all { it.verdict == StallVerdict.WATCHING })
-        assertEquals(StallVerdict.STALLED, steps[6].verdict)
-        val report = steps[6].report
+        assertTrue(steps.subList(0, 3).all { it.verdict == StallVerdict.WATCHING })
+        assertEquals(StallVerdict.STALLED, steps[3].verdict)
+        val report = steps[3].report
         assertNotNull(report)
-        assertEquals(7_000L, report!!.ms)
+        assertEquals(4_000L, report!!.ms)
         assertEquals(30L, report.txPackets)
         assertEquals(18_000L, report.txBytes)
         assertEquals(400L, report.rxBytes)
         // The episode is closed after a verdict: the next sample starts from nothing.
-        assertFalse(steps[6].state.open)
+        assertFalse(steps[3].state.open)
     }
 
     @Test
-    fun theWaitIsNotShorterThanSevenSeconds() {
+    fun theWaitIsNotShorterThanFourSeconds() {
         val burst = counters(30, 18_000, 6, 400)
-        val steps = run(List(6) { burst })
+        val steps = run(List(3) { burst })
         assertTrue(steps.none { it.verdict == StallVerdict.STALLED })
     }
 
@@ -77,7 +77,10 @@ class TunnelStallTest {
         val steps = run(readings)
         assertTrue(steps.none { it.verdict == StallVerdict.STALLED })
         assertEquals(StallVerdict.WATCHING, steps[0].verdict)
-        assertEquals(StallVerdict.WORKING, steps[4].verdict)
+        // Patch 64: the window is four seconds; a trickle that adds up to data ends the episode without a verdict at its end (it
+        // used to be recognised as WORKING in the fifth second of a seven-second window).
+        assertEquals(StallVerdict.NONE, steps[3].verdict)
+        assertFalse(steps[3].state.open)
     }
 
     @Test
@@ -120,16 +123,16 @@ class TunnelStallTest {
 
     @Test
     fun retriesDuringTheWaitAreCountedNotJustTheFirstBurst() {
-        // A single hello at first, then a retry every second: eight packets by the seventh second is enough to be sure.
+        // A single hello at first, then a retry every second: eight packets by the fourth second is enough to be sure.
         val readings = (1..8).map { counters(it * 2L, it * 1_200L, it.toLong(), it * 60L) }
         val steps = run(readings)
-        assertEquals(StallVerdict.STALLED, steps[6].verdict)
-        assertNull(steps[5].report)
+        assertEquals(StallVerdict.STALLED, steps[3].verdict)
+        assertNull(steps[2].report)
     }
 
     @Test
     fun theLimitsAreTheDocumentedOnes() {
-        assertEquals(7_000L, TunnelStall.STALL_MS)
+        assertEquals(4_000L, TunnelStall.STALL_MS)
         assertEquals(1_000L, TunnelStall.SAMPLE_MS)
     }
 }

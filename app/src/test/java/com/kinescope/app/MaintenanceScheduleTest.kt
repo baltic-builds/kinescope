@@ -11,8 +11,8 @@ class MaintenanceScheduleTest {
     private val now = 1_000_000L * day
 
     @Test
-    fun theIntervalIsTwentyFiveDays() {
-        assertEquals(25L * day, MaintenanceSchedule.INTERVAL_MS)
+    fun theIntervalIsThirtyDays() {
+        assertEquals(30L * day, MaintenanceSchedule.INTERVAL_MS)
     }
 
     @Test
@@ -24,7 +24,7 @@ class MaintenanceScheduleTest {
     fun neverUpdatedIsStaleAndRecentIsNot() {
         assertTrue(MaintenanceSchedule.isStale(0L, now))
         assertFalse(MaintenanceSchedule.isStale(now - 12 * 3_600_000L, now))
-        assertFalse(MaintenanceSchedule.isStale(now - 24 * day, now))
-        assertTrue(MaintenanceSchedule.isStale(now - 25 * day, now))
+        assertFalse(MaintenanceSchedule.isStale(now - 29 * day, now))
+        assertTrue(MaintenanceSchedule.isStale(now - 30 * day, now))
     }
 }

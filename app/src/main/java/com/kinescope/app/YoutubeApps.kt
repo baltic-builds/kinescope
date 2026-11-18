@@ -19,7 +19,12 @@ internal object YoutubeApps {
     /** The official YouTube app: the default, and the one the tunnel always served before patch 51. */
     const val DEFAULT_PACKAGE = BypassVpnService.YOUTUBE_PACKAGE
 
-    private const val HOME_URL = "https://www.youtube.com/"
+    /**
+     * Patch 64: where a BROWSER is sent. `www.youtube.com` answers a phone with a redirect to the mobile site, and a browser that was
+     * started by another app hands a REDIRECT (not the first address) to the app that owns the link: the YouTube app. Opening the
+     * final address removes that hop, so the page stays in the browser. Not confirmed on a device (see the technical debt in ROADMAP.md).
+     */
+    private const val BROWSER_URL = "https://m.youtube.com/"
 
     // Only used to ask which apps handle a YouTube video link; it is never opened.
     private const val PROBE_URL = "https://www.youtube.com/watch?v=jNQXAC9IJRE"
@@ -86,7 +91,14 @@ internal object YoutubeApps {
         val packageName = chosenPackage(context) ?: return false
         val attempts = buildList<Pair<String, Intent>> {
             if (packageName != DEFAULT_PACKAGE) {
-                add("view" to Intent(Intent.ACTION_VIEW, Uri.parse(HOME_URL)).setPackage(packageName))
+                // Patch 64: the explicit package keeps the system from choosing the YouTube app; the application id extra is the
+                // one Chrome-family browsers read to keep a page opened by an app in their own task.
+                add(
+                    "view" to Intent(Intent.ACTION_VIEW, Uri.parse(BROWSER_URL))
+                        .addCategory(Intent.CATEGORY_BROWSABLE)
+                        .setPackage(packageName)
+                        .putExtra("com.android.browser.application_id", context.packageName)
+                )
             }
             context.packageManager.getLaunchIntentForPackage(packageName)?.let { add("launch" to it) }
         }

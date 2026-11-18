@@ -48,8 +48,8 @@ internal object TunnelFlow {
     /** One-way also needs the app to have sent clearly more than came back (a lone ping and its reply is balanced). */
     const val TX_TO_RX_RATIO = 3L
 
-    /** Consecutive one-way windows before the tunnel switches strategy (three 10 s windows). */
-    const val WINDOWS_BEFORE_ROTATE = 3
+    /** Consecutive one-way windows before the tunnel switches strategy (two 10 s windows; patch 64: was three). */
+    const val WINDOWS_BEFORE_ROTATE = 2
 
     /**
      * Judges the traffic between two readings. A reading lower than the previous one means the bridge was

@@ -1,6 +1,14 @@
 package com.kinescope.app
 
 import android.widget.Toast
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -39,6 +47,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
@@ -87,7 +97,7 @@ private data class DashPalette(val container: Color, val primary: Color, val sec
 internal fun BypassDashboard(
     tunnel: BypassVpnUiState,
     jobs: List<DownloadJobStatus>,
-    onToggleTunnel: (Boolean) -> Unit,
+    onStopTunnel: () -> Unit,
     onOpenApp: () -> Unit,
     requestNotifications: () -> Unit
 ) {
@@ -162,13 +172,14 @@ internal fun BypassDashboard(
         AppLog.i("BypassDashboard", "home check start ways=${prefs.waysReady}")
         // The search runs in a foreground service: its notification needs the permission first (as in Settings).
         requestNotifications()
-        DpiSearchService.start(context)
+        ForceRefresh.start(context, RefreshKind.GOAL)
     }
     val startRefresh: () -> Unit = {
         AppLog.i("BypassDashboard", "home refresh start net=${prefs.cls.key}")
-        // Like the check, it runs in a foreground service whose notification needs the permission.
+        // Patch 64: stops the downloads, the tunnel and any search, refreshes until three ways are confirmed at 85 or more, then starts
+        // them again (`ForceRefresh`). Like any search it runs in a foreground service whose notification needs the permission.
         requestNotifications()
-        DpiSearchService.startRandom(context)
+        ForceRefresh.start(context, RefreshKind.GOAL)
     }
     val setAuto: (Boolean) -> Unit = setAuto@{ on ->
         if (on) {
@@ -187,6 +198,8 @@ internal fun BypassDashboard(
 
     val selectStrategy: (String) -> Unit = { line ->
         DpiPrefs.pin(context, prefs.cls, line)
+        // Patch 64: a running tunnel is taken down and built again on the chosen strategy.
+        BypassVpnService.rebuild(context)
         prefsVersion++
         AppLog.i("BypassDashboard", "home manual net=${prefs.cls.key}")
         Toast.makeText(context, R.string.strategy_pinned_done, Toast.LENGTH_SHORT).show()
@@ -313,13 +326,16 @@ internal fun BypassDashboard(
                 if (model.showControls) {
                     Spacer(modifier = Modifier.height(10.dp))
                     HorizontalDivider(color = palette.divider)
-                    YouTubeChannel(
-                        model = model,
-                        traffic = traffic,
-                        event = routerEvent,
-                        errorRes = tunnel.errorRes,
-                        palette = palette,
-                        onToggle = onToggleTunnel
+                    // Patch 55: the heartbeat line: a green pulse while the bypass carries traffic, a red flat line when the connection is lost.
+                    HeartbeatLine(
+                        pulse = model.pulse,
+                        description = stringResource(
+                            when (model.pulse) {
+                                DashPulse.ALIVE -> R.string.dash_pulse_alive
+                                DashPulse.LOST -> R.string.dash_pulse_lost
+                                DashPulse.IDLE -> R.string.dash_pulse_idle
+                            }
+                        )
                     )
                     HorizontalDivider(color = palette.divider)
                     AutomaticStrategySection(
@@ -348,6 +364,9 @@ internal fun BypassDashboard(
                     enabled = model.openEnabled
                 )
             }
+            // Patch 64: the tunnel's status bar, an indicator only; "Watch YouTube" above is the one control.
+            Spacer(modifier = Modifier.height(14.dp))
+            TunnelStatusBar(model = model, traffic = traffic, event = routerEvent, errorRes = tunnel.errorRes, onStop = onStopTunnel)
         }
     }
 }
@@ -390,16 +409,6 @@ private fun routerEventText(event: RouterEvent): String {
 }
 
 @Composable
-private fun StatusDot(color: Color) {
-    Box(
-        modifier = Modifier
-            .size(10.dp)
-            .clip(CircleShape)
-            .background(color)
-    )
-}
-
-@Composable
 private fun CheckHint(hint: DashCheckHint, palette: DashPalette) {
     if (hint == DashCheckHint.WAIT_DOWNLOAD) {
         Text(
@@ -429,13 +438,14 @@ private fun SearchStrip(
     val done = (progress?.index ?: 0).coerceIn(0, total)
     // Patch 55: a check ends when it has found enough, not when it has tried everything, so it reports what it found.
     // Patch 62: and the good ones (real traffic, score 80 or more) are what it counts.
-    val goal = SearchGoal.GOOD.working
-    val working = (progress?.good ?: 0).coerceAtMost(goal)
+    // Patch 64: the refresh (`random`) counts the ways confirmed at 85 or more, like its goal does.
+    val goal = if (random) SearchGoal.REFRESH.working else SearchGoal.GOOD.working
+    val working = (if (random) progress?.strong(SearchGoal.REFRESH_SCORE) ?: 0 else progress?.good ?: 0).coerceAtMost(goal)
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(
             text = if (random) {
-                // Patch 56: a random check reports how many of its few ways it has tried and how many of those work.
-                stringResource(R.string.dash_refresh_progress, done, total, progress?.working ?: 0)
+                // Patch 64: the refresh reports how many ways it has tried and how many of the three it needs are confirmed.
+                stringResource(R.string.dash_refresh_progress, done, working, goal)
             } else if (full) {
                 // Patch 62: the full scan of Settings has no goal; it reports how far through the list it is.
                 stringResource(R.string.dash_full_progress, done, total, progress?.good ?: 0)
@@ -462,7 +472,9 @@ private fun SearchStrip(
             progress = { (if (full) done.toFloat() / total else maxOf(done.toFloat() / total, working.toFloat() / goal)).coerceIn(0f, 1f) },
             modifier = Modifier.fillMaxWidth(),
             color = MaterialTheme.colorScheme.primary,
-            trackColor = MaterialTheme.colorScheme.surface
+            trackColor = MaterialTheme.colorScheme.surface,
+            // Patch 64: no dot at the end of the track (Material 3's "stop indicator", drawn in the primary orange).
+            drawStopIndicator = {}
         )
     } else {
         LinearProgressIndicator(
@@ -474,31 +486,31 @@ private fun SearchStrip(
 }
 
 /**
- * The YouTube bypass: the whole row is the on/off switch (a `toggleable` row with a read-only [Switch] inside, so a screen
- * reader and a D-pad both meet one control that has a name) with the live state under its name. Patch 52: it is the only
- * switch for the tunnel on the card; the "Watch YouTube" button is below the card.
+ * Patch 64: the tunnel's status bar, below "Watch YouTube". It is an indicator, not a switch: "Watch YouTube" starts the tunnel. The bar is
+ * empty while the tunnel is off, a band sweeps along it while the tunnel starts, it fills with green once the tunnel carries traffic (a
+ * light moves along the fill while it does), and it fills in amber, pulsing, when the app sends and nothing comes back. Under it: the
+ * state, the way in use and the router's last change. A small "Turn off" is the only control (the notification has the same one).
  */
 @Composable
-private fun YouTubeChannel(
+private fun TunnelStatusBar(
     model: BypassDashboardModel,
     traffic: TunnelTraffic,
     event: RouterEvent?,
     errorRes: Int?,
-    palette: DashPalette,
-    onToggle: (Boolean) -> Unit
+    onStop: () -> Unit
 ) {
     val scheme = MaterialTheme.colorScheme
     val state = model.tunnel
-    val dot = when (state) {
+    val barColor = when (state) {
         DashTunnelState.ON -> YtOfflineExtras.colors.success
         DashTunnelState.NO_ANSWER -> YtOfflineExtras.colors.warning
         DashTunnelState.STARTING -> scheme.primary
-        DashTunnelState.OFF -> if (errorRes != null) scheme.error else palette.secondary
+        DashTunnelState.OFF -> scheme.outline
     }
     val statusColor = when {
         state == DashTunnelState.NO_ANSWER -> YtOfflineExtras.colors.warning
         state == DashTunnelState.OFF && errorRes != null -> scheme.error
-        else -> palette.secondary
+        else -> scheme.onSurfaceVariant
     }
     val statusText = when (state) {
         DashTunnelState.OFF -> stringResource(errorRes ?: R.string.bypass_home_hint)
@@ -506,65 +518,97 @@ private fun YouTubeChannel(
         DashTunnelState.ON -> stringResource(R.string.dash_youtube_on)
         DashTunnelState.NO_ANSWER -> stringResource(R.string.dash_youtube_no_answer)
     }
-
-    Column {
-        FocusRing(modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .toggleable(
-                        value = model.tunnelSwitchOn,
-                        enabled = model.tunnelSwitchEnabled,
-                        role = Role.Switch,
-                        onValueChange = onToggle
-                    )
-                    .padding(vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                StatusDot(dot)
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = stringResource(R.string.dash_youtube_label),
-                        style = MaterialTheme.typography.titleSmall,
-                        color = palette.primary
-                    )
-                    Text(text = statusText, style = MaterialTheme.typography.bodySmall, color = statusColor)
-                    if ((state == DashTunnelState.ON || state == DashTunnelState.NO_ANSWER) && traffic.position > 0) {
-                        // Patch 55: the way in use (no speed any more; the heartbeat line below says whether traffic flows).
-                        Text(
-                            text = stringResource(R.string.dash_way, traffic.position, traffic.total),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = palette.secondary
-                        )
-                    }
-                    if ((state == DashTunnelState.ON || state == DashTunnelState.NO_ANSWER) && event != null) {
-                        // Patch 56: the router's last change, so a switch is seen and not only logged.
-                        Text(
-                            text = routerEventText(event),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = palette.secondary
-                        )
-                    }
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = stringResource(R.string.dash_youtube_label),
+                style = MaterialTheme.typography.titleSmall,
+                color = scheme.onSurface,
+                modifier = Modifier.weight(1f)
+            )
+            if (state != DashTunnelState.OFF) {
+                FocusRing {
+                    TextButton(onClick = onStop) { Text(stringResource(R.string.dash_tunnel_off)) }
                 }
-                KinescopeSwitch(
-                    checked = model.tunnelSwitchOn,
-                    onCheckedChange = null,
-                    enabled = model.tunnelSwitchEnabled
+            }
+        }
+        Spacer(modifier = Modifier.height(6.dp))
+        TunnelBar(state = state, color = barColor, track = scheme.onSurface.copy(alpha = 0.10f))
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(text = statusText, style = MaterialTheme.typography.bodySmall, color = statusColor)
+        if ((state == DashTunnelState.ON || state == DashTunnelState.NO_ANSWER) && traffic.position > 0) {
+            Text(
+                text = stringResource(R.string.dash_way, traffic.position, traffic.total),
+                style = MaterialTheme.typography.bodySmall,
+                color = scheme.onSurfaceVariant
+            )
+        }
+        if ((state == DashTunnelState.ON || state == DashTunnelState.NO_ANSWER) && event != null) {
+            Text(text = routerEventText(event), style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant)
+        }
+    }
+}
+
+/** The drawing of [TunnelStatusBar]: a rounded track, the fill and the moving light (see there for what each state looks like). */
+@Composable
+private fun TunnelBar(state: DashTunnelState, color: Color, track: Color) {
+    val transition = rememberInfiniteTransition(label = "tunnel-bar")
+    val sweep by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(1300, easing = LinearEasing)),
+        label = "sweep"
+    )
+    val pulse by transition.animateFloat(
+        initialValue = 0.55f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(900), RepeatMode.Reverse),
+        label = "pulse"
+    )
+    val fill by animateFloatAsState(
+        targetValue = if (state == DashTunnelState.ON || state == DashTunnelState.NO_ANSWER) 1f else 0f,
+        animationSpec = tween(900),
+        label = "fill"
+    )
+    Canvas(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(10.dp)
+            .clip(CircleShape)
+    ) {
+        val width = size.width
+        val height = size.height
+        drawRect(track)
+        if (state == DashTunnelState.STARTING) {
+            val band = width * 0.35f
+            val x = -band + (width + band) * sweep
+            drawRect(color, topLeft = Offset(x, 0f), size = Size(band, height))
+        }
+        if (fill > 0f) {
+            val filled = width * fill
+            val alpha = if (state == DashTunnelState.NO_ANSWER) pulse else 1f
+            drawRect(
+                brush = Brush.horizontalGradient(
+                    colors = listOf(color.copy(alpha = alpha), lerp(color, Color.White, 0.25f).copy(alpha = alpha)),
+                    startX = 0f,
+                    endX = filled
+                ),
+                size = Size(filled, height)
+            )
+            if (state == DashTunnelState.ON) {
+                val band = width * 0.25f
+                val x = -band + (width + band) * sweep
+                drawRect(
+                    brush = Brush.horizontalGradient(
+                        colors = listOf(Color.Transparent, Color.White.copy(alpha = 0.35f), Color.Transparent),
+                        startX = x,
+                        endX = x + band
+                    ),
+                    topLeft = Offset(x, 0f),
+                    size = Size(band, height)
                 )
             }
         }
-        // Patch 55: the heartbeat line: a green pulse while the bypass carries traffic, a red flat line when the connection is lost.
-        HeartbeatLine(
-            pulse = model.pulse,
-            description = stringResource(
-                when (model.pulse) {
-                    DashPulse.ALIVE -> R.string.dash_pulse_alive
-                    DashPulse.LOST -> R.string.dash_pulse_lost
-                    DashPulse.IDLE -> R.string.dash_pulse_idle
-                }
-            )
-        )
     }
 }
 

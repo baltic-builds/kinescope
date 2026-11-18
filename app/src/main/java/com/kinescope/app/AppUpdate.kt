@@ -52,9 +52,28 @@ internal object AppUpdate {
      * a fresh install and the first check after an update both call it; the second finds the version recorded and does nothing).
      * A failed refresh is not recorded, so the next check tries again; the list that is already there keeps working.
      */
-    fun refreshStrategyListOncePerVersion(context: Context) {
+    fun refreshStrategyListIfDue(context: Context, now: Long = System.currentTimeMillis()) {
         val current = DpiSearchService.appVersionCode(context)
-        if (current > 0L && DpiPrefs.listRefreshedVersion(context) == current) return
+        // Patch 64: due when this version has not refreshed it yet, or when the last successful refresh is 30 days old
+        // (the list had no calendar before: it was refreshed once per version only).
+        val versionDone = current > 0L && DpiPrefs.listRefreshedVersion(context) == current
+        if (versionDone && !MaintenanceSchedule.isStale(DpiPrefs.listUpdatedAt(context), now)) return
+        refreshStrategyList(context, current)
+    }
+
+    /**
+     * Patch 64: what the automatic update (`LaunchUpdate`) does before it tests the strategies: the community list, whatever the calendar says,
+     * and yt-dlp (unless it was refreshed a moment ago, as a fresh install does at process start). Blocking.
+     */
+    fun refreshEverything(context: Context, now: Long = System.currentTimeMillis()) {
+        refreshStrategyList(context, DpiSearchService.appVersionCode(context))
+        if (now - Settings.getLastUpdateTimestamp(context) > RECENT_YTDLP_MS) YtDlpUpdater.updateBlocking(context)
+    }
+
+    /** An update of yt-dlp newer than this is not repeated by the automatic update: ten minutes. */
+    private const val RECENT_YTDLP_MS = 10L * 60L * 1000L
+
+    private fun refreshStrategyList(context: Context, current: Long) {
         val outcome = when (val result = DpiStrategyStore.update(context)) {
             is StrategyListUpdate.Updated -> {
                 if (current > 0L) DpiPrefs.setListRefreshedVersion(context, current)

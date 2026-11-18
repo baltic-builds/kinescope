@@ -12,6 +12,10 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <!-- Lets DownloadService check for a connection before trying. -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Patch 64: Android shows the name of a Wi-Fi network to an app only with the location permission. The app asks for it once, to
+         know whether it has already updated its strategies on this network; it never reads the position. Refusing is fine. -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <!-- Patch 51: lets the app ask Android to stop power-saving from closing it in the background (the system
          dialog "Let the app always run in the background?"). Google Play restricts this permission; this app is
          sideload-only. -->
@@ -23,6 +27,8 @@
          required, so the same APK installs on phones, tablets and Android TV. -->
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
     <uses-feature android:name="android.software.leanback" android:required="false" />
+    <uses-feature android:name="android.hardware.location" android:required="false" />
+    <uses-feature android:name="android.hardware.location.gps" android:required="false" />
 
     <queries>
         <package android:name="com.google.android.youtube" />
@@ -38,6 +44,15 @@
             <data
                 android:host="www.youtube.com"
                 android:scheme="https" />
+        </intent>
+        <!-- Patch 64: lets Settings list the players that open a video or an audio file of the library. -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="content" android:mimeType="video/*" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="content" android:mimeType="audio/*" />
         </intent>
     </queries>
 

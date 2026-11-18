@@ -265,8 +265,8 @@
     <string name="dash_pulse_idle">The bypass is not connected</string>
     <string name="hints_title">How it works</string>
     <string name="hint_groups">Wi-Fi and mobile data each have their own list of ways to get around the block, tested and ranked separately; both are shown on the card below the dashboard.</string>
-    <string name="hint_first_check">After an install or an update each network is checked once, until 5 ways work and at least 3 of them work perfectly.</string>
-    <string name="hint_random_check">Twice a day, when you open the app or switch the bypass on, 2 random ways are re-checked. A way that fails drops to the bottom of its list, and the 15 lowest ways wait 75 days before the next look.</string>
+    <string name="hint_first_check">The app updates its ways on the first launch, on the first launch on mobile data and on every new Wi-Fi network. On a network it already knows, nothing runs.</string>
+    <string name="hint_random_check">Once a month, and after an app update, the list of ways and yt-dlp are refreshed by themselves.</string>
     <string name="hint_auto">Automatic mode uses the best way and switches by itself when one stops working. Turn it off to pick a way at the bottom of Settings.</string>
     <string name="hint_no_route">If a network does not reach YouTube at all, the app says so instead of trying every way. Check the connection first.</string>
     <string name="hint_blocked">If every known way is blocked, the app looks for new ones while the bypass starts.</string>
@@ -416,10 +416,24 @@
     <string name="youtube_app_default">Default</string>
     <string name="youtube_app_none">No app that opens YouTube was found.</string>
     <string name="youtube_app_note">Applies the next time the YouTube bypass starts. Only this app uses the bypass.</string>
-    <string name="first_check_title">Check all strategies?</string>
-    <string name="first_check_body">For the best result, check every strategy once now. The list is updated first, then each strategy is tested. It takes a few minutes and runs in the background. You can do it later in Settings.</string>
-    <string name="first_check_now">Check now</string>
-    <string name="first_check_skip">Do not check</string>
+    <string name="dash_tunnel_off">Turn off</string>
+    <string name="queue_default_format">Format for new downloads</string>
+    <string name="settings_library_players">Open library files with</string>
+    <string name="library_players_hint">Choose the app that plays a file from the library, separately for video and for audio. If it cannot open a file, Android chooses.</string>
+    <string name="library_players_video">Video</string>
+    <string name="library_players_audio">Audio</string>
+    <string name="library_players_system">Let Android choose</string>
+    <string name="settings_tunnel_dns">DNS for YouTube</string>
+    <string name="tunnel_dns_hint">The server that looks up addresses for the YouTube app while the bypass runs. A running bypass restarts when you change it.</string>
+    <string name="dns_cloudflare">Cloudflare (1.1.1.1)</string>
+    <string name="dns_google">Google (8.8.8.8)</string>
+    <string name="dns_quad9">Quad9 (9.9.9.9)</string>
+    <string name="dns_yandex">Yandex (77.88.8.8)</string>
+    <string name="dns_system">The network’s own</string>
+    <string name="wifi_name_title">Recognise Wi-Fi networks</string>
+    <string name="wifi_name_body">To know whether it has already updated its ways on this Wi-Fi network, Kinescope needs to read the network’s name. Android shows a name only to apps with the location permission. Your position is never read. Without it the app still works.</string>
+    <string name="wifi_name_allow">Allow</string>
+    <string name="wifi_name_later">Not now</string>
     <string name="battery_prompt_title">Keep downloads running</string>
     <string name="battery_prompt_body">Android’s power saving can close Kinescope in the background and stop your downloads. Allow Kinescope to run without limits so they finish.</string>
     <string name="battery_prompt_open">Open settings</string>
@@ -433,8 +447,8 @@
     <string name="battery_open_failed">Could not open the settings.</string>
 
     <!-- Patch 56: the refresh button of the dashboard, the router's last change, the strategy groups card. -->
-    <string name="dash_refresh_cd">Check 5 random ways</string>
-    <string name="dash_refresh_progress">Refreshing · tried %1$d of %2$d · %3$d work</string>
+    <string name="dash_refresh_cd">Refresh the ways</string>
+    <string name="dash_refresh_progress">Refreshing · tried %1$d · %2$d of %3$d confirmed</string>
     <string name="dash_refresh_done">Refresh finished.</string>
     <string name="dash_refresh_nothing">Nothing could be tested right now. Check the connection and try again.</string>
     <string name="dash_refresh_result">Refresh: %2$d of %1$d ways work · %3$d added to the list · %4$d dropped</string>
@@ -455,5 +469,5 @@
     <string name="group_checked">Checked %1$s</string>
     <string name="group_random_none">Random check: not yet</string>
     <string name="group_random">Random check %1$s: %2$d of %3$d work</string>
-    <string name="hint_refresh">The refresh button on the card checks 5 random ways at once; the ones that work join the router’s list.</string>
+    <string name="hint_refresh">The refresh button stops downloads and the bypass, tests ways until 3 of them are confirmed at 85% or more, then starts everything again. The ones that work join the router’s list.</string>
 </resources>

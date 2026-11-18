@@ -53,10 +53,10 @@ internal enum class StartFailure {
 
 internal object StartRetry {
     /** Waits before the 1st, 2nd, ... retry of a failed start: about three minutes in all. */
-    val BACKOFF_MS = longArrayOf(5_000L, 10_000L, 20_000L, 40_000L, 60_000L, 60_000L)
+    val BACKOFF_MS = longArrayOf(3_000L, 6_000L, 12_000L, 24_000L, 45_000L, 60_000L)
 
     /** Waits before the 1st, 2nd, 3rd restart of a tunnel whose every strategy was used up: it was most likely the network. */
-    val EXHAUSTED_COOLDOWN_MS = longArrayOf(60_000L, 120_000L, 300_000L)
+    val EXHAUSTED_COOLDOWN_MS = longArrayOf(30_000L, 90_000L, 240_000L)
 
     /** The wait before retry number [retry] (1-based) of a failed start, or null when the retries are used up. */
     fun delayBeforeRetry(retry: Int): Long? = BACKOFF_MS.getOrNull(retry - 1)

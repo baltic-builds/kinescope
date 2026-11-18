@@ -96,7 +96,8 @@ fun BypassSettingsSection(requestNotifications: () -> Unit = {}) {
         message = null
         requestNotifications()
         // Patch 62: Settings tests every strategy of the list; the check of Home stops at three good ones.
-        DpiSearchService.startFull(context)
+        // Patch 64: it is never locked: it stops the downloads and the tunnel, tests, then starts them again (`ForceRefresh`).
+        ForceRefresh.start(context, RefreshKind.FULL)
     }
 
     // Patch 36: automatic first-run/update searches are owned by MainActivity. Settings only
@@ -197,7 +198,9 @@ fun BypassSettingsSection(requestNotifications: () -> Unit = {}) {
         Spacer(Modifier.height(6.dp))
         LinearProgressIndicator(
             progress = { if (current == null || current.total == 0) 0f else current.index.toFloat() / current.total },
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            // Patch 64: no dot at the end of the track (Material 3's "stop indicator").
+            drawStopIndicator = {}
         )
         Spacer(Modifier.height(8.dp))
         if (searchState.mandatory) {
@@ -216,7 +219,7 @@ fun BypassSettingsSection(requestNotifications: () -> Unit = {}) {
         }
     } else {
         FocusRing(modifier = Modifier.fillMaxWidth()) {
-            Button(modifier = Modifier.fillMaxWidth(), enabled = controlsEnabled, onClick = startSearch) {
+            Button(modifier = Modifier.fillMaxWidth(), enabled = busy == BypassBusy.NONE, onClick = startSearch) {
                 Text(stringResource(R.string.bypass_find))
             }
         }

@@ -104,6 +104,9 @@ internal data class SearchProgress(
 
     /** Patch 62: how many of them are good ones (real traffic and a score of [SearchGoal.GOOD_SCORE] or more). */
     val good: Int get() = results.count { it.works && it.score() >= SearchGoal.GOOD_SCORE }
+
+    /** Patch 64: how many of them carry real traffic and score [minScore] or more (the refresh counts [SearchGoal.REFRESH_SCORE]). */
+    fun strong(minScore: Int): Int = results.count { it.works && it.score() >= minScore }
 }
 
 /**
@@ -128,6 +131,15 @@ internal data class SearchGoal(val working: Int, val perfect: Int, val minScore:
          * Settings -> Test strategies has no goal (a full scan, `DpiSearchService.MODE_FULL`).
          */
         val GOOD = SearchGoal(working = 3, perfect = 0, minScore = GOOD_SCORE)
+
+        /** Patch 64: a strategy the refresh counts as confirmed: real traffic and a score of at least this (85%). */
+        const val REFRESH_SCORE = 85
+
+        /**
+         * Patch 64: the goal of the refresh (the Home button, the automatic update, Settings after a forced refresh): keep testing, in
+         * random order, until three strategies are confirmed at [REFRESH_SCORE] or more, or the list is used up.
+         */
+        val REFRESH = SearchGoal(working = 3, perfect = 0, minScore = REFRESH_SCORE)
 
         /** What a tunnel that is starting and has nothing that works waits for: just enough to start. */
         val QUICK = SearchGoal(working = 2, perfect = 0)

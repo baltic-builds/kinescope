@@ -15,7 +15,7 @@ class RotationLimitsTest {
     @Test
     fun aSwitchRightAfterTheLastOneWaits() {
         val now = 100 * minute
-        assertEquals(RotationDecision.TOO_SOON, RotationLimits.decide(listOf(now - 2_000L), now, 6, 5))
+        assertEquals(RotationDecision.TOO_SOON, RotationLimits.decide(listOf(now - 1_000L), now, 6, 5))
         assertEquals(RotationDecision.GO, RotationLimits.decide(listOf(now - 5_000L), now, 6, 5))
     }
 

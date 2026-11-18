@@ -9,8 +9,8 @@ package com.kinescope.app
 internal object MaintenanceSchedule {
     const val DAY_MS = 24L * 60L * 60L * 1000L
 
-    /** How often yt-dlp is refreshed when nothing else asked for it: 25 days. */
-    const val INTERVAL_MS = 25L * DAY_MS
+    /** How often yt-dlp and the community strategy list are refreshed when nothing else asked for it: 30 days (patch 64; was 25, yt-dlp only). */
+    const val INTERVAL_MS = 30L * DAY_MS
 
     /** True when [lastAt] (0 = never) is at least [INTERVAL_MS] ago. A time in the future (the clock moved back) counts as old. */
     fun isStale(lastAt: Long, now: Long): Boolean = lastAt <= 0L || (now - lastAt) !in 0L until INTERVAL_MS

@@ -67,6 +67,11 @@ internal object DpiSearchController {
 
     fun isHeld(): Boolean = downloadHolds.get() > 0
 
+    /** Patch 64: the forced refresh gave up on a download that did not stop: its hold must not keep every search waiting for ever. */
+    fun clearHolds() {
+        downloadHolds.set(0)
+    }
+
     internal fun progress(progress: SearchProgress) {
         mutableState.value = mutableState.value.copy(running = true, progress = progress)
     }
@@ -110,16 +115,14 @@ class DpiSearchService : Service() {
                 if (!DpiSearchController.state.value.running) {
                     val mode = intent?.getStringExtra(EXTRA_MODE) ?: MODE_MANUAL
                     val only = intent?.getStringArrayExtra(EXTRA_ONLY)?.toList()
-                    val count = intent?.getIntExtra(EXTRA_COUNT, RandomCheckPolicy.MANUAL_PICKS) ?: RandomCheckPolicy.MANUAL_PICKS
-                    val force = intent?.getBooleanExtra(EXTRA_FORCE, true) ?: true
                     stopRequested.set(false)
                     // Patch 63: nothing is mandatory any more (the first check is a question, see FirstCheckPrompt.kt); the flag is inert.
                     mandatoryRun = false
                     DpiSearchController.starting(
                         background = mode == MODE_CHECK,
                         mandatory = mandatoryRun,
-                        random = mode == MODE_RANDOM,
-                        full = mode == MODE_FULL || mode == MODE_FIRST
+                        random = mode == MODE_REFRESH || mode == MODE_UPDATE,
+                        full = mode == MODE_FULL
                     )
                     // Patch 47: when the system refuses the foreground start (Android 12+ restricts it), nothing would
                     // ever end the "running" state: Home would show a re-check forever, downloads would wait for a
@@ -128,7 +131,9 @@ class DpiSearchService : Service() {
                         .onFailure { AppLog.e("DpiSearchService", "Could not enter the foreground", it) }
                         .isSuccess
                     if (foreground) {
-                        executor.execute { if (mode == MODE_RANDOM) runRandom(count, force) else runSearch(mode, only) }
+                        executor.execute {
+                            if (mode == MODE_REFRESH || mode == MODE_UPDATE) runRefresh(updateFirst = mode == MODE_UPDATE) else runSearch(mode, only)
+                        }
                     } else {
                         DpiSearchController.finished(R.string.bypass_operation_failed)
                         stopSelf()
@@ -155,8 +160,8 @@ class DpiSearchService : Service() {
             val cls = NetworkState.currentClass(context)
             // Patch 55: note the attempt first, so a check that is stopped or fails is not restarted at once (ClassCheckPolicy).
             if (background) DpiPrefs.markCheckTried(context, cls)
-            // Patch 55: the first launch and the first launch after an update look at the current community list.
-            if (!testOnly && (background || mode == MODE_FIRST)) AppUpdate.refreshStrategyListOncePerVersion(context)
+            // Patch 64: the full scan of Settings looks at the current community list first (it is due once a month, and after an update).
+            if (!testOnly) AppUpdate.refreshStrategyListIfDue(context)
             val directWorks = DpiBypass.directConnectionWorks()
             // Patch 54: before testing a list of strategies, find out whether the engine can reach the hosts on this connection at
             // all. If it cannot, nothing a strategy does helps: say so at once instead of scanning the whole list for nothing and
@@ -172,7 +177,7 @@ class DpiSearchService : Service() {
                 cls,
                 // Patch 62: a check ends when it has found three good strategies (real traffic, a score of 80 or more). The full scan of
                 // Settings and a strategy test (its one line) have no goal: they test everything they were given.
-                goal = if (testOnly || mode == MODE_FULL || mode == MODE_FIRST) null else SearchGoal.GOOD,
+                goal = if (testOnly || mode == MODE_FULL) null else SearchGoal.GOOD,
                 only = only,
                 isCancelled = { stopRequested.get() },
                 waitIfPaused = { awaitDownloadsIdle() },
@@ -226,23 +231,26 @@ class DpiSearchService : Service() {
     }
 
     /**
-     * Patch 56: a random check of the connection the phone is on: [count] ways picked at random and tested ([RandomCheck.run]). The
-     * refresh button of Home asks for five and always runs ([force]); the app opening asks for two and only when the twelve-hour
-     * calendar says it is due. A check that was started and is not due after all (another trigger ran first) leaves no trace.
+     * Patch 64: the refresh of the connection the phone is on. Every way is a candidate, taken in random order ([RandomCheck.run]), and the
+     * check goes on until three of them are confirmed at 85 or more ([SearchGoal.REFRESH]) or the list is used up (the strategy in use and
+     * the frozen ones are never tested). The Home button and Settings' forced refresh use it as it is. With [updateFirst] (the automatic
+     * update of `LaunchUpdate`) the community list and yt-dlp are refreshed first, and the network is remembered once the refresh finished.
      */
-    private fun runRandom(count: Int, force: Boolean) {
+    private fun runRefresh(updateFirst: Boolean) {
         val context = applicationContext
         try {
             val cls = NetworkState.currentClass(context)
-            if (!force && !RandomCheck.dueNow(context, cls)) {
-                DpiSearchController.idle()
-                return
+            val networkKey = if (updateFirst) NetworkIdentity.key(context) else null
+            if (updateFirst) {
+                LaunchUpdate.markAttempt(context)
+                AppUpdate.refreshEverything(context)
             }
             val report = RandomCheck.run(
                 context,
                 cls,
                 active = BypassVpnController.activeLine.value,
-                count = count,
+                count = Int.MAX_VALUE,
+                goal = SearchGoal.REFRESH,
                 isCancelled = { stopRequested.get() },
                 waitIfPaused = { awaitDownloadsIdle() },
                 onProgress = { snapshot ->
@@ -253,6 +261,11 @@ class DpiSearchService : Service() {
                     }
                 }
             )
+            // Patch 64: the update counts as done when it was not stopped and the engine could reach the hosts at all; a network where nothing
+            // could be tested is tried again at the next launch (after the gap of `LaunchUpdatePolicy`).
+            if (networkKey != null && !stopRequested.get() && report.status != RandomCheck.NO_ROUTE && report.status != RandomCheck.NET_CHANGED) {
+                LaunchUpdate.markDone(context, networkKey)
+            }
             DpiSearchController.finished(
                 when {
                     stopRequested.get() && report.tested == 0 -> R.string.bypass_search_stopped
@@ -263,7 +276,7 @@ class DpiSearchService : Service() {
                 randomResult = report
             )
         } catch (e: Exception) {
-            AppLog.e("DpiSearchService", "Random check failed", e)
+            AppLog.e("DpiSearchService", "Refresh failed", e)
             DpiSearchController.finished(R.string.bypass_operation_failed)
         } finally {
             stopSelf()
@@ -335,14 +348,12 @@ class DpiSearchService : Service() {
 
         private const val EXTRA_MODE = "mode"
         private const val EXTRA_ONLY = "only"
-        private const val EXTRA_COUNT = "count"
-        private const val EXTRA_FORCE = "force"
         private const val MODE_MANUAL = "manual"
         private const val MODE_CHECK = "check"
         private const val MODE_TEST = "test"
-        private const val MODE_RANDOM = "random"
+        private const val MODE_REFRESH = "refresh"
+        private const val MODE_UPDATE = "update"
         private const val MODE_FULL = "full"
-        private const val MODE_FIRST = "first"
 
         /** The check of Home: it ends at three good strategies ([SearchGoal.GOOD]). */
         fun start(context: Context) = dispatch(context, MODE_MANUAL, null)
@@ -351,42 +362,25 @@ class DpiSearchService : Service() {
         fun startFull(context: Context) = dispatch(context, MODE_FULL, null)
 
         /**
-         * Patch 63: "Check now" of the first-launch question: the community list is refreshed, then every strategy is tested (a full scan, no
-         * goal). It can be stopped like any other check (patch 51's mandatory first check, which could not, is gone).
+         * Patch 64: the automatic update of `LaunchUpdate` (first launch, first launch on mobile data, a new Wi-Fi network): the list and
+         * yt-dlp are refreshed, then the strategies, quietly; the stored and learned strategies keep working meanwhile.
          */
-        fun startFirst(context: Context) = dispatch(context, MODE_FIRST, null)
-
-        /**
-         * Patch 55: the quiet check of the connection the phone is on, for a version of the app that has not checked it yet
-         * (`ClassCheckPolicy`); the stored and learned strategies keep working meanwhile. (Patch 35's quiet full re-check, run by
-         * patch 46's 25-day upkeep, is gone: nothing scans the whole list any more.)
-         */
-        fun startCheck(context: Context) = dispatch(context, MODE_CHECK, null)
+        fun startUpdate(context: Context) = dispatch(context, MODE_UPDATE, null)
 
         /** Patch 35: tests one strategy from Settings; the chain is not changed. */
         fun startTest(context: Context, line: String) = dispatch(context, MODE_TEST, listOf(line))
 
         /**
-         * Patch 56: a random check of the connection the phone is on. [count] ways are picked at random and tested; the working
-         * ones join the router's list by their rating, the others leave it. [force] false asks only for a check that is due
-         * (`RandomCheck.dueNow`): the app opening uses it, the refresh button of Home does not.
+         * Patch 64 (patch 56's random check, grown): tests the ways of the connection the phone is on, in random order, until three are
+         * confirmed at 85 or more or the list is used up; what works joins the router's list by its rating, what does not leaves it.
          */
-        fun startRandom(context: Context, count: Int = RandomCheckPolicy.MANUAL_PICKS, force: Boolean = true) =
-            dispatch(context, MODE_RANDOM, null, count, force)
+        fun startRefresh(context: Context) = dispatch(context, MODE_REFRESH, null)
 
-        private fun dispatch(
-            context: Context,
-            mode: String,
-            only: List<String>?,
-            count: Int = RandomCheckPolicy.MANUAL_PICKS,
-            force: Boolean = true
-        ) {
+        private fun dispatch(context: Context, mode: String, only: List<String>?) {
             val intent = Intent(context, DpiSearchService::class.java).apply {
                 action = ACTION_START
                 putExtra(EXTRA_MODE, mode)
                 if (only != null) putExtra(EXTRA_ONLY, only.toTypedArray())
-                putExtra(EXTRA_COUNT, count)
-                putExtra(EXTRA_FORCE, force)
             }
             runCatching { ContextCompat.startForegroundService(context, intent) }
                 .onFailure { AppLog.e("DpiSearchService", "Could not dispatch start", it) }
@@ -420,17 +414,14 @@ internal data class RandomReport(
 )
 
 /**
- * Patch 55: the two-a-day random check. The first time the YouTube bypass is switched on in each half day (twelve hours apart,
- * counted per connection class, see [RandomCheckPolicy]) two strategies of the connection the phone is on are picked at random and
- * tested, and what they show is recorded: a strategy that works joins the chain by its rating, one that does not is taken out of
- * the chain and, its failed test being the newest on record, sits at the very bottom of the class's ranking ([StrategyRank]),
- * where the lowest [StrategyRank.BOTTOM_COUNT] are left alone for [StrategyRank.FREEZE_MS] (75 days). It never tests the
- * strategy carrying the tunnel.
+ * Patch 55: tests some strategies of the connection the phone is on, picked at random, and records what they show: a strategy that works
+ * joins the chain by its rating, one that does not is taken out of the chain and, its failed test being the newest on record, sits at
+ * the very bottom of the class's ranking ([StrategyRank]), where the lowest [StrategyRank.BOTTOM_COUNT] are left alone for
+ * [StrategyRank.FREEZE_MS] (75 days). It never tests the strategy carrying the tunnel.
  *
- * Patch 56: the same routine ([run]) now has three triggers, because a check that runs unseen from one place looked like no check
- * at all: the tunnel coming up and, every ten minutes while it runs, the calendar (`BypassVpnService`), the app being opened
- * (`MainActivity`, through [DpiSearchService]), and the refresh button of Home, which tests five ways whenever it is pressed.
- * Every run leaves its outcome for the groups card ([RandomLast]) and a `rand` line in the log.
+ * Patch 64: the only callers are now the refresh (the Home button, `ForceRefresh`) and the automatic update of `LaunchUpdate`, both through
+ * [DpiSearchService.startRefresh] / [DpiSearchService.startUpdate] with every way as a candidate and [SearchGoal.REFRESH] as the goal. The
+ * twice-a-day calendar and the tunnel's own trigger are gone; every run leaves its outcome for the groups card ([RandomLast]).
  */
 internal object RandomCheck {
     const val DONE = "done"
@@ -438,30 +429,6 @@ internal object RandomCheck {
     const val NO_ROUTE = "no-route"
     const val NET_CHANGED = "net-changed"
     const val NOTHING = "nothing-to-test"
-
-    /** Whether a check of [cls] is due by the calendar and has anything to build on (the first check of the install is done). */
-    fun dueNow(context: Context, cls: NetClass, now: Long = System.currentTimeMillis()): Boolean {
-        val app = context.applicationContext
-        return DpiPrefs.hasRunInitialSearch(app) && RandomCheckPolicy.isDue(DpiPrefs.randomCheckAt(app, cls), now)
-    }
-
-    /**
-     * Runs one random check of [cls] if one is due; for the tunnel's own thread. Blocking; returns a short word for what happened,
-     * for the log and the tests. It gives way at once to anything else that needs the engine (a search, a download).
-     */
-    fun runIfDue(
-        context: Context,
-        cls: NetClass,
-        active: String?,
-        random: kotlin.random.Random = kotlin.random.Random.Default,
-        isCancelled: () -> Boolean
-    ): String {
-        val app = context.applicationContext
-        if (!DpiPrefs.hasRunInitialSearch(app)) return "first-check-pending"
-        if (!dueNow(app, cls)) return "not-due"
-        if (busy() || DpiEngine.regularBusy()) return "busy"
-        return run(app, cls, active, RandomCheckPolicy.PICKS, random, { isCancelled() || busy() }, {}, {}).status
-    }
 
     /**
      * Picks [count] ways of [cls] at random (never a frozen one, never [active]) and tests them. Blocking. [waitIfPaused] is called
@@ -476,7 +443,10 @@ internal object RandomCheck {
         random: kotlin.random.Random = kotlin.random.Random.Default,
         isCancelled: () -> Boolean,
         waitIfPaused: () -> Unit,
-        onProgress: (SearchProgress) -> Unit
+        onProgress: (SearchProgress) -> Unit,
+        // Patch 64: with a goal the check stops as soon as it is reached (the refresh: three ways at 85 or more); without one it
+        // tests every way it picked.
+        goal: SearchGoal? = null
     ): RandomReport {
         val app = context.applicationContext
         val now = System.currentTimeMillis()
@@ -504,7 +474,8 @@ internal object RandomCheck {
             isCancelled = isCancelled,
             onProgress = onProgress,
             only = picks,
-            waitIfPaused = waitIfPaused
+            waitIfPaused = waitIfPaused,
+            goal = goal
         )
         val ms = (System.nanoTime() - startedAt) / 1_000_000L
         val usable = DpiBypass.withoutReachFaults(results).filter { it.started }

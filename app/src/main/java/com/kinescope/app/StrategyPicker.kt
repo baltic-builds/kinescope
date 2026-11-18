@@ -153,6 +153,7 @@ internal fun StrategyPicker(
                                     enabled = enabled && !isPinned,
                                     onClick = {
                                         DpiPrefs.pin(context, cls, row.line)
+                                        BypassVpnService.rebuild(context)
                                         version++
                                         onChanged()
                                         onMessage(context.getString(R.string.strategy_pinned_done))

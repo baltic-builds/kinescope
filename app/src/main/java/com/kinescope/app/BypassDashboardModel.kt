@@ -73,9 +73,6 @@ internal enum class DashPulse { ALIVE, LOST, IDLE }
 internal data class BypassDashboardModel(
     val headline: DashHeadline,
     val tunnel: DashTunnelState,
-    /** The on/off switch of the YouTube bypass: its position and whether it can be used right now. */
-    val tunnelSwitchOn: Boolean,
-    val tunnelSwitchEnabled: Boolean,
     /** The "Watch YouTube" button below the card (starts the tunnel when it is off, then opens the chosen app). */
     val openEnabled: Boolean,
     /** The YouTube switch, the automatic-strategy switch and the button below the card. */
@@ -90,7 +87,7 @@ internal data class BypassDashboardModel(
     /** Whether a new check may start now (the same rule as the Test button in Settings). */
     val checkEnabled: Boolean,
     val checkHint: DashCheckHint,
-    /** Patch 55: the heartbeat line under the YouTube switch. */
+    /** Patch 55: the heartbeat line of the card. */
     val pulse: DashPulse,
     /** Patch 56: the refresh button in the card's top-right corner (it checks five random ways) and whether it can be pressed now. */
     val showRefresh: Boolean,
@@ -129,9 +126,7 @@ internal fun bypassDashboardModel(inputs: BypassDashInputs): BypassDashboardMode
     return BypassDashboardModel(
         headline = headline,
         tunnel = tunnelState,
-        tunnelSwitchOn = !tunnelOff,
-        // Starting a tunnel needs a verified strategy; a tunnel that is still starting is not interrupted.
-        tunnelSwitchEnabled = controls && !tunnelStarting,
+        // Patch 64: the tunnel has no switch any more ("Watch YouTube" starts it); a tunnel that is still starting is not pressed twice.
         openEnabled = controls && !tunnelStarting,
         showControls = controls,
         strategiesEnabled = controls && !inputs.searching,
@@ -149,8 +144,10 @@ internal fun bypassDashboardModel(inputs: BypassDashInputs): BypassDashboardMode
         // Patch 56: the refresh sits with the controls (not on a "not set up" card, which has its own check button, nor during the
         // first-run check). It runs beside the tunnel (the strategy in use is never tested), but needs the engine free of another
         // search and of a running download, the rule of the Test button in Settings.
-        showRefresh = controls,
-        refreshEnabled = controls && !inputs.searching && !downloadsBusy
+        // Patch 64: always there and always usable: a press stops whatever runs (downloads, the tunnel, a search), refreshes and starts
+        // them again (`ForceRefresh`). Only the first-run check, which cannot be stopped, hides it.
+        showRefresh = !mandatory,
+        refreshEnabled = true
     )
 }
 

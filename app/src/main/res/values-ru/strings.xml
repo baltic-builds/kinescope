@@ -265,8 +265,8 @@
     <string name="dash_pulse_idle">Обход не подключён</string>
     <string name="hints_title">Как это устроено</string>
     <string name="hint_groups">У Wi-Fi и мобильной сети свои списки способов обхода блокировки: они проверяются и ранжируются отдельно; обе группы показаны на карточке под панелью.</string>
-    <string name="hint_first_check">После установки или обновления каждая сеть проверяется один раз, пока не найдётся 5 рабочих способов, из них не меньше 3 безупречных.</string>
-    <string name="hint_random_check">Дважды в день, при открытии приложения или включении обхода, заново проверяются 2 случайных способа. Не сработавший падает в конец своего списка, а 15 самых нижних ждут 75 дней до следующей проверки.</string>
+    <string name="hint_first_check">Приложение обновляет способы при первом запуске, при первом запуске в мобильной сети и в каждой новой сети Wi-Fi. В знакомой сети ничего не запускается.</string>
+    <string name="hint_random_check">Раз в месяц и после обновления приложения список способов и yt-dlp обновляются сами.</string>
     <string name="hint_auto">Автоматический режим берёт лучший способ и сам переключается, когда он перестаёт работать. Отключите его, чтобы выбрать способ внизу настроек.</string>
     <string name="hint_no_route">Если сеть вообще не соединяется с YouTube, приложение так и скажет, а не будет перебирать все способы. Сначала проверьте подключение.</string>
     <string name="hint_blocked">Если все известные способы заблокированы, приложение ищет новые, пока запускается обход.</string>
@@ -416,10 +416,24 @@
     <string name="youtube_app_default">По умолчанию</string>
     <string name="youtube_app_none">Не найдено приложений, которые открывают YouTube.</string>
     <string name="youtube_app_note">Вступит в силу при следующем запуске обхода YouTube. Обход использует только это приложение.</string>
-    <string name="first_check_title">Проверить все стратегии?</string>
-    <string name="first_check_body">Для лучшего результата один раз проверьте все стратегии сейчас. Сначала обновится список, затем проверится каждая стратегия. Это займёт несколько минут и идёт в фоне. Позже это можно сделать в настройках.</string>
-    <string name="first_check_now">Проверить сейчас</string>
-    <string name="first_check_skip">Не проверять</string>
+    <string name="dash_tunnel_off">Выключить</string>
+    <string name="queue_default_format">Формат новых загрузок</string>
+    <string name="settings_library_players">Открывать файлы библиотеки в</string>
+    <string name="library_players_hint">Выберите приложение, которое проигрывает файл из библиотеки, отдельно для видео и для аудио. Если оно не откроет файл, выберет Android.</string>
+    <string name="library_players_video">Видео</string>
+    <string name="library_players_audio">Аудио</string>
+    <string name="library_players_system">Пусть выберет Android</string>
+    <string name="settings_tunnel_dns">DNS для YouTube</string>
+    <string name="tunnel_dns_hint">Сервер, который ищет адреса для приложения YouTube, пока работает обход. При смене работающий обход перезапускается.</string>
+    <string name="dns_cloudflare">Cloudflare (1.1.1.1)</string>
+    <string name="dns_google">Google (8.8.8.8)</string>
+    <string name="dns_quad9">Quad9 (9.9.9.9)</string>
+    <string name="dns_yandex">Яндекс (77.88.8.8)</string>
+    <string name="dns_system">DNS самой сети</string>
+    <string name="wifi_name_title">Узнавать сети Wi-Fi</string>
+    <string name="wifi_name_body">Чтобы понимать, обновлял ли Kinescope способы в этой сети Wi-Fi, ему нужно прочитать название сети. Android показывает название только приложениям с доступом к местоположению. Ваше местоположение не читается. Без разрешения приложение тоже работает.</string>
+    <string name="wifi_name_allow">Разрешить</string>
+    <string name="wifi_name_later">Не сейчас</string>
     <string name="battery_prompt_title">Чтобы загрузки не прерывались</string>
     <string name="battery_prompt_body">Экономия заряда Android может закрыть Kinescope в фоне и остановить загрузки. Разрешите работу без ограничений, и они дойдут до конца.</string>
     <string name="battery_prompt_open">Открыть настройки</string>
@@ -433,8 +447,8 @@
     <string name="battery_open_failed">Не удалось открыть настройки.</string>
 
     <!-- Patch 56: the refresh button of the dashboard, the router's last change, the strategy groups card. -->
-    <string name="dash_refresh_cd">Проверить 5 случайных способов</string>
-    <string name="dash_refresh_progress">Обновление · проверено %1$d из %2$d · работают: %3$d</string>
+    <string name="dash_refresh_cd">Обновить способы</string>
+    <string name="dash_refresh_progress">Обновление · проверено %1$d · подтверждено %2$d из %3$d</string>
     <string name="dash_refresh_done">Обновление завершено.</string>
     <string name="dash_refresh_nothing">Сейчас ничего не удалось проверить. Проверьте подключение и повторите.</string>
     <string name="dash_refresh_result">Обновление: работают %2$d из %1$d способов · добавлено в список: %3$d · убрано: %4$d</string>
@@ -455,5 +469,5 @@
     <string name="group_checked">Проверено %1$s</string>
     <string name="group_random_none">Случайная проверка: ещё не было</string>
     <string name="group_random">Случайная проверка %1$s: работают %2$d из %3$d</string>
-    <string name="hint_refresh">Кнопка обновления на карточке сразу проверяет 5 случайных способов; рабочие попадают в список маршрутизатора.</string>
+    <string name="hint_refresh">Кнопка обновления останавливает загрузки и обход, проверяет способы, пока 3 из них не подтвердятся на 85% и выше, и снова всё запускает. Рабочие попадают в список маршрутизатора.</string>
 </resources>

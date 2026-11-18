@@ -28,7 +28,7 @@ class TunnelLifecycleTest {
 
     @Test
     fun aFailedStartIsRetriedAboutThreeMinutesAndThenGivenUp() {
-        assertEquals(5_000L, StartRetry.delayBeforeRetry(1))
+        assertEquals(3_000L, StartRetry.delayBeforeRetry(1))
         assertEquals(60_000L, StartRetry.delayBeforeRetry(6))
         assertNull(StartRetry.delayBeforeRetry(7))
         assertNull(StartRetry.delayBeforeRetry(0))
@@ -38,8 +38,8 @@ class TunnelLifecycleTest {
 
     @Test
     fun anExhaustedTunnelCoolsDownThreeTimesAndThenStops() {
-        assertEquals(60_000L, StartRetry.exhaustedCooldown(1))
-        assertEquals(300_000L, StartRetry.exhaustedCooldown(3))
+        assertEquals(30_000L, StartRetry.exhaustedCooldown(1))
+        assertEquals(240_000L, StartRetry.exhaustedCooldown(3))
         assertNull(StartRetry.exhaustedCooldown(4))
     }
 
