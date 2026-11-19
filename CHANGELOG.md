@@ -13,6 +13,12 @@ patch's own `.py` script for the exact, idempotent, exact-match-guarded
 edits it makes.
 
 
+## Patch 66 -- the lint error of patch 65
+
+`lintDebug` failed with one error: `AndroidManifest.xml:18 [CoarseFineLocation]`. Patch 64 declared `ACCESS_FINE_LOCATION` only. Now `ACCESS_COARSE_LOCATION` is declared with it,
+and the Wi-Fi-name question asks for both in one system dialog (`RequestMultiplePermissions`). Nothing else changed: with approximate or no location the Wi-Fi name stays unreadable and
+the network is recognised by its gateway and subnet, as before. The Kotlin build and the unit tests already passed in the run that reported this error.
+
 ## Patch 65 -- the compile errors of patch 64, and the technical debt it left
 
 Applied on top of patch 64 (which was applied and pushed, then failed `./gradlew assembleDebug`). Not confirmed on a device.

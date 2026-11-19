@@ -218,7 +218,8 @@ private fun KinescopeApp(
     val connectionClass by NetClassWatcher.state.collectAsState()
     var showWifiNamePrompt by rememberSaveable { mutableStateOf(false) }
     var wifiNameAnswered by rememberSaveable { mutableStateOf(false) }
-    val locationLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { wifiNameAnswered = true }
+    // Patch 66: both location permissions in one dialog (Android 12+ offers precise or approximate); the name needs the precise one.
+    val locationLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { wifiNameAnswered = true }
     LaunchedEffect(connectionClass, wifiNameAnswered) {
         if (connectionClass == null || DpiSearchController.state.value.running) return@LaunchedEffect
         when (withContext(Dispatchers.IO) { LaunchUpdate.plan(context) }) {
@@ -362,7 +363,7 @@ private fun KinescopeApp(
         WifiNameDialog(
             onAllow = {
                 showWifiNamePrompt = false
-                locationLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+                locationLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
             },
             onLater = {
                 showWifiNamePrompt = false

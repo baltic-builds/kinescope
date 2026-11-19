@@ -4,7 +4,7 @@ The current state of Kinescope for anyone (human or AI agent) resuming work. It 
 appended to: per-patch history lives in `CHANGELOG.md`, open work in `ROADMAP.md`, process rules in `AGENTS.md`,
 product constraints in `CLAUDE.md`. Where this file and the code disagree, the code wins; fix this file.
 
-State as of patch 65 (2026-11-18). Patches 53-57 and the October 2026 v.3 fixes are described below and in `CHANGELOG.md`.
+State as of patch 66 (2026-11-18). Patches 53-57 and the October 2026 v.3 fixes are described below and in `CHANGELOG.md`.
 
 ## What Kinescope is
 

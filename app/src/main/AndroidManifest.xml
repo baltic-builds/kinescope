@@ -16,6 +16,9 @@
          know whether it has already updated its strategies on this network; it never reads the position. Refusing is fine. -->
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <!-- Patch 66: Android 12+ lets the user grant only approximate location, so lint requires both to be declared. The app works
+         with approximate or no location (the network is then recognised by its gateway and subnet). -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <!-- Patch 51: lets the app ask Android to stop power-saving from closing it in the background (the system
          dialog "Let the app always run in the background?"). Google Play restricts this permission; this app is
          sideload-only. -->
